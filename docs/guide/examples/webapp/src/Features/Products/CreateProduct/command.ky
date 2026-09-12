@@ -1,0 +1,10 @@
+@serializable
+pub struct CreateProduct {
+    pub name: string,
+    pub price: int,
+
+    init() {
+        self.name = "";
+        self.price = 0;
+    }
+}

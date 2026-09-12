@@ -1,0 +1,21 @@
+
+// POST /admin/products/edit : the request DTO for saving product edits. `uid` is
+// bound from the session cookie (not the form) so the handler can check the
+// caller is an admin. `price` arrives as text and is parsed in the handler.
+@serializable
+pub struct EditProduct {
+    pub id: string,
+    pub name: string,
+    pub description: string,
+    pub price: string,
+    pub imageUrl: string,
+    pub uid: string,
+    init() {
+        self.id = "";
+        self.name = "";
+        self.description = "";
+        self.price = "0";
+        self.imageUrl = "";
+        self.uid = "";
+    }
+}

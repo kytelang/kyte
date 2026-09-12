@@ -1,0 +1,80 @@
+// CatalogRepository: catalogue data access via the stdlib generic Repository<T>.
+// It returns Domain ENTITIES (Product, Category), bound from the tables by name;
+// the handlers map those entities to read DTOs for the views (see the Catalog
+// mappers). The one exception is `modifiers`, a JOIN read-model that carries a
+// column from the join table, so it binds a ModifierDto projection directly.
+// Registered as a DI singleton; handlers take it by constructor injection. All
+// markup is rendered by NSX views, never here. See DESIGN.md section 6.
+import list;
+import string;
+import data.db;
+import data.repository;
+import Shared.Db;
+import Domain.Entities.Product;
+import Domain.Entities.Category;
+import Features.Catalog.Dtos.catalog;
+
+pub struct CatalogRepository {
+    db: Db,
+
+    init(db: Db) {
+        self.db = db;
+    }
+
+    pub async fn categories(self: CatalogRepository): Rows<Category> {
+        let conn = await self.db.pool.acquire();
+        let repo = Repository<Category>(conn, "categories");
+        let none = list.List<DbValue>();
+        // Explicit column order (not SELECT *) so binding is stable if the table
+        // gains columns; every column maps 1:1 to a Category field by name.
+        let rows = await repo.query(
+            "SELECT id, name, description, sort_order FROM categories ORDER BY sort_order ASC, name ASC", none);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    pub async fn products(self: CatalogRepository, category: string, q: string, veg: int): Rows<Product> {
+        let conn = await self.db.pool.acquire();
+        let repo = Repository<Product>(conn, "products");
+        let params = list.List<DbValue>();
+        let sql = "SELECT id, category_id, name, description, price, image_url, is_available, is_vegetarian, stock_quantity, created_at, updated_at FROM products WHERE is_available = true";
+        let pi = 0;
+        if (!string.eql(category, "")) {
+            params.push(db.dbText(category)); pi = pi + 1;
+            sql = sql + " AND category_id = $" + `${pi}` + "::uuid";
+        }
+        if (!string.eql(q, "")) {
+            params.push(db.dbText("%" + q + "%")); pi = pi + 1;
+            sql = sql + " AND name ILIKE $" + `${pi}`;
+        }
+        if (veg == 1) { sql = sql + " AND is_vegetarian = true"; }
+        sql = sql + " ORDER BY name ASC LIMIT 200";
+        let rows = await repo.query(sql, params);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    pub async fn product(self: CatalogRepository, id: string): Rows<Product> {
+        let conn = await self.db.pool.acquire();
+        let repo = Repository<Product>(conn, "products");
+        let params = list.List<DbValue>();
+        params.push(db.dbText(id));
+        let rows = await repo.query(
+            "SELECT id, category_id, name, description, price, image_url, is_available, is_vegetarian, stock_quantity, created_at, updated_at FROM products WHERE id = $1::uuid", params);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Read-model projection: `required` comes from the product_modifiers join
+    // table, so this cannot be a plain Modifier entity. Binds ModifierDto directly.
+    pub async fn modifiers(self: CatalogRepository, productId: string): Rows<catalog.ModifierDto> {
+        let conn = await self.db.pool.acquire();
+        let repo = Repository<catalog.ModifierDto>(conn, "modifiers");
+        let params = list.List<DbValue>();
+        params.push(db.dbText(productId));
+        let rows = await repo.query(
+            "SELECT m.id, m.name, m.options, m.extra_cost AS extraCost, pm.is_required AS required FROM modifiers m JOIN product_modifiers pm ON pm.modifier_id = m.id WHERE pm.product_id = $1::uuid ORDER BY m.name ASC", params);
+        self.db.pool.release(conn);
+        return rows;
+    }
+}

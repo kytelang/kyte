@@ -1,0 +1,16 @@
+fn main(): void {
+    let count = 0;
+    count = count + 5;
+    console.log(`count = ${count}`);
+
+    const pi = 3.14159;
+    console.log(`pi = ${pi}`);
+
+    let x: int = 10;
+    console.log(`x = ${x}`);
+
+    let (a, b) = pair();
+    console.log(`a = ${a}, b = ${b}`);
+}
+
+fn pair(): (int, int) { return (1, 2); }

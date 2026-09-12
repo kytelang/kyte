@@ -1,0 +1,32 @@
+import web.routing;
+import string;
+import Features.Board.ClaimOrder.command;
+import Features.Orders.Shared.OrderRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Board.Shared.render;
+import ds_response;
+import web.response;
+
+// Pick (claim) an order into the acting staff member's queue. The claim itself
+// is an ATOMIC conditional update in the repository, so if two operators tap Pick
+// on the same order at once, only one wins; the other's board simply re-renders
+// without it. Either way we respond with the freshly re-rendered board region.
+pub struct ClaimOrderHandler impl RouteHandler {
+    orders: OrderRepository,
+    auth: AuthRepository,
+    phase: string,
+    init(orders: OrderRepository, auth: AuthRepository, phase: string) {
+        self.orders = orders; self.auth = auth; self.phase = phase;
+    }
+    async fn serve(self: ClaimOrderHandler, ctx: routing.Context): Response { let c = ctx.bind<ClaimOrder>();
+        let role = await self.auth.roleOf(c.uid);
+        if (string.eql(role, self.phase) || string.eql(role, "admin")) {
+            if (string.eql(self.phase, "kitchen")) {
+                let _k = await self.orders.claimKitchen(c.order, c.uid);
+            } else {
+                let _d = await self.orders.claimDelivery(c.order, c.uid);
+            }
+        }
+        return await ds_response.patch(await render.innerFor(self.orders, self.phase, c.uid));
+    }
+}

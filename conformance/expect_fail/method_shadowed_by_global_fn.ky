@@ -1,0 +1,15 @@
+// EXPECT-FAIL: codegen
+import assert;
+
+fn describe(): string { return "WRONG-global-fn"; }
+
+struct Thing {
+    pub v: int,
+    init(v: int) { self.v = v; }
+}
+
+@test
+fn t_method_must_not_resolve_to_global(): void {
+    let t = Thing(7);
+    assert.equalStr(t.describe(), "anything");
+}

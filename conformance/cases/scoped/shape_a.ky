@@ -1,0 +1,10 @@
+pub enum Shape { Circle(int), Square(int)
+    pub fn area(self: Shape): int {
+        switch (self) {
+            case Shape.Circle(r): { return r * r * 3; }
+            case Shape.Square(s): { return s * s; }
+        }
+        return -1;
+    }
+}
+pub fn mkA(): Shape { return Shape.Circle(10); }

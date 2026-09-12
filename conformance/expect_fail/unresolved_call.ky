@@ -1,0 +1,11 @@
+// EXPECT-FAIL: codegen
+import assert;
+
+struct P { pub x: int, init() { self.x = 0; } }
+
+@test
+fn run(): void {
+    let p = P();
+    let y = p.noSuchMethod(3);
+    assert.equalInt(y, 3);
+}

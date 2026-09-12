@@ -1,0 +1,13 @@
+
+@serializable
+pub struct UpdateCartItem {
+    pub item: string,
+    pub qty: int,
+    pub cartid: string,
+
+    init() {
+        self.item = "";
+        self.qty = 1;
+        self.cartid = "";
+    }
+}

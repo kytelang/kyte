@@ -1,0 +1,45 @@
+import web.routing;
+import Features.Auth.Register.command;
+import Features.Auth.Register.validator;
+import Features.Auth.Shared.AuthRepository;
+import Features.Auth.views.auth;
+import Domain.Entities.User;
+import Shared.passwords;
+import Shared.orderstatus;
+import ds_response;
+import web.response;
+import web.validation;
+
+pub struct RegisterHandler impl RouteHandler {
+    repo: AuthRepository,
+    rules: RegisterValidator,
+    // Constructor injection of both the repository and the validator, resolved
+    // from DI by type name (like ASP.NET's handler ctor). Validate before work.
+    init(repo: AuthRepository, rules: RegisterValidator) { self.repo = repo; self.rules = rules; }
+    async fn serve(self: RegisterHandler, ctx: routing.Context): Response { let c = ctx.bind<Register>();
+        // FluentValidation-style guard: reject bad input before any DB call and
+        // report the first failure to the user. valid==true means all checks passed.
+        let vr = self.rules.validate(c);
+        if (!vr.valid) {
+            let first = vr.errors.get(0);
+            let msg = if (first != undefined) (first ?? validation.ValidationError{ field: "", message: "" }).message else "Please check the form and try again.";
+            return await ds_response.patch(auth.banner("Could not register", msg, false));
+        }
+        // Only the three self-service roles are accepted; anything else falls
+        // back to customer so a crafted request cannot mint an admin.
+        let role = if (orderstatus.isValidSignupRole(c.role)) c.role else "customer";
+        // Map the request command -> User entity, hashing the password on the way
+        // (the ForMember(PasswordHash, hash(Password)) equivalent). id/created_at
+        // are filled by the table DEFAULTs, so they are left empty here.
+        let user = User{
+            id: "", email: c.email, password_hash: passwords.hash(c.password),
+            full_name: c.name, phone: "", address: "", role: role,
+            created_at: "", updated_at: "",
+        };
+        let ok = await self.repo.createUser(user);
+        if (ok) {
+            return await ds_response.patch(auth.banner("Welcome!", "Account created for " + c.email + " as " + orderstatus.roleLabel(role) + ". You can log in now.", true));
+        }
+        return await ds_response.patch(auth.banner("Could not register", "That email is already in use.", false));
+    }
+}

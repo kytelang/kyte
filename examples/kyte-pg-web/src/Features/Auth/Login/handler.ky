@@ -1,0 +1,30 @@
+import web.routing;
+import Features.Auth.Login.command;
+import Features.Auth.Shared.AuthRepository;
+import Features.Auth.Mappers.authMappers;
+import Features.Auth.views.auth;
+import Domain.Entities.User;
+import Shared.passwords;
+import ds_response;
+import web.response;
+
+pub struct LoginHandler impl RouteHandler {
+    repo: AuthRepository,
+    init(repo: AuthRepository) { self.repo = repo; }
+    async fn serve(self: LoginHandler, ctx: routing.Context): Response { let c = ctx.bind<Login>();
+        let users = await self.repo.findByEmail(c.email);
+        let u0 = users.items.get(0);
+        if (u0 == undefined) {
+            return await ds_response.patch(auth.banner("Login failed", "No account for that email.", false));
+        }
+        // Verify against the ENTITY's password_hash (server-side only).
+        let user = u0 ?? User{ id: "", email: "", password_hash: "", full_name: "", phone: "", address: "", role: "customer", created_at: "", updated_at: "" };
+        if (passwords.verify(c.password, user.password_hash)) {
+            // Map to a UserDto (no password_hash) for everything the response uses.
+            let dto = authMappers.toUserDto(user);
+            let r = await ds_response.patch(auth.banner("Logged in", "Welcome back, " + dto.fullName + ".", true));
+            return r.setCookie("uid", dto.id);
+        }
+        return await ds_response.patch(auth.banner("Login failed", "Incorrect password.", false));
+    }
+}

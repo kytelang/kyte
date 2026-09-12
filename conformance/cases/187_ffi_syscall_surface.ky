@@ -1,0 +1,52 @@
+import assert;
+import bytes;
+import os.sys;
+
+@test
+fn test_socketpair_read_write(): void {
+    let (a, b) = sys.newSocketPair(sys.AF_UNIX, sys.SOCK_STREAM);
+    assert.isTrue(a >= 0);
+    assert.isTrue(b >= 0);
+
+    let msg = bytes.alloc(5);
+    bytes.write_byte(msg, 0, 72);
+    bytes.write_byte(msg, 1, 101);
+    bytes.write_byte(msg, 2, 108);
+    bytes.write_byte(msg, 3, 108);
+    bytes.write_byte(msg, 4, 111);
+    let wrote = sys.write(a, msg, 5);
+    assert.isTrue(wrote == 5);
+
+    let buf = bytes.alloc(16);
+    let got = sys.read(b, buf, 16);
+    assert.isTrue(got == 5);
+    assert.equalInt(bytes.read_byte(buf, 0) as int, 72);
+    assert.equalInt(bytes.read_byte(buf, 4) as int, 111);
+
+    bytes.free(msg);
+    bytes.free(buf);
+    assert.equalInt(sys.close(a), 0);
+    assert.equalInt(sys.close(b), 0);
+}
+
+@test
+fn test_errno_on_failure(): void {
+    let r = sys.close(-1);
+    assert.equalInt(r, -1);
+    assert.equalInt(sys.errno(), 9);
+}
+
+@test
+fn test_sockaddr_struct_fields(): void {
+    let sa = sys.makeSockaddrIn(8080, 0);
+    assert.equalInt(bytes.read_u16(sa, 0) as int, sys.AF_INET);
+    assert.equalInt(bytes.read_u16(sa, 2) as int, 36895);
+    assert.equalInt(bytes.read_i32(sa, 4) as int, 0);
+    bytes.free(sa);
+}
+
+@test
+fn test_htons(): void {
+    assert.equalInt(sys.htons(8080), 36895);
+    assert.equalInt(sys.htons(80), 20480);
+}

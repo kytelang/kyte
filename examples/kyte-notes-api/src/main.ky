@@ -1,0 +1,57 @@
+// nova-notes-api: a small JSON REST API on the Nova web framework. It is the second
+// app built to shake out framework edges the hypermedia shop does not touch: JSON
+// request bodies (not form data), the full verb set (GET/POST/PUT/PATCH/DELETE), a
+// middleware stack (a logger that wraps + a key guard that short-circuits), JSON
+// responses, and shared mutable in-memory state written across many async requests.
+import web.app;
+import web.routing;
+import web.response;
+import web.status;
+import string;
+import env;
+import Shared.AppContext;
+import Shared.Settings;
+import Shared.AppConfig;
+import Shared.JsonResponse;
+import Features.Notes.NoteStore;
+import Features.Notes.routes;
+import Middleware.RequestLogger;
+import Middleware.ApiKeyGuard;
+
+// A trivial liveness probe so the root path answers with JSON too.
+pub struct HealthHandler impl RouteHandler {
+    name: string,
+    init(name: string) { self.name = name; }
+    async fn serve(self: HealthHandler, ctx: routing.Context): Response {
+        return JsonResponse.message(Status.Ok, self.name + " is healthy");
+    }
+}
+
+fn buildApp(): App {
+    // Layered, typed settings: config.yaml provides the port + name defaults, the
+    // environment supplies the secret API key (empty key => auth disabled).
+    let settings = loadSettings("config.yaml")
+        .fromEnv("api.apiKey", "NOTES_API_KEY");
+    let cfg = settings.bind<ApiConfig>("api");
+
+    // Composition root: one context holding the app, the shared store, and settings.
+    let ctx = AppContext(App(), NoteStore(), settings);
+
+    // Middleware runs in registration order and wraps every route: the logger is
+    // outermost, the key guard inner. The guard only challenges mutating verbs.
+    ctx.app.use(RequestLogger());
+    ctx.app.use(ApiKeyGuard(cfg.apiKey));
+
+    ctx.app.get("/", HealthHandler(cfg.name));
+    registerNotes(ctx);
+    return ctx.app;
+}
+
+fn main(): void {
+    let app = buildApp();
+    let portStr = env.get("NOTES_PORT");
+    let cfgPort = 8098;
+    let port = if (string.eql(portStr, "")) cfgPort else string.parseI64(portStr) as int;
+    console.log("nova-notes-api on http://127.0.0.1:" + `${port}`);
+    app.run(port);
+}

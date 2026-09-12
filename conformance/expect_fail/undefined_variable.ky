@@ -1,0 +1,8 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+@test
+fn t(): void {
+    let x = totally_undefined_variable + 1;
+    assert.equalInt(x, 1);
+}

@@ -1,0 +1,33 @@
+
+import assert;
+
+trait Show { fn show(self: Self): string; }
+trait Tag { fn tag(self: Self): int; }
+
+fn describe<T>(x: T): string where T: Show {
+    return x.show();
+}
+
+fn both<T, U>(a: T, b: U): string where T: Show + Tag, U: Show {
+    return a.show();
+}
+
+struct Dog impl Show, Tag {
+    fn show(self: Dog): string { return "woof"; }
+    fn tag(self: Dog): int { return 1; }
+}
+
+struct Cat impl Show {
+    fn show(self: Cat): string { return "meow"; }
+}
+
+@test
+fn test_single_bound(): void {
+    assert.equalStr(describe(Dog{}), "woof");
+    assert.equalStr(describe(Cat{}), "meow");
+}
+
+@test
+fn test_multi_bound_and_multi_constraint(): void {
+    assert.equalStr(both(Dog{}, Cat{}), "woof");
+}

@@ -1,0 +1,3 @@
+pub const GREETING: string = "hello ";
+pub const WORLD: string = "world";
+pub const COUNT: int = 3;

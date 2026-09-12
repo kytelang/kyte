@@ -1,0 +1,19 @@
+import assert;
+
+struct Named { pub label: string }
+
+@test
+fn tuple_dot_access(): void {
+    let p: (int, int) = (3, 4);
+    assert.equalInt(p.0, 3);
+    assert.equalInt(p.1, 4);
+    let t3: (int, string, bool) = (7, "x", true);
+    assert.equalInt(t3.0, 7);
+    assert.isTrue(t3.2);
+}
+
+@test
+fn field_access_still_works(): void {
+    let n = Named{ label: "hi" };
+    assert.equalStr(n.label, "hi");
+}

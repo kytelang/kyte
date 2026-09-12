@@ -1,0 +1,34 @@
+// Board routes: the kitchen and delivery dashboards. One phase-parameterised set
+// of handlers, registered twice (phase "kitchen" and "delivery"), each exposing:
+//   GET  /<phase>          the board (Available pool + the actor's My orders)
+//   POST /<phase>/claim    pick an order into My orders (atomic claim)
+//   POST /<phase>/release  hand a claimed order back to Available
+//   POST /<phase>/advance  move one of my orders to its next stage
+//   GET  /<phase>/events   the live queue feed (SSE) that keeps the board fresh
+import Shared.AppContext;
+import Features.Orders.Shared.OrderRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Board.GetBoard.handler;
+import Features.Board.ClaimOrder.handler;
+import Features.Board.ReleaseOrder.handler;
+import Features.Board.AdvanceOrder.handler;
+import Features.Board.Events.sse;
+
+pub fn registerBoards(ctx: AppContext): void {
+    let orders = OrderRepository(ctx.db);
+    let auth = AuthRepository(ctx.db);
+
+    // Kitchen operators: accept -> preparing -> ready.
+    ctx.app.get("/kitchen", GetBoardHandler(orders, auth, "kitchen"));
+    ctx.app.post("/kitchen/claim", ClaimOrderHandler(orders, auth, "kitchen"));
+    ctx.app.post("/kitchen/release", ReleaseOrderHandler(orders, "kitchen"));
+    ctx.app.post("/kitchen/advance", AdvanceOrderHandler(orders, auth, "kitchen"));
+    ctx.app.sse("/kitchen/events", BoardEventsSse(orders, "kitchen"));
+
+    // Delivery partners: pick up -> on the way -> delivered.
+    ctx.app.get("/delivery", GetBoardHandler(orders, auth, "delivery"));
+    ctx.app.post("/delivery/claim", ClaimOrderHandler(orders, auth, "delivery"));
+    ctx.app.post("/delivery/release", ReleaseOrderHandler(orders, "delivery"));
+    ctx.app.post("/delivery/advance", AdvanceOrderHandler(orders, auth, "delivery"));
+    ctx.app.sse("/delivery/events", BoardEventsSse(orders, "delivery"));
+}

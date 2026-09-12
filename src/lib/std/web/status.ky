@@ -1,0 +1,150 @@
+//! HTTP status codes and reason phrases for the web module.
+//!
+//! `Status` is the typed enum that route handlers and response builders use
+//! day to day, with `toCode`/`fromCode` to convert to and from the numeric
+//! wire value and `reasonPhrase` for the text that follows the code on the
+//! status line (for example, `"404 Not Found"`). `stringifyStatus` and
+//! `status_text` are lower-level helpers that work directly on a plain `int`
+//! code, for callers that render a response without going through `Status`.
+
+import bytes;
+
+/// HTTP response status codes, covering the common 2xx/3xx/4xx/5xx cases
+/// used across the web framework. Not exhaustive: codes outside this set
+/// have no `Status` member and must be handled as raw `int`s.
+pub enum Status {
+    Ok = 200,
+    Created = 201,
+    Accepted = 202,
+    NoContent = 204,
+    MovedPermanently = 301,
+    Found = 302,
+    NotModified = 304,
+    BadRequest = 400,
+    Unauthorized = 401,
+    Forbidden = 403,
+    NotFound = 404,
+    MethodNotAllowed = 405,
+    Conflict = 409,
+    InternalServerError = 500,
+    BadGateway = 502,
+    ServiceUnavailable = 503,
+    PayloadTooLarge = 413,
+    TooManyRequests = 429,
+
+    /// Converts a `Status` member to its numeric HTTP status code.
+    pub fn toCode(self: Status): int {
+        switch (self) {
+            case Status.Ok: { return 200; }
+            case Status.Created: { return 201; }
+            case Status.Accepted: { return 202; }
+            case Status.NoContent: { return 204; }
+            case Status.MovedPermanently: { return 301; }
+            case Status.Found: { return 302; }
+            case Status.NotModified: { return 304; }
+            case Status.BadRequest: { return 400; }
+            case Status.Unauthorized: { return 401; }
+            case Status.Forbidden: { return 403; }
+            case Status.NotFound: { return 404; }
+            case Status.MethodNotAllowed: { return 405; }
+            case Status.Conflict: { return 409; }
+            case Status.InternalServerError: { return 500; }
+            case Status.BadGateway: { return 502; }
+            case Status.ServiceUnavailable: { return 503; }
+            case Status.PayloadTooLarge: { return 413; }
+            case Status.TooManyRequests: { return 429; }
+            default: { return 0; }
+        }
+    }
+
+    /// Returns the standard HTTP reason phrase for this status (for example
+    /// `"Not Found"` for `Status.NotFound`), as used on the response status
+    /// line. Falls back to `"Unknown"` for any code not covered here.
+    pub fn reasonPhrase(self: Status): string {
+        switch (self) {
+            case Status.Ok: { return "OK"; }
+            case Status.Created: { return "Created"; }
+            case Status.Accepted: { return "Accepted"; }
+            case Status.NoContent: { return "No Content"; }
+            case Status.MovedPermanently: { return "Moved Permanently"; }
+            case Status.Found: { return "Found"; }
+            case Status.NotModified: { return "Not Modified"; }
+            case Status.BadRequest: { return "Bad Request"; }
+            case Status.Unauthorized: { return "Unauthorized"; }
+            case Status.Forbidden: { return "Forbidden"; }
+            case Status.NotFound: { return "Not Found"; }
+            case Status.MethodNotAllowed: { return "Method Not Allowed"; }
+            case Status.Conflict: { return "Conflict"; }
+            case Status.InternalServerError: { return "Internal Server Error"; }
+            case Status.BadGateway: { return "Bad Gateway"; }
+            case Status.ServiceUnavailable: { return "Service Unavailable"; }
+            case Status.PayloadTooLarge: { return "Payload Too Large"; }
+            case Status.TooManyRequests: { return "Too Many Requests"; }
+            default: { return "Unknown"; }
+        }
+    }
+
+    /// Maps a numeric HTTP status code back to its `Status` member.
+    /// Any code not covered by this enum silently falls back to
+    /// `Status.Ok` rather than erroring, so callers should not rely on it
+    /// to validate an arbitrary incoming code.
+    pub fn fromCode(code: int): Status {
+        if (code == 200) return Status.Ok;
+        if (code == 201) return Status.Created;
+        if (code == 202) return Status.Accepted;
+        if (code == 204) return Status.NoContent;
+        if (code == 301) return Status.MovedPermanently;
+        if (code == 302) return Status.Found;
+        if (code == 304) return Status.NotModified;
+        if (code == 400) return Status.BadRequest;
+        if (code == 401) return Status.Unauthorized;
+        if (code == 403) return Status.Forbidden;
+        if (code == 404) return Status.NotFound;
+        if (code == 405) return Status.MethodNotAllowed;
+        if (code == 409) return Status.Conflict;
+        if (code == 500) return Status.InternalServerError;
+        if (code == 502) return Status.BadGateway;
+        if (code == 503) return Status.ServiceUnavailable;
+        if (code == 413) return Status.PayloadTooLarge;
+        if (code == 429) return Status.TooManyRequests;
+        return Status.Ok;
+    }
+}
+
+/// Renders a numeric HTTP status code as its decimal string form (for
+/// example, `404` becomes `"404"`), for writing directly into a response
+/// status line without going through `Status`. Allocates a fresh string
+/// via `bytes.alloc`. Only handles non-negative values; `0` returns `"0"`.
+pub fn stringifyStatus(status: int): string {
+    if (status == 0) return "0";
+    let temp = status;
+    let digits = 0;
+    while (temp > 0) {
+        digits = digits + 1;
+        temp = temp / 10;
+    }
+
+    let str_ptr = bytes.alloc(digits);
+    let i = digits - 1;
+    temp = status;
+    while (i >= 0) {
+        bytes.write_byte(str_ptr, i, (temp % 10) + 48);
+        temp = temp / 10;
+        i = i - 1;
+    }
+    return str_ptr as string;
+}
+
+/// Returns the reason phrase for a small set of common status codes, given
+/// the raw `int` rather than a `Status` value. Covers fewer codes than
+/// `Status.reasonPhrase`; unrecognised codes return `"Unknown"`.
+pub fn status_text(status: int): string {
+    if (status == 200) return "OK";
+    if (status == 201) return "Created";
+    if (status == 400) return "Bad Request";
+    if (status == 401) return "Unauthorized";
+    if (status == 403) return "Forbidden";
+    if (status == 404) return "Not Found";
+    if (status == 500) return "Internal Server Error";
+    return "Unknown";
+}

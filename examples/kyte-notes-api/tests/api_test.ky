@@ -1,0 +1,128 @@
+// Offline gate for the whole app stack: builds the real App with middleware and the
+// Notes routes, then drives synthetic requests through `app.dispatch` (no socket, no
+// reactor) and asserts on the responses. This exercises JSON binding, path params,
+// the middleware chain (logger wrap + key guard short-circuit), the verb set, and the
+// shared in-memory store end to end, the same way conformance case 440 tests the
+// middleware chain.
+import assert;
+import web.app;
+import web.request;
+import web.status;
+import string;
+import Shared.AppContext;
+import Shared.Settings;
+import Features.Notes.NoteStore;
+import Features.Notes.routes;
+import Middleware.RequestLogger;
+import Middleware.ApiKeyGuard;
+import serde.source;
+
+fn newApp(apiKey: string): App {
+    let ctx = AppContext(App(), NoteStore(), Settings(source.fromYaml("")));
+    ctx.app.use(RequestLogger());
+    ctx.app.use(ApiKeyGuard(apiKey));
+    registerNotes(ctx);
+    return ctx.app;
+}
+
+fn req(method: string, path: string, headers: string, body: string): request.Request {
+    let raw = method + " " + path + " HTTP/1.1\r\nHost: x\r\n" + headers
+        + "Content-Length: " + `${body.length}` + "\r\n\r\n" + body;
+    return request.Request.fromString(raw);
+}
+
+@test
+fn test_create_then_get_json(): void {
+    let app = newApp("k");
+    let created = app.dispatch(req("POST", "/notes",
+        "content-type: application/json\r\nx-api-key: k\r\n",
+        "{\"title\":\"Buy milk\",\"tag\":\"home\"}"));
+    assert.equalInt(created.status.toCode(), 201);
+    assert.isTrue(string.contains(created.body, "\"id\":1"));
+    assert.isTrue(string.contains(created.body, "\"title\":\"Buy milk\""));
+    // The logger middleware stamps every response.
+    assert.equalStr(created.getHeader("x-served-by") ?? "", "nova-notes-api");
+
+    let got = app.dispatch(req("GET", "/notes/1", "", ""));
+    assert.equalInt(got.status.toCode(), 200);
+    assert.isTrue(string.contains(got.body, "\"title\":\"Buy milk\""));
+}
+
+@test
+fn test_guard_blocks_write_without_key(): void {
+    let app = newApp("k");
+    let denied = app.dispatch(req("POST", "/notes",
+        "content-type: application/json\r\n",
+        "{\"title\":\"x\"}"));
+    assert.equalInt(denied.status.toCode(), 401);
+    // Reads stay open even without a key.
+    let list = app.dispatch(req("GET", "/notes", "", ""));
+    assert.equalInt(list.status.toCode(), 200);
+}
+
+@test
+fn test_typed_param_and_verbs(): void {
+    let app = newApp("");   // empty key => auth disabled
+    // A non-integer id on a {id:int} route is a 400, not a 404.
+    let bad = app.dispatch(req("GET", "/notes/abc", "", ""));
+    assert.equalInt(bad.status.toCode(), 400);
+    // Wrong verb on an existing path shape is 405.
+    let wrong = app.dispatch(req("POST", "/notes/1", "", ""));
+    assert.equalInt(wrong.status.toCode(), 405);
+    // Unknown path is 404.
+    let missing = app.dispatch(req("GET", "/nope", "", ""));
+    assert.equalInt(missing.status.toCode(), 404);
+}
+
+@test
+fn test_domain_errors_render_as_json(): void {
+    let app = newApp("");
+    // NotFound domain error -> 404 with a JSON {error} body.
+    let missing = app.dispatch(req("GET", "/notes/7", "", ""));
+    assert.equalInt(missing.status.toCode(), 404);
+    assert.equalStr(missing.body, "{\"error\":\"no such note\"}");
+    assert.equalStr(missing.getHeader("content-type") ?? "", "application/json");
+
+    // BadRequest domain error (missing required field) -> 400 {error}.
+    let bad = app.dispatch(req("POST", "/notes",
+        "content-type: application/json\r\n", "{\"body\":\"x\"}"));
+    assert.equalInt(bad.status.toCode(), 400);
+    assert.equalStr(bad.body, "{\"error\":\"title is required\"}");
+
+    // The same NotFound path on every verb that looks a note up.
+    assert.equalInt(app.dispatch(req("PUT", "/notes/7",
+        "content-type: application/json\r\n", "{\"title\":\"x\"}")).status.toCode(), 404);
+    assert.equalInt(app.dispatch(req("DELETE", "/notes/7", "", "")).status.toCode(), 404);
+    assert.equalInt(app.dispatch(req("PATCH", "/notes/7",
+        "content-type: application/json\r\n", "{\"done\":true}")).status.toCode(), 404);
+}
+
+@test
+fn test_malformed_json_body_is_400_not_crash(): void {
+    // A malformed JSON body must not panic: the binder fails soft to defaults, so the
+    // handler's own validation reports a clean 400 rather than crashing the request.
+    let app = newApp("");
+    let r = app.dispatch(req("POST", "/notes",
+        "content-type: application/json\r\n", "{ this is not json"));
+    assert.equalInt(r.status.toCode(), 400);
+    assert.equalStr(r.body, "{\"error\":\"title is required\"}");
+}
+
+@test
+fn test_update_and_delete(): void {
+    let app = newApp("");
+    let c = app.dispatch(req("POST", "/notes",
+        "content-type: application/json\r\n", "{\"title\":\"a\",\"tag\":\"t\"}"));
+    assert.equalInt(c.status.toCode(), 201);
+
+    let put = app.dispatch(req("PUT", "/notes/1",
+        "content-type: application/json\r\n", "{\"title\":\"b\",\"done\":true}"));
+    assert.equalInt(put.status.toCode(), 200);
+    assert.isTrue(string.contains(put.body, "\"title\":\"b\""));
+    assert.isTrue(string.contains(put.body, "\"done\":true"));
+
+    let del = app.dispatch(req("DELETE", "/notes/1", "", ""));
+    assert.equalInt(del.status.toCode(), 200);
+    let gone = app.dispatch(req("GET", "/notes/1", "", ""));
+    assert.equalInt(gone.status.toCode(), 404);
+}

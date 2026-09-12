@@ -1,0 +1,42 @@
+import assert;
+import db;
+
+@test
+fn test_driver_numeric_column_path(): void {
+    let cell = db.dbDecimal(decimal.fromString("19.99"));
+    assert.isTrue(cell.kind == DbType.Decimal);
+    assert.equalStr(`${cell.asDecimal()}`, "19.99");
+    let sum = db.dbDecimal(decimal.fromString("0.1") + decimal.fromString("0.2"));
+    assert.equalStr(`${sum.asDecimal()}`, "0.3");
+}
+
+@test
+fn test_basic(): void {
+    assert.equalStr(`${decimal.fromString("3.14")}`, "3.14");
+    assert.equalStr(`${decimal.fromString("-0.1")}`, "-0.1");
+    assert.equalStr(`${decimal.fromString("100")}`, "100");
+    assert.equalStr(`${decimal.fromString("0.001")}`, "0.001");
+    assert.equalStr(`${decimal.fromString("-42")}`, "-42");
+    assert.equalStr(`${decimal.fromString("0")}`, "0");
+}
+
+@test
+fn test_exponents(): void {
+    assert.equalStr(`${decimal.fromString("1e10")}`, "10000000000");
+    assert.equalStr(`${decimal.fromString("1.5e-3")}`, "0.0015");
+    assert.equalStr(`${decimal.fromString("1.23e4")}`, "12300");
+    assert.equalStr(`${decimal.fromString("-2E2")}`, "-200");
+}
+
+@test
+fn test_exact_no_f64_roundtrip(): void {
+    assert.equalStr(`${decimal.fromString("0.1") + decimal.fromString("0.2")}`, "0.3");
+    assert.equalStr(`${decimal.fromString("19.99") + decimal.fromString("0.01")}`, "20.00");
+}
+
+@test
+fn test_parse_then_convert(): void {
+    assert.equalInt(decimal.toInt(decimal.fromString("123.99")), 123);
+    assert.equalStr(`${decimal.fromString("12345678901234567890123456789012.34")}`,
+                    "12345678901234567890123456789012.34");
+}

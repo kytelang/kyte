@@ -1,0 +1,19 @@
+import assert;
+
+trait Render { fn render(self: Render): string; }
+
+struct Cell<T> impl Render {
+    pub v: T,
+    init(v: T) { self.v = v; }
+    pub fn render(self: Cell<T>): string { return `[${self.v}]`; }
+}
+
+fn showLen(r: Render): int { return len(r.render()); }
+
+@test
+fn test_generic_struct_trait_dispatch(): void {
+    assert.equalInt(showLen(Cell<int>{ v: 42 }), 4);
+    assert.equalInt(showLen(Cell<string>{ v: "hi" }), 4);
+    assert.equalInt(showLen(Cell<int>{ v: 12345 }), 7);
+    assert.equalInt(showLen(Cell<string>{ v: "hello" }), 7);
+}

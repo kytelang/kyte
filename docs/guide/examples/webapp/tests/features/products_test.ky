@@ -1,0 +1,63 @@
+import assert;
+import string;
+import web.app;
+import web.request;
+import web.response;
+import Features.Products.Shared.database;
+import Features.Products.Shared.repository;
+import Features.Products.CreateProduct.handler;
+import Features.Products.GetProductById.handler;
+import Features.Products.views.product_card;
+
+// Build the app exactly as the composition root does: construct an in-memory Connection, build the
+// repository over it, and register the handler instances on the routes. `app.dispatch(req)` runs one
+// request through the router and handler without opening a socket, so these tests are fully offline.
+fn testApp(): App {
+    let conn = InMemoryConnection();
+    let repo = ProductRepository(conn);
+    let app = App();
+    app.post("/api/products", CreateProductHandler(repo));
+    app.get("/api/products/{id:int}", GetProductByIdHandler(repo));
+    return app;
+}
+
+fn post(app: App, body: string): Response {
+    return app.dispatch(Request.fromString(
+        "POST /api/products HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\n" + body));
+}
+
+@test
+fn test_create_product(): void {
+    let app = testApp();
+    // Hypermedia forms POST url-encoded, which `ctx.bind<CreateProduct>()` reads directly.
+    let res = post(app, "name=Widget&price=9");
+    assert.equalInt(res.status.toCode(), 201);
+    assert.isTrue(string.indexOf(res.body, "Widget") != -1);
+}
+
+@test
+fn test_get_product(): void {
+    let app = testApp();
+    // Create one (it gets id 1 in the in-memory store), then read it back through the repository.
+    let _ = post(app, "name=Keyboard&price=4500");
+    let req = Request.fromString("GET /api/products/1 HTTP/1.1\r\nHost: x\r\n\r\n");
+    let res = app.dispatch(req);
+    assert.equalInt(res.status.toCode(), 200);
+    assert.isTrue(string.indexOf(res.body, "Keyboard") != -1);
+}
+
+@test
+fn test_get_missing_is_404(): void {
+    let app = testApp();
+    let req = Request.fromString("GET /api/products/999 HTTP/1.1\r\nHost: x\r\n\r\n");
+    let res = app.dispatch(req);
+    assert.equalInt(res.status.toCode(), 404);
+}
+
+@test
+fn test_product_card_view(): void {
+    // The `.kyx` view renders, and untrusted text is HTML-escaped automatically by `{expr}`.
+    let html = productCard("<b>Gadget</b>", 42);
+    assert.isTrue(string.indexOf(html, "&lt;b&gt;Gadget") != -1);
+    assert.isTrue(string.indexOf(html, "42") != -1);
+}

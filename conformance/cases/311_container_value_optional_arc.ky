@@ -1,0 +1,39 @@
+
+import assert;
+import list;
+import map;
+
+@test
+fn test_list_value_optional_lifecycle(): void {
+    let xs = List<int | undefined>();
+    xs.push(5);
+    xs.push(undefined);
+    xs.push(7);
+    assert.equalInt(3, xs.size());
+    assert.equalInt(5, xs.at(0) ?? -1);
+    assert.equalInt(-1, xs.at(1) ?? -1);
+    assert.equalInt(7, xs.at(2) ?? -1);
+}
+
+@test
+fn test_list_value_optional_grow(): void {
+    let xs = List<int | undefined>();
+    let i = 0;
+    while (i < 40) {
+        xs.push(i);
+        i = i + 1;
+    }
+    assert.equalInt(40, xs.size());
+    assert.equalInt(0, xs.at(0) ?? -1);
+    assert.equalInt(39, xs.at(39) ?? -1);
+}
+
+@test
+fn test_map_value_optional_lifecycle(): void {
+    let m = Map<string, int | undefined>(8, string.hash);
+    m.set("a", 3);
+    m.set("b", undefined);
+    m.set("c", 9);
+    assert.equalInt(3, m.at("a") ?? -1);
+    assert.equalInt(9, m.at("c") ?? -1);
+}

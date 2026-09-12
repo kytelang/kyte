@@ -1,0 +1,5 @@
+@test
+fn test_int_literal_overflow_rejected(): void {
+    let n: int = 5000000000;
+    assert.isTrue(n == n);
+}

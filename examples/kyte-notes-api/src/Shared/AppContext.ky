@@ -1,0 +1,24 @@
+// The composition context, built once at startup and passed to each feature's
+// register(ctx). It bundles the App being configured with the app-wide shared
+// services: here the in-memory NoteStore and the loaded Settings. Same "server
+// struct" shape as the shop's AppContext, but with an in-memory store instead of
+// a database, which is the point of this second app: the framework wiring is
+// identical, only the dependencies differ.
+//
+// A concrete class (one shared instance, by reference), deliberately not a trait:
+// a trait cannot carry fields, and reaching them would need an unsound downcast.
+import web.app;
+import Features.Notes.NoteStore;
+import Shared.Settings;
+
+pub class AppContext {
+    pub app: App,
+    pub store: NoteStore,
+    pub settings: Settings,
+
+    init(app: App, store: NoteStore, settings: Settings) {
+        self.app = app;
+        self.store = store;
+        self.settings = settings;
+    }
+}

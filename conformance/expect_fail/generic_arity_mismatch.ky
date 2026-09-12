@@ -1,0 +1,13 @@
+struct Pair<A, B> {
+    pub first: A,
+    pub second: B,
+    init(a: A, b: B) {
+        self.first = a;
+        self.second = b;
+    }
+}
+
+@test
+fn t(): void {
+    let p = Pair<int>(1, 2);
+}

@@ -1,0 +1,35 @@
+
+import assert;
+
+struct Cell<T> {
+    value: T,
+    fn get(self: Cell<T>): T { return self.value; }
+    fn render(self: Cell<T>): string { return `[${self.value}]`; }
+}
+
+@test
+fn test_interpolate_generic_field_int(): void {
+    let c = Cell<int>{ value: 42 };
+    assert.equalStr(c.render(), "[42]");
+}
+
+@test
+fn test_interpolate_generic_field_string(): void {
+    let s = Cell<string>{ value: "hi" };
+    assert.equalStr(s.render(), "[hi]");
+}
+
+@test
+fn test_interpolate_generic_method_return(): void {
+    let c = Cell<int>{ value: 42 };
+    let v = c.get();
+    assert.equalStr(`${v}`, "42");
+    assert.equalInt(v, 42);
+}
+
+@test
+fn test_generic_field_still_usable_as_value(): void {
+    let c = Cell<long>{ value: 5000000000 };
+    assert.isTrue(c.get() == 5000000000);
+    assert.equalStr(`${c.get()}`, "5000000000");
+}

@@ -1,0 +1,19 @@
+// Persistence entity: one row of the `products` table. `category_id` is nullable
+// in the schema (ON DELETE SET NULL); it is held as a plain string here and
+// treated as empty when null, which is fine for the read/write paths that use it.
+// The catalogue card ProductDto is a DERIVED projection of this entity (drops
+// stock/availability, renames is_vegetarian -> veg, formats price for display).
+@serializable
+pub struct Product {
+    pub id: string,
+    pub category_id: string,
+    pub name: string,
+    pub description: string,
+    pub price: double,
+    pub image_url: string,
+    pub is_available: bool,
+    pub is_vegetarian: bool,
+    pub stock_quantity: int,
+    pub created_at: string,
+    pub updated_at: string,
+}

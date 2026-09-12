@@ -1,0 +1,36 @@
+import list;
+import assert;
+
+async fn square(n: int): int { return n * n; }
+async fn addAsync(a: int, b: int): int { return a + b; }
+
+async fn sumOfSquares(n: int): int {
+    let futures = List<future<int>>();
+    let i = 1;
+    while (i <= n) { futures.push(spawn square(i)); i = i + 1; }
+    let total = 0;
+    let j = 0;
+    while (j < futures.size()) { total = total + await futures.at(j); j = j + 1; }
+    return total;
+}
+
+async fn heteroFanout(): int {
+    let fs = List<future<int>>();
+    fs.push(spawn square(3));
+    fs.push(spawn square(4));
+    fs.push(spawn addAsync(1, 2));
+    let total = 0;
+    let i = 0;
+    while (i < fs.size()) { total = total + await fs.at(i); i = i + 1; }
+    return total;
+}
+
+@test
+fn test_future_stored_and_awaited(): void {
+    assert.equalInt(sumOfSquares(4), 30);
+}
+
+@test
+fn test_heterogeneous_fanout(): void {
+    assert.equalInt(heteroFanout(), 28);
+}

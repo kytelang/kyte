@@ -1,0 +1,69 @@
+import web.routing;
+import string;
+import Features.Admin.EditProduct.query;
+import Features.Admin.EditProduct.command;
+import Features.Admin.Shared.AdminRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Admin.Mappers.adminMappers;
+import Features.Admin.views.admin;
+import Domain.Entities.Product;
+import ds_response;
+import web.response;
+
+// GET /admin/products/edit?id=... : load the Product entity, map it to the
+// editable DTO, and render the form.
+pub struct GetEditProductHandler impl RouteHandler {
+    repo: AdminRepository,
+    init(repo: AdminRepository) { self.repo = repo; }
+    async fn serve(self: GetEditProductHandler, ctx: routing.Context): Response { let q = ctx.bind<GetEditProduct>();
+        let rows = await self.repo.product(q.id);
+        let p0 = rows.items.get(0);
+        if (p0 == undefined) {
+            return await ds_response.patch("<div id=\"content\" class=\"flex-1 overflow-y-auto p-6 text-slate-400\">Product not found</div>");
+        }
+        let dto = adminMappers.toProductEditDto(p0 ?? adminMappers.emptyProduct());
+        return await ds_response.patch(admin.editForm(dto, false));
+    }
+}
+
+// POST /admin/products/edit : admin-only. Load the existing Product entity, apply
+// the edited fields (preserving id/category/stock/availability/timestamps), and
+// write it back. This is the object-CRUD round-trip: entity in, entity out.
+pub struct EditProductHandler impl RouteHandler {
+    repo: AdminRepository,
+    auth: AuthRepository,
+    init(repo: AdminRepository, auth: AuthRepository) { self.repo = repo; self.auth = auth; }
+    async fn serve(self: EditProductHandler, ctx: routing.Context): Response { let c = ctx.bind<EditProduct>();
+        let role = await self.auth.roleOf(c.uid);
+        if (!string.eql(role, "admin")) {
+            return await ds_response.patch("<div id=\"content\" class=\"flex-1 overflow-y-auto p-6 text-slate-400\">Only an administrator can edit products.</div>");
+        }
+        let rows = await self.repo.product(c.id);
+        let p0 = rows.items.get(0);
+        if (p0 == undefined) {
+            return await ds_response.patch("<div id=\"content\" class=\"flex-1 overflow-y-auto p-6 text-slate-400\">Product not found</div>");
+        }
+        let existing = p0 ?? adminMappers.emptyProduct();
+        // Map the edit command onto the entity: change the four editable fields,
+        // preserve everything the form does not touch.
+        let updated = Product{
+            id: existing.id,
+            category_id: existing.category_id,
+            name: c.name,
+            description: c.description,
+            price: string.parseFloat(c.price),
+            image_url: c.imageUrl,
+            is_available: existing.is_available,
+            is_vegetarian: existing.is_vegetarian,
+            stock_quantity: existing.stock_quantity,
+            created_at: existing.created_at,
+            updated_at: existing.updated_at,
+        };
+        let ok = await self.repo.updateProduct(updated);
+        if (!ok) {
+            return await ds_response.patch("<div id=\"content\" class=\"flex-1 overflow-y-auto p-6 text-slate-400\">Could not save.</div>");
+        }
+        // Re-render the form from the saved entity, with a confirmation.
+        return await ds_response.patch(admin.editForm(adminMappers.toProductEditDto(updated), true));
+    }
+}

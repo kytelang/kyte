@@ -1,0 +1,23 @@
+// Persistence entity: one row of the `orders` table. `user_id` is nullable in the
+// schema (guest checkout); held as a plain string, empty when null. The order
+// summary/confirmation DTOs are derived projections of this entity.
+@serializable
+pub struct Order {
+    pub id: string,
+    pub user_id: string,
+    pub order_number: string,
+    pub status: string,
+    pub subtotal: double,
+    pub tax: double,
+    pub total_amount: double,
+    pub delivery_type: string,
+    pub delivery_address: string,
+    pub payment_method: string,
+    pub payment_id: string,
+    pub notes: string,
+    // The staff member who has claimed this order for its current phase, or empty
+    // when unclaimed (nullable UUID column, bound as "" when NULL).
+    pub assigned_to: string,
+    pub created_at: string,
+    pub updated_at: string,
+}

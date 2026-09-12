@@ -1,0 +1,70 @@
+import assert;
+import bytes;
+import list;
+import platform;
+import process;
+
+fn shell(): string { return if (platform.isWindows) "cmd.exe" else "/bin/sh"; }
+
+fn shArgs(script: string): list.List<string> {
+    let a = list.List<string>();
+    if (platform.isWindows) {
+        a.push("/v:on");
+        a.push("/c");
+    } else {
+        a.push("-c");
+    }
+    a.push(script);
+    return a;
+}
+
+fn chomp(s: string): string {
+    let n = s.length;
+    while (n > 0) {
+        let c = s[n - 1];
+        if (c != 10 && c != 13) { break; }
+        n = n - 1;
+    }
+    let b = bytes.alloc(n);
+    let i = 0;
+    while (i < n) { bytes.write_byte(b, i, s[i]); i = i + 1; }
+    return b as string;
+}
+
+@test
+fn test_spawn_read_exit(): void {
+    let script = if (platform.isWindows) "echo hello from child" else "printf 'hello from child'";
+    let p = process.Process.spawn(shell(), shArgs(script));
+    let out = p.read(1024);
+    assert.isTrue(chomp(out) == "hello from child");
+    assert.equalInt(p.wait(), 0);
+    p.close();
+}
+
+@test
+fn test_exit_code_propagates(): void {
+    let p = process.Process.spawn(shell(), shArgs("exit 7"));
+    assert.equalInt(p.wait(), 7);
+    p.close();
+}
+
+@test
+fn test_stdin_to_stdout_roundtrip(): void {
+    let script = if (platform.isWindows) "set /p line= & echo !line!" else "cat";
+    let payload = if (platform.isWindows) "ping-pong\r\n" else "ping-pong";
+    let p = process.Process.spawn(shell(), shArgs(script));
+    p.write(payload);
+    assert.isTrue(chomp(p.read(64)) == "ping-pong");
+    p.forceKill();
+    let _ = p.wait();
+    p.close();
+}
+
+@test
+fn test_kill_reports_signal(): void {
+    let script = if (platform.isWindows) "ping -n 31 127.0.0.1 > nul" else "sleep 30";
+    let p = process.Process.spawn(shell(), shArgs(script));
+    assert.equalInt(p.forceKill(), 0);
+    assert.equalInt(p.wait(), 137);
+    p.close();
+}

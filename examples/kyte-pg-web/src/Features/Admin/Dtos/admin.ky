@@ -1,0 +1,19 @@
+// Admin dashboard read DTO.
+@serializable
+pub struct DashboardStatsDto {
+    pub newOrders: int,
+    pub revenueToday: double,
+    pub lowStock: int,
+}
+
+// The editable projection of a Product for the admin edit form: the fields an
+// admin may change. Derived from the Product entity by the admin mapper; the
+// entity's id/category/stock/timestamps are preserved on save, not shown here.
+@serializable
+pub struct ProductEditDto {
+    pub id: string,
+    pub name: string,
+    pub description: string,
+    pub price: double,
+    pub imageUrl: string,
+}

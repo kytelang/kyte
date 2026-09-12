@@ -1,0 +1,22 @@
+// A logging middleware: it runs BEFORE the handler (prints the method and path),
+// calls the rest of the chain, then runs AFTER (stamps a response header). This
+// proves the wrap-around shape of `RouteMiddleware` in a real app, distinct from
+// the guard below which short-circuits. Registered first with `app.use`, so it is
+// the outermost wrapper.
+import web.routing;
+import web.response;
+import string;
+
+pub struct RequestLogger impl RouteMiddleware {
+    init() {}
+
+    async fn handle(self: RequestLogger, ctx: routing.Context, next: routing.Chain): Response {
+        let req = ctx.request;
+        console.log("-> " + req.method + " " + req.path);
+        let resp = await next.proceed(ctx);
+        // Post-processing: annotate every response so a client can see the request
+        // passed through this middleware. Editing the response after `proceed` is the
+        // half a plain "before" hook cannot do.
+        return resp.setHeader("x-served-by", "nova-notes-api");
+    }
+}

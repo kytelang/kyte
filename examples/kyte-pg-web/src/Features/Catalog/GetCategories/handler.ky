@@ -1,0 +1,21 @@
+import web.routing;
+import Features.Catalog.GetCategories.query;
+import Features.Catalog.Shared.CatalogRepository;
+import Features.Catalog.Mappers.catalogMappers;
+import Features.Catalog.views.catalog;
+import ds_response;
+import web.response;
+
+pub struct GetCategoriesHandler impl RouteHandler {
+    repo: CatalogRepository,
+
+    init(repo: CatalogRepository) {
+        self.repo = repo;
+    }
+
+    async fn serve(self: GetCategoriesHandler, ctx: routing.Context): Response { let q = ctx.bind<GetCategories>();
+        let cats = await self.repo.categories();
+        let dtos = catalogMappers.toCategoryDtos(cats.items);
+        return await ds_response.patch(catalog.categoryList(dtos));
+    }
+}

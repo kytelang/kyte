@@ -1,0 +1,72 @@
+import assert;
+import list;
+import map;
+import string;
+
+struct User { pub name: string, pub age: int }
+
+@test
+fn test_struct_literal_pushed(): void {
+    let xs = List<User>();
+    xs.push(User{ name: "Alice", age: 30 });
+    xs.push(User{ name: "Bob", age: 25 });
+    assert.equalInt(xs.size(), 2);
+    assert.equalStr(xs.at(1).name, "Bob");
+}
+
+@test
+fn test_struct_literal_map_value(): void {
+    let m = map.Map<string, User>(16, string.hash);
+    m.set("a", User{ name: "Alice", age: 30 });
+    assert.equalStr(m.at("a").name, "Alice");
+    assert.equalInt(m.size(), 1);
+}
+
+trait Message { fn name(self: Message): string; }
+struct Doubling impl Message {
+    pub val: int,
+    pub fn name(self: Doubling): string { return "Doubling"; }
+}
+
+fn double(msg: Message): int {
+    let m = msg as Doubling;
+    return m.val * 2;
+}
+
+@test
+fn test_downcast_struct_literal_arg(): void {
+    assert.equalInt(double(Doubling{ val: 21 }), 42);
+}
+
+fn doubleInline(msg: Message): int {
+    return (msg as Doubling).val * 2;
+}
+
+@test
+fn test_downcast_inline_unbound(): void {
+    assert.equalInt(doubleInline(Doubling{ val: 50 }), 100);
+}
+
+@test
+fn test_downcast_of_variable(): void {
+    let s: Message = Doubling{ val: 9 };
+    let c = s as Doubling;
+    assert.equalInt(c.val, 9);
+}
+
+trait Speaker { fn speak(self: Speaker): int; }
+struct Cat impl Speaker { pub v: int, pub fn speak(self: Cat): int { return self.v; } }
+
+fn makeSpeaker(): Speaker { return Cat{ v: 5 }; }
+
+@test
+fn test_let_trait_struct_literal(): void {
+    let s: Speaker = Cat{ v: 7 };
+    assert.equalInt(s.speak(), 7);
+}
+
+@test
+fn test_return_trait_struct_literal(): void {
+    let s = makeSpeaker();
+    assert.equalInt(s.speak(), 5);
+}

@@ -1,0 +1,19 @@
+import assert;
+
+fn tag(s: string): string { return s + "!"; }
+
+@test
+fn test_orphaned_tuple(): void {
+    (tag("a"), tag("b"));
+    assert.equalInt(1, 1);
+}
+
+@test
+fn test_orphaned_tuple_in_loop(): void {
+    let i = 0;
+    while (i < 5) {
+        (tag("x"), tag("y"));
+        i = i + 1;
+    }
+    assert.equalInt(i, 5);
+}

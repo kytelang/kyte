@@ -1,0 +1,45 @@
+// 459 -- process.spawnEx applies a per-child environment and working directory (the foreign-workload
+// spawn path). env entries override/extend the inherited environment; cwd changes the child's directory.
+// Both are applied in the child after fork, so this is race-free across concurrent spawns.
+import process;
+import list;
+import string;
+import assert;
+
+@test
+fn spawn_ex_applies_env(): void {
+    let args = list.List<string>();
+    args.push("-c");
+    args.push("printf '%s' \"$FOREIGN_VAR\"");
+    let env = list.List<string>();
+    env.push("FOREIGN_VAR=hello123");
+    let p = process.Process.spawnEx("/bin/sh", args, env, "");
+    let out = p.read(256);
+    let _ = p.wait();
+    assert.isTrue(string.contains(out, "hello123"));
+}
+
+@test
+fn spawn_ex_applies_cwd(): void {
+    let args = list.List<string>();
+    args.push("-c");
+    args.push("printf '%s' \"$(pwd)\"");
+    let env = list.List<string>();
+    let p = process.Process.spawnEx("/bin/sh", args, env, "/tmp");
+    let out = p.read(256);
+    let _ = p.wait();
+    // macOS reports /tmp as /private/tmp via pwd; accept either.
+    assert.isTrue(string.contains(out, "/tmp") || string.contains(out, "/private/tmp"));
+}
+
+@test
+fn spawn_ex_empty_env_and_cwd_still_runs(): void {
+    let args = list.List<string>();
+    args.push("-c");
+    args.push("printf ok");
+    let env = list.List<string>();
+    let p = process.Process.spawnEx("/bin/sh", args, env, "");
+    let out = p.read(64);
+    let _ = p.wait();
+    assert.isTrue(string.contains(out, "ok"));
+}

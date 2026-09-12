@@ -1,0 +1,53 @@
+import assert;
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+    pub fn rank(self: Color): int {
+        switch (self) {
+            case Color.Red:   { return 1; }
+            case Color.Green: { return 2; }
+            case Color.Blue:  { return 3; }
+        }
+        return 0;
+    }
+}
+
+@test
+fn test_method_on_enum_literal(): void {
+    assert.equalInt(Color.Green.rank(), 2);
+}
+
+@test
+fn test_method_on_enum_local(): void {
+    let c = Color.Blue;
+    assert.equalInt(c.rank(), 3);
+}
+
+enum Tagged {
+    N(int),
+    pub fn value(self: Tagged): int {
+        switch (self) {
+            case Tagged.N(v): { return v; }
+        }
+        return -1;
+    }
+}
+
+@test
+fn test_method_on_payload_variant(): void {
+    assert.equalInt(Tagged.N(42).value(), 42);
+}
+
+@test
+fn test_enum_method_in_closure_literal(): void {
+    let f = () => { return Color.Red.rank(); };
+    assert.equalInt(f(), 1);
+}
+
+@test
+fn test_enum_method_in_closure_local(): void {
+    let f = () => { let c = Color.Blue; return c.rank(); };
+    assert.equalInt(f(), 3);
+}

@@ -1,0 +1,22 @@
+// EXPECT-FAIL: codegen
+import assert;
+import data.orm;
+import data.db;
+import str;
+import list;
+
+// A DTO with a zero-copy `str.Str` field must not be bound through orm.queryAs<T>:
+// queryAs returns a bare List<T> and drops the result set, so the Str view would
+// dangle into the freed wire buffer. The compiler rejects this; the sound path is
+// orm.queryRows<T> / db.query<T>, which keep the buffer alive.
+@serializable struct BadDto { pub id: int, pub name: str.Str }
+
+async fn fetch(conn: db.Connection): void {
+    let rows = await orm.queryAs<BadDto>(conn, "SELECT id, name FROM users", List<db.DbValue>());
+    let _ = rows.size();
+}
+
+@test
+fn orm_queryas_str_field_is_rejected(): void {
+    assert.equalInt(1, 1);
+}

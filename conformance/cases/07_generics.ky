@@ -1,0 +1,44 @@
+import assert;
+import string;
+
+struct Pair<A, B> {
+    pub first: A,
+    pub second: B,
+
+    init(a: A, b: B) {
+        self.first = a;
+        self.second = b;
+    }
+}
+
+fn identity<T>(x: T): T {
+    return x;
+}
+
+@test
+fn test_generic_struct(): void {
+    let p = Pair<int, string>(42, "hi");
+    assert.equalInt(p.first, 42);
+    assert.equalStr(p.second, "hi");
+}
+
+@test
+fn test_generic_fn(): void {
+    assert.equalInt(identity<int>(7), 7);
+}
+
+@test
+fn test_instantiations_are_independent(): void {
+    let ints = List<int>();
+    ints.push(10);
+    ints.push(20);
+
+    let strs = List<string>();
+    strs.push("a");
+    strs.push("b");
+
+    assert.equalInt(ints.size(), 2);
+    assert.equalInt(strs.size(), 2);
+    assert.equalInt(ints.get(0) ?? 0, 10);
+    assert.equalStr(strs.get(1) ?? "", "b");
+}

@@ -1,0 +1,21 @@
+import web.routing;
+import Features.Admin.GetDashboard.query;
+import Features.Admin.Shared.AdminRepository;
+import Features.Orders.Mappers.orderMappers;
+import Features.Admin.views.admin;
+import Features.Admin.Dtos.admin;
+import ds_response;
+import web.response;
+
+pub struct GetDashboardHandler impl RouteHandler {
+    repo: AdminRepository,
+    init(repo: AdminRepository) { self.repo = repo; }
+    async fn serve(self: GetDashboardHandler, ctx: routing.Context): Response { let q = ctx.bind<GetDashboard>();
+        let st = await self.repo.stats();
+        let s = st.items.get(0) ?? DashboardStatsDto{ newOrders: 0, revenueToday: 0.0, lowStock: 0 };
+        let ords = await self.repo.orders();
+        // Map the Order entities to summary DTOs for the dashboard table.
+        let dtos = orderMappers.toOrderDtos(ords.items);
+        return await ds_response.patch(admin.dashboard(s, dtos));
+    }
+}

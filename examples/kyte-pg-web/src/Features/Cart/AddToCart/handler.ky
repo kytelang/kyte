@@ -1,0 +1,25 @@
+import web.routing;
+import string;
+import uuid;
+import Features.Cart.AddToCart.command;
+import Features.Cart.Shared.CartRepository;
+import Features.Cart.views.cart;
+import Domain.Contracts.cart;
+import ds_response;
+import web.response;
+
+pub struct AddToCartHandler impl RouteHandler {
+    repo: CartRepository,
+    init(repo: CartRepository) { self.repo = repo; }
+    async fn serve(self: AddToCartHandler, ctx: routing.Context): Response { let c = ctx.bind<AddToCart>();
+        let cid = c.cartid;
+        let fresh = false;
+        if (string.eql(cid, "")) { cid = uuid.v4().toString(); fresh = true; }
+        await self.repo.add(cid, c.product);
+        let summ = await self.repo.summary(cid);
+        let s = summ.items.get(0) ?? CartSummaryDto{ itemCount: 0, subtotal: 0.0, tax: 0.0, total: 0.0 };
+        let r = await ds_response.patch(cart.badge(s));
+        if (fresh) { return r.setCookie("cartid", cid); }
+        return r;
+    }
+}

@@ -1,0 +1,39 @@
+// Regression: a coroutine (async fn with an await) that takes an early `return` BEFORE the await, then
+// later declares an owned-string value-struct local. The coroutine frame funnels every return through
+// one cleanup that visits ALL frame locals; the later local was never initialised on the early-return
+// path, and destructing its zero-inited (null) slot used to dereference null and SIGSEGV. Fixed by
+// null-guarding dropValueStruct. This is exactly how kyte-mysql's query() on a failed connection crashed.
+import assert; import list; import string; import bytes;
+import net.poller;
+fn cell(c: long): int { return bytes.read_i32(c, 0) as int; }
+
+// A struct that OWNS a string -> gets a destructor (__destruct_Cur).
+struct Cur { pub s: string, init(s: string) { self.s = s; } }
+
+async fn yield0(): int { return 0; }
+
+// async fn: early return BEFORE any await, then an await, then a nested-scope owned local.
+async fn q(failed: bool): int {
+    if (failed) { return 1; }          // early return; frame still has a Cur slot below
+    let z = await yield0();            // makes this a real coroutine (frame-promoted locals)
+    if (z == 0) {
+        let c = Cur("hello world payload");   // owned-string local, nested scope, after the await
+        return c.s.length;
+    }
+    return 2;
+}
+async fn driver(done: long, out: long): void {
+    let v = await q(true);             // hit the early-return path
+    bytes.write_i32(out, 0, v);
+    bytes.write_i32(done, 0, 1);
+}
+@test fn t(): void {
+    let r = poller.Reactor(64,8192,32); poller.setCurrent(r.kq);
+    let done = bytes.alloc(4); bytes.write_i32(done,0,0);
+    let out = bytes.alloc(4); bytes.write_i32(out,0,0);
+    coroStart(driver(done, out));
+    let g=0; while (cell(done)==0 && g<100){let n=r.pollComplete(50);poller.batchBegin();let i=0;while(i<n){kyte_reactor_resume(r.completedToken(i));i=i+1;}g=g+1;}
+    poller.setCurrent(0);
+    assert.equalInt(cell(out), 1);
+    bytes.free(done); bytes.free(out); r.destroy();
+}

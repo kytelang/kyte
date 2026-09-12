@@ -1,0 +1,29 @@
+import assert;
+import web.client;
+import net.url;
+import string;
+
+@test
+fn run(): void {
+    let a = url.parse("https://api.example.com:8443/v1/users?limit=10");
+    assert.isTrue(a.secure);
+    assert.equalStr(a.host, "api.example.com");
+    assert.equalInt(a.port, 8443);
+    assert.equalStr(a.path, "/v1/users?limit=10");
+
+    let b = url.parse("http://localhost/");
+    assert.isFalse(b.secure);
+    assert.equalInt(b.port, 80);
+
+    let c = url.parse("https://example.com/x");
+    assert.equalInt(c.port, 443);
+    assert.isTrue(c.secure);
+
+    let r = client.Http.requestTimeout("GET", "http://127.0.0.1:9/", Map<string, string>(4, string.hash), "", 300);
+    assert.equalInt(r.status.toCode(), 500);
+
+    let info = client.getJson<Ping>("http://127.0.0.1:9/");
+    assert.equalInt(info.url.length, 0);
+}
+
+@serializable struct Ping { pub url: string }

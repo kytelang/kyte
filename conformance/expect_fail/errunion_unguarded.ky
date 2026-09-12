@@ -1,0 +1,15 @@
+// EXPECT-FAIL: typecheck
+
+enum MyErr { Bad }
+struct Box { pub v: int, init(n: int) { self.v = n; } }
+
+fn find(k: int): Box | MyErr {
+    if (k < 0) { return MyErr.Bad; }
+    return Box(k);
+}
+
+@test
+fn t_unguarded_errunion_access(): void {
+    let x = find(0 - 1);
+    console.log(x.v);
+}

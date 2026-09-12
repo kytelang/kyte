@@ -1,0 +1,53 @@
+
+import assert;
+import serde.json;
+
+@test
+fn test_surrogate_pair_astral(): void {
+    let s = json.asString(json.get(json.parse("{\"e\":\"\\uD83D\\uDE00\"}"), "e")) ?? "MISSING";
+    assert.equalInt(s.length, 4);
+    assert.equalInt(s[0], 240);
+    assert.equalInt(s[1], 159);
+    assert.equalInt(s[2], 152);
+    assert.equalInt(s[3], 128);
+}
+
+@test
+fn test_astral_range_ends(): void {
+    let lo = json.asString(json.get(json.parse("{\"x\":\"\\uD800\\uDC00\"}"), "x")) ?? "";
+    assert.equalInt(lo.length, 4);
+    assert.equalInt(lo[0], 240);
+    assert.equalInt(lo[1], 144);
+    let hi = json.asString(json.get(json.parse("{\"x\":\"\\uDBFF\\uDFFF\"}"), "x")) ?? "";
+    assert.equalInt(hi.length, 4);
+    assert.equalInt(hi[0], 244);
+    assert.equalInt(hi[3], 191);
+}
+
+@test
+fn test_bmp_escapes_unaffected(): void {
+    let euro = json.asString(json.get(json.parse("{\"x\":\"\\u20AC\"}"), "x")) ?? "";
+    assert.equalInt(euro.length, 3);
+    assert.equalInt(euro[0], 226);
+    let e = json.asString(json.get(json.parse("{\"x\":\"\\u00E9\"}"), "x")) ?? "";
+    assert.equalInt(e.length, 2);
+    assert.equalInt(e[0], 195);
+    let a = json.asString(json.get(json.parse("{\"x\":\"\\u0041\"}"), "x")) ?? "";
+    assert.equalInt(a.length, 1);
+    assert.equalInt(a[0], 65);
+}
+
+@test
+fn test_lone_high_surrogate_does_not_eat_following_text(): void {
+    let lone = json.asString(json.get(json.parse("{\"x\":\"\\uD83DX\"}"), "x")) ?? "";
+    assert.equalInt(lone.length, 4);
+    assert.equalInt(lone[3], 88);
+}
+
+@test
+fn test_pair_surrounded_by_ascii(): void {
+    let mix = json.asString(json.get(json.parse("{\"x\":\"a\\uD83D\\uDE00b\"}"), "x")) ?? "";
+    assert.equalInt(mix.length, 6);
+    assert.equalInt(mix[0], 97);
+    assert.equalInt(mix[5], 98);
+}

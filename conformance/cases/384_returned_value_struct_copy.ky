@@ -1,0 +1,76 @@
+import assert;
+
+struct P { pub x: int, pub y: int, init(a: int, b: int) { self.x = a; self.y = b; } }
+struct Owned { pub data: string, pub n: int, init(d: string, k: int) { self.data = d; self.n = k; } }
+
+trait Greeter { fn greet(self): int; }
+struct Counter impl Greeter {
+    pub n: int,
+    init(v: int) { self.n = v; }
+    pub fn greet(self: Counter): int { return self.n; }
+}
+
+fn makeP(a: int, b: int): P { return P(a, b); }
+fn makeOwned(i: int): Owned { return Owned("ret-" + istr(i), i); }
+
+@test
+fn returned_struct_copy_is_independent(): void {
+    let a = makeP(1, 2);
+    let b = a;
+    b.x = 99;
+    assert.equalInt(a.x, 1);
+    assert.equalInt(b.x, 99);
+    assert.equalInt(a.y, 2);
+}
+
+@test
+fn returned_owned_copy_is_independent(): void {
+    let a = makeOwned(5);
+    let b = a;
+    b.n = 99;
+    assert.equalInt(a.n, 5);
+    assert.equalStr(a.data, "ret-5");
+}
+
+@test
+fn trait_struct_copy_independent(): void {
+    let a = Counter(1);
+    let b = a;
+    b.n = 99;
+    assert.equalInt(a.n, 1);
+    assert.equalInt(b.n, 99);
+}
+@test
+fn trait_dispatch_after_copy(): void {
+    let a = Counter(7);
+    let b = a;
+    let g: Greeter = b;
+    assert.equalInt(g.greet(), 7);
+    assert.equalInt(a.n, 7);
+}
+
+@test
+fn returned_owned_copy_no_leak(): void {
+    let i = 0;
+    while (i < 100) {
+        let a = makeOwned(i);
+        let b = a;
+        assert.isTrue(b.data.length > 0);
+        i = i + 1;
+    }
+    assert.isTrue(true);
+}
+
+fn istr(n: int): string {
+    if (n == 0) { return "0"; }
+    let s = "";
+    let m = n;
+    while (m > 0) { s = dig(m % 10) + s; m = m / 10; }
+    return s;
+}
+fn dig(x: int): string {
+    if (x == 0) { return "0"; } if (x == 1) { return "1"; } if (x == 2) { return "2"; }
+    if (x == 3) { return "3"; } if (x == 4) { return "4"; } if (x == 5) { return "5"; }
+    if (x == 6) { return "6"; } if (x == 7) { return "7"; } if (x == 8) { return "8"; }
+    return "9";
+}

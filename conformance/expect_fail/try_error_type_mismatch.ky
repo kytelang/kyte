@@ -1,0 +1,13 @@
+// EXPECT-FAIL: typecheck
+
+exception E1 { Bad, fn message(self: E1): string { return "1"; } }
+exception E2 { Worse, fn message(self: E2): string { return "2"; } }
+
+fn g(): int | E2 { return E2.Worse; }
+
+fn caller(): int | E1 { return try g(); }
+
+@test
+fn test_mismatched_try_rejected(): void {
+    assert.isTrue(caller() catch (e) 0 == 0);
+}

@@ -1,0 +1,55 @@
+import assert;
+
+fn mk(s: string): string { return s + "!"; }
+
+@test
+fn test_ifexpr_bound_fresh(): void {
+    let c = 1;
+    let x = if (c > 0) mk("a") else mk("b");
+    assert.equalStr(x, "a!");
+}
+
+@test
+fn test_ifexpr_bound_borrow(): void {
+    let a = mk("p");
+    let b = mk("q");
+    let c = 0;
+    let x = if (c > 0) a else b;
+    assert.equalStr(x, "q!");
+    assert.equalStr(a, "p!");
+    assert.equalStr(b, "q!");
+}
+
+@test
+fn test_ifexpr_mixed_branches(): void {
+    let a = mk("kept");
+    let c = 0;
+    let x = if (c > 0) a else mk("fresh");
+    assert.equalStr(x, "fresh!");
+    assert.equalStr(a, "kept!");
+}
+
+@test
+fn test_ifexpr_in_loop(): void {
+    let i = 0;
+    let last = "";
+    while (i < 4) {
+        let x = if (i % 2 == 0) mk("even") else mk("odd");
+        last = x;
+        i = i + 1;
+    }
+    assert.equalStr(last, "odd!");
+}
+
+@test
+fn test_ifexpr_nested_chain(): void {
+    let n = 2;
+    let s = if (n == 0) mk("zero") else if (n == 1) mk("one") else mk("many");
+    assert.equalStr(s, "many!");
+}
+
+@test
+fn test_ifexpr_as_argument(): void {
+    let c = 1;
+    assert.equalStr(if (c > 0) mk("arg") else mk("other"), "arg!");
+}

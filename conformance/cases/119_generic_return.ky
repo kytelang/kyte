@@ -1,0 +1,52 @@
+import assert;
+import list;
+
+fn identity<T>(x: T): T { return x; }
+fn pair_first<A, B>(a: A, b: B): A { return a; }
+fn wrap_list<T>(x: T): List<T> {
+    let l = List<T>();
+    l.push(x);
+    return l;
+}
+fn maybe<T>(x: T, take: bool): T | undefined {
+    if (take) { return x; }
+    return undefined;
+}
+
+fn addOne(n: int): int { return n + 1; }
+
+@test
+fn test_bare_type_param_return(): void {
+    let n: int = identity<int>(41);
+    assert.equalInt(n, 41);
+    assert.equalInt(addOne(identity<int>(9)), 10);
+}
+
+@test
+fn test_multi_param_return(): void {
+    let a: int = pair_first<int, string>(7, "ignored");
+    assert.equalInt(a, 7);
+}
+
+@test
+fn test_generic_container_return(): void {
+    let xs = wrap_list<int>(99);
+    assert.equalInt(xs.size(), 1);
+    assert.equalInt(xs.at(0), 99);
+}
+
+@test
+fn test_optional_return_substituted(): void {
+    let got = maybe<int>(5, true) ?? 0;
+    assert.equalInt(got, 5);
+    let none = maybe<int>(5, false) ?? -1;
+    assert.equalInt(none, -1);
+}
+
+@test
+fn test_generic_optional_value_zero(): void {
+    assert.zero(maybe<int>(0, true) ?? 99);
+    assert.equalInt(maybe<int>(0, false) ?? 99, 99);
+    let got = maybe<int>(0, true);
+    if (got != undefined) { assert.zero(got); } else { assert.fail("present-0 wrongly absent"); }
+}

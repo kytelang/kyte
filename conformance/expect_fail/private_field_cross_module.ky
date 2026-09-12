@@ -1,0 +1,14 @@
+// EXPECT-FAIL: typecheck
+// Cross-module private struct-field access must be rejected. `AsyncChannel`'s
+// `capacity` field is not `pub`, so reading it from another module (here the
+// test file) is a visibility violation, even though the receiver's type is only
+// known through inference from the constructor call.
+import assert;
+import concurrency.asyncchan;
+
+@test
+fn reads_private_field(): void {
+    let ch = asyncchan.AsyncChannel<int>(4);
+    let c = ch.capacity;
+    assert.equalInt(c, 4);
+}

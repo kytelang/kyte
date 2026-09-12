@@ -1,0 +1,6 @@
+@serializable
+pub struct ClaimOrder {
+    pub order: string,
+    pub uid: string,
+    init() { self.order = ""; self.uid = ""; }
+}

@@ -1,0 +1,39 @@
+import assert;
+
+enum ConfigError {
+    NotFound(string),
+    BadPort(int),
+}
+
+fn readConfig(path: string): string | ConfigError {
+    if (path == "missing") { return ConfigError.NotFound(path); }
+    return "8080";
+}
+
+fn safeDiv(a: int, b: int): int | ConfigError {
+    if (b == 0) { return ConfigError.BadPort(0); }
+    return a / b;
+}
+
+fn loadPort(path: string): string | ConfigError {
+    let raw = try readConfig(path);
+    return "port=" + raw;
+}
+
+@test
+fn test_string_ok_and_err(): void {
+    assert.equalStr(readConfig("app.toml") catch "FB", "8080");
+    assert.equalStr(readConfig("missing") catch "FB", "FB");
+}
+
+@test
+fn test_int_value_arm_ok_and_err(): void {
+    assert.equalInt(safeDiv(20, 4) catch -1, 5);
+    assert.equalInt(safeDiv(1, 0) catch -1, -1);
+}
+
+@test
+fn test_try_propagates_and_unwraps(): void {
+    assert.equalStr(loadPort("app.toml") catch "FB", "port=8080");
+    assert.equalStr(loadPort("missing") catch "FB", "FB");
+}

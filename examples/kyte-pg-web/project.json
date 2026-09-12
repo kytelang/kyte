@@ -1,0 +1,8 @@
+{
+    "name": "kyte-pg-web",
+    "version": "0.1.0",
+    "type": "web",
+    "dependencies": [
+        "https://github.com/kytelang/kyte-postgres"
+    ]
+}

@@ -1,0 +1,13 @@
+import assert;
+trait Producer<M> { fn make(self: Producer<M>, seed: int): M; }
+struct IntMaker impl Producer<int> { fn make(self: IntMaker, seed: int): int { return seed * 10; } }
+struct StrMaker impl Producer<string> { fn make(self: StrMaker, seed: int): string { return "s"; } }
+fn useInt(p: Producer<int>, seed: int): int { return p.make(seed); }
+fn useStr(p: Producer<string>, seed: int): string { return p.make(seed); }
+@test
+fn t(): void {
+    let a: Producer<int> = IntMaker{};
+    let b: Producer<string> = StrMaker{};
+    assert.equalInt(useInt(a, 5), 50);
+    assert.equalStr(useStr(b, 5), "s");
+}

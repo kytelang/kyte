@@ -1,0 +1,36 @@
+import compress.deflate;
+import compress.gzip;
+import assert;
+
+@test
+fn deflate_inflate_roundtrip(): void {
+    let data = "The quick brown fox jumps over the lazy dog. aaaaaaaaaa bbbbbbbbbb 1234567890 repeated repeated repeated";
+    let comp = deflate.deflateRaw(data);
+    assert.equalStr(deflate.inflate(comp.toString()).toString(), data);
+}
+
+@test
+fn gzip_roundtrip_full(): void {
+    let data = "gzip payload with redundancy redundancy redundancy and a tail 0987654321";
+    assert.equalStr(deflate.gunzip(deflate.gzipCompress(data)), data);
+    assert.equalStr(gzip.decompress(gzip.compress(data)), data);
+}
+
+@test
+fn deflate_empty_and_short(): void {
+    assert.equalStr(deflate.gunzip(deflate.gzipCompress("")), "");
+    assert.equalStr(deflate.gunzip(deflate.gzipCompress("x")), "x");
+}
+
+@test
+fn deflate_long_match_swar(): void {
+    let unit = "the quick brown fox jumps over the lazy dog 0123456789 ";
+    let data = "";
+    let i = 0;
+    while (i < 64) {
+        data = data + unit;
+        i = i + 1;
+    }
+    assert.equalStr(deflate.inflate(deflate.deflateRaw(data).toString()).toString(), data);
+    assert.equalStr(deflate.gunzip(deflate.gzipCompress(data)), data);
+}

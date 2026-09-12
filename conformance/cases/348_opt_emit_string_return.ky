@@ -1,0 +1,19 @@
+import assert;
+import string;
+
+fn passthru(s: string): string { return s; }
+fn firstOf(a: string, b: string): string { return a; }
+fn joined(a: string, b: string): string { return a.concat(b); }
+fn lenViaLocal(a: string, b: string): int {
+    let c = a.concat(b);
+    return len(c);
+}
+
+@test
+fn test_string_returns(): void {
+    let a = "foo" + "bar";
+    assert.equalInt(passthru(a).len(), 6);
+    assert.equalInt(firstOf("hello", "x").len(), 5);
+    assert.equalInt(joined("ab", "cd").len(), 4);
+    assert.equalInt(lenViaLocal("xy", "zw"), 4);
+}

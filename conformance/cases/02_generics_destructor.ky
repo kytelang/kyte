@@ -1,0 +1,33 @@
+import assert;
+import list;
+
+struct Bag {
+    pub items: List<int>,
+
+    init() {
+        self.items = List<int>();
+    }
+
+    pub fn add(self: Bag, v: int): void {
+        self.items.push(v);
+    }
+
+    pub fn total(self: Bag): int {
+        let sum = 0;
+        let i = 0;
+        while (i < self.items.size()) {
+            sum = sum + self.items.get(i);
+            i = i + 1;
+        }
+        return sum;
+    }
+}
+
+@test
+fn test_owning_struct(): void {
+    let b = Bag();
+    b.add(1);
+    b.add(2);
+    b.add(3);
+    assert.equalInt(b.total(), 6);
+}

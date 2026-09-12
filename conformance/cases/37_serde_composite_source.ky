@@ -1,0 +1,54 @@
+import assert;
+import serde.source;
+import map;
+import string;
+
+@test
+fn test_primary_wins_when_present(): void {
+    let route = Map<string, string>(8, string.hash);
+    route.set("id", "42");
+    let body = Map<string, string>(8, string.hash);
+    body.set("id", "999");
+    let cs = CompositeSource(ParamSource(route), ParamSource(body));
+    assert.equalStr(cs.getString("id"), "42");
+}
+
+@test
+fn test_falls_through_to_secondary(): void {
+    let route = Map<string, string>(8, string.hash);
+    route.set("id", "42");
+    let body = Map<string, string>(8, string.hash);
+    body.set("name", "Ada");
+    let cs = CompositeSource(ParamSource(route), ParamSource(body));
+    assert.equalStr(cs.getString("name"), "Ada");
+}
+
+@test
+fn test_missing_in_both_is_empty(): void {
+    let route = Map<string, string>(8, string.hash);
+    let body = Map<string, string>(8, string.hash);
+    let cs = CompositeSource(ParamSource(route), ParamSource(body));
+    assert.equalStr(cs.getString("nope"), "");
+}
+
+@test
+fn test_int_overlay(): void {
+    let route = Map<string, string>(8, string.hash);
+    route.set("age", "30");
+    let body = Map<string, string>(8, string.hash);
+    body.set("age", "99");
+    let cs = CompositeSource(ParamSource(route), ParamSource(body));
+    assert.equalInt(cs.getInt("age"), 30);
+}
+
+@test
+fn test_has_is_union_of_both(): void {
+    let route = Map<string, string>(8, string.hash);
+    route.set("a", "1");
+    let body = Map<string, string>(8, string.hash);
+    body.set("b", "2");
+    let cs = CompositeSource(ParamSource(route), ParamSource(body));
+    assert.isTrue(cs.has("a"));
+    assert.isTrue(cs.has("b"));
+    assert.isFalse(cs.has("c"));
+}

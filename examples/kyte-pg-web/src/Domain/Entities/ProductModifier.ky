@@ -1,0 +1,9 @@
+// Persistence entity: one row of the `product_modifiers` join table (composite
+// key product_id + modifier_id).
+@serializable
+pub struct ProductModifier {
+    pub product_id: string,
+    pub modifier_id: string,
+    pub is_required: bool,
+    pub max_choices: int,
+}

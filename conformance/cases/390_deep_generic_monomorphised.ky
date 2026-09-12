@@ -1,0 +1,17 @@
+import assert;
+import list;
+@test
+fn t(): void {
+    let a = List<List<List<int>>>();
+    let inner = List<List<int>>();
+    let leaf = List<int>();
+    leaf.push(42);
+    inner.push(leaf);
+    a.push(inner);
+    let got = a.get(0);
+    assert.isTrue(got != undefined);
+    let g2 = (got ?? List<List<int>>()).get(0);
+    assert.isTrue(g2 != undefined);
+    let g3 = (g2 ?? List<int>()).get(0);
+    assert.equalInt((g3 ?? 0), 42);
+}

@@ -1,0 +1,24 @@
+// Typed configuration sections, bound from the config file by serde. Each is a
+// plain @serializable struct with sensible defaults, so a missing key falls back
+// rather than failing. Secrets (apiKey, client secrets) are left empty here and
+// supplied from the environment via Settings.fromEnv.
+@serializable
+pub struct DbConfig {
+    pub dsn: string,
+    pub poolSize: int,
+    init() { self.dsn = ""; self.poolSize = 10; }
+}
+
+@serializable
+pub struct PaymentConfig {
+    pub provider: string,
+    pub apiKey: string,
+    init() { self.provider = ""; self.apiKey = ""; }
+}
+
+@serializable
+pub struct OAuthConfig {
+    pub googleClientId: string,
+    pub googleClientSecret: string,
+    init() { self.googleClientId = ""; self.googleClientSecret = ""; }
+}

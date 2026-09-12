@@ -1,0 +1,5 @@
+@serializable
+pub struct GetBoard {
+    pub uid: string,   // bound from the session cookie; identifies the acting staff member
+    init() { self.uid = ""; }
+}

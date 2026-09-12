@@ -1,0 +1,85 @@
+// Catalogue views as NSX. Loops live inside the markup; `{expr}` interpolations
+// are auto-escaped. Datastar `data-on:click` attributes drive the hypermedia
+// interactions (fetch a fragment, morph it into the page). All catalogue markup
+// lives here, never in a handler. See DESIGN.md sections 2 and 13.
+import Shared.fmt;
+import list;
+import Features.Catalog.Dtos.catalog;
+
+pub fn categoryList(cats: list.List<catalog.CategoryDto>): Html {
+    return <aside id="category-list" class="w-56 min-w-[14rem] bg-white border-r border-slate-200 overflow-y-auto shrink-0 p-4">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Menu</h2>
+        <button class="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition hover:bg-emerald-50 hover:text-emerald-700"
+                data-on:click={"@get('/products')"}>All Items</button>
+        <button class="w-full text-left px-3 py-2 rounded-lg text-sm transition hover:bg-emerald-50 hover:text-emerald-700"
+                data-on:click={"@get('/products?veg=1')"}>Vegetarian only</button>
+        {for (i in 0..cats.size()) {
+            let c = cats.get(i) ?? catalog.CategoryDto{ id: "", name: "", description: "" };
+            <button class="w-full text-left px-3 py-2 rounded-lg text-sm transition hover:bg-emerald-50 hover:text-emerald-700"
+                    data-on:click={`@get('/products?category=${c.id}')`}>{c.name}</button>;
+        }}
+    </aside>;
+}
+
+pub fn productGrid(prods: list.List<catalog.ProductDto>): Html {
+    if (prods.size() == 0) {
+        return <div id="content" class="flex-1 overflow-y-auto p-4 lg:p-6">
+            <div class="flex flex-col items-center justify-center py-20 text-slate-400">
+                <p class="text-lg font-medium">No sandwiches found</p>
+                <p class="text-sm mt-1">Try a different category</p>
+            </div>
+        </div>;
+    }
+    return <div id="content" class="flex-1 overflow-y-auto p-4 lg:p-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {for (i in 0..prods.size()) {
+                let p = prods.get(i) ?? catalog.ProductDto{ id: "", name: "", description: "", price: 0.0, imageUrl: "", veg: false };
+                <div class="bg-white border border-slate-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow duration-200 flex flex-col">
+                    <div class="relative h-40 bg-slate-100 overflow-hidden cursor-pointer" data-on:click={`@get('/products/${p.id}')`}>
+                        <img src={p.imageUrl} alt={p.name} class="w-full h-full object-cover" loading="lazy" />
+                        {if (p.veg) { <span class="absolute top-2 left-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">VEG</span>; }}
+                    </div>
+                    <div class="p-4 flex-1 flex flex-col">
+                        <h3 class="font-semibold text-slate-800 text-sm leading-tight mb-1 cursor-pointer" data-on:click={`@get('/products/${p.id}')`}>{p.name}</h3>
+                        <p class="text-xs text-slate-400 mb-3 line-clamp-2">{p.description}</p>
+                        <div class="mt-auto flex items-center justify-between pt-2 border-t border-slate-100">
+                            <span class="text-lg font-bold text-slate-800">{`£${fmt.money(p.price)}`}</span>
+                            <button class="px-3 py-1.5 rounded-lg text-white text-sm bg-emerald-600 hover:bg-emerald-700 transition"
+                                    data-on:click={`@post('/cart/add?product=${p.id}')`}>Add</button>
+                        </div>
+                    </div>
+                </div>;
+            }}
+        </div>
+    </div>;
+}
+
+// Product detail with its modifier groups, shown in the content pane.
+pub fn productDetail(p: catalog.ProductDto, mods: list.List<catalog.ModifierDto>): Html {
+    return <div id="content" class="flex-1 overflow-y-auto p-4 lg:p-6">
+        <button class="text-sm text-emerald-700 mb-4" data-on:click={"@get('/products')"}>&larr; Back to menu</button>
+        <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <img src={p.imageUrl} alt={p.name} class="w-full h-56 object-cover" />
+            <div class="p-5">
+                <div class="flex items-center justify-between">
+                    <h1 class="text-xl font-bold text-slate-800">{p.name}</h1>
+                    <span class="text-xl font-bold text-slate-800">{`£${fmt.money(p.price)}`}</span>
+                </div>
+                <p class="text-sm text-slate-500 mt-2">{p.description}</p>
+                <div class="mt-5 space-y-4">
+                    {for (i in 0..mods.size()) {
+                        let m = mods.get(i) ?? catalog.ModifierDto{ id: "", name: "", options: "", extraCost: 0.0, required: false };
+                        <div>
+                            <h3 class="text-sm font-semibold text-slate-700 mb-1">{m.name}{if (m.required) { <span class="text-red-500"> *</span>; }}</h3>
+                            <p class="text-xs text-slate-400">{m.options}</p>
+                        </div>;
+                    }}
+                </div>
+                <button class="mt-6 w-full px-4 py-2.5 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition"
+                        data-on:click={`@post('/cart/add?product=${p.id}')`}>Add to cart</button>
+                <button class="mt-2 w-full px-4 py-2 rounded-lg text-emerald-700 border border-emerald-200 hover:bg-emerald-50 transition text-sm"
+                        data-on:click={`@get('/admin/products/edit?id=${p.id}')`}>Edit (admin)</button>
+            </div>
+        </div>
+    </div>;
+}

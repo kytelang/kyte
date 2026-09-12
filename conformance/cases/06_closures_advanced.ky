@@ -1,0 +1,69 @@
+import assert;
+import list;
+import string;
+
+fn make_greeter(name: string): (int) => string {
+    return (x) => string.concat("hi ", name);
+}
+
+@test
+fn test_capture_string(): void {
+    let g = make_greeter("bob");
+    let h = make_greeter("amy");
+    assert.equalStr(g(0), "hi bob");
+    assert.equalStr(h(0), "hi amy");
+}
+
+fn make_adder(n: int): (int) => int {
+    return (x) => x + n;
+}
+
+@test
+fn test_returned_closures_are_independent(): void {
+    let add5 = make_adder(5);
+    let add9 = make_adder(9);
+    assert.equalInt(add5(1), 6);
+    assert.equalInt(add9(1), 10);
+}
+
+@test
+fn test_loop_capture_independent(): void {
+    let fns = List<(int) => int>();
+    let i = 0;
+    while (i < 3) {
+        let k = i;
+        fns.push((x) => x + k);
+        i = i + 1;
+    }
+    let f0 = fns.get(0);
+    let f1 = fns.get(1);
+    let f2 = fns.get(2);
+    assert.equalInt(f0(10), 10);
+    assert.equalInt(f1(10), 11);
+    assert.equalInt(f2(10), 12);
+}
+
+fn make_affine(a: int, b: int): (int) => int {
+    return (x) => a * x + b;
+}
+
+@test
+fn test_multi_capture(): void {
+    let f = make_affine(3, 7);
+    let g = make_affine(10, 1);
+    assert.equalInt(f(2), 13);
+    assert.equalInt(g(2), 21);
+}
+
+fn make_wrapper(inner: string): (int) => string {
+    return (x) => string.concat("[", inner);
+}
+
+@test
+fn test_capture_heap_string(): void {
+    let w = make_wrapper(string.concat("a", "b"));
+    assert.equalStr(w(0), "[ab");
+    let v = make_wrapper(string.concat("c", "d"));
+    assert.equalStr(v(0), "[cd");
+    assert.equalStr(w(0), "[ab");
+}

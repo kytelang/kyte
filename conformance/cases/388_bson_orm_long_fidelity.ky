@@ -1,0 +1,24 @@
+import assert;
+import data.orm;
+import serde.bson;
+import list;
+import string;
+@serializable struct Rec { pub small: long, pub big: long }
+@test fn bson_long_preserved(): void {
+    let obj = Rec{ small: 42, big: 5000000000 };
+    let doc = orm.toBson<Rec>(obj);
+    let i = 0;
+    while (i < doc.entries.size()) {
+        let e = doc.entries.at(i);
+        if (string.eql(e.key, "big")) {
+            assert.equalInt(e.type_id, 18);
+            let recon = (e.int_val << 32) | (e.int_val2 as long & 4294967295);
+            assert.isTrue(recon == 5000000000);
+        }
+        if (string.eql(e.key, "small")) {
+            assert.equalInt(e.type_id, 16);
+            assert.isTrue(e.int_val == 42);
+        }
+        i = i + 1;
+    }
+}

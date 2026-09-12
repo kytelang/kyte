@@ -1,0 +1,9 @@
+// EXPECT-FAIL: typecheck
+import assert;
+fn get(b: bool): string | undefined { if (b) { return "x"; } return undefined; }
+@test
+fn optional_to_plain_let_is_rejected(): void {
+    let x = get(false);
+    let y: string = x;
+    assert.isTrue(true);
+}

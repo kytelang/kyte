@@ -1,0 +1,40 @@
+import assert;
+
+struct Rect { pub w: int, pub h: int }
+struct P3 { pub x: int, pub y: int, pub z: int }
+struct Vec2 { pub x: int, pub y: int }
+struct Vec3 { pub a: int, pub b: int, pub c: int }
+
+fn area(r: Rect): int { return r.w * r.h; }
+fn perimeter(r: Rect): int { return 2 * (r.w + r.h); }
+fn build(): int {
+    let p = P3{ x: 3, y: 4, z: 5 };
+    return p.x + p.y * p.z;
+}
+fn mutate(): int {
+    let p = P3{ x: 1, y: 2, z: 3 };
+    p.x = p.x + 10;
+    p.z = p.x + p.y;
+    return p.x + p.y + p.z;
+}
+fn mkVec(a: int, b: int): Vec2 { return Vec2{ x: a, y: b }; }
+fn mkVec3(a: int, b: int, c: int): Vec3 { return Vec3{ a: a, b: b, c: c }; }
+
+@test
+fn test_value_struct(): void {
+    let rc = Rect{ w: 4, h: 5 };
+    assert.equalInt(area(rc), 20);
+    assert.equalInt(perimeter(rc), 18);
+    assert.equalInt(build(), 23);
+    assert.equalInt(mutate(), 26);
+}
+
+@test
+fn test_value_struct_return(): void {
+    let p = mkVec(1, 2);
+    assert.equalInt(p.x + p.y, 3);
+    let q = mkVec(10, 20);
+    assert.equalInt(p.x + p.y + q.x + q.y, 33);
+    let r = mkVec3(3, 4, 5);
+    assert.equalInt(r.a + r.b + r.c, 12);
+}

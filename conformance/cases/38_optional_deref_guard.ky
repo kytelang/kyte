@@ -1,0 +1,52 @@
+import assert;
+import list;
+
+struct Box {
+    pub v: int,
+    init(n: int) { self.v = n; }
+    pub fn doubled(self: Box): int { return self.v * 2; }
+}
+
+@test
+fn test_present_optional_field(): void {
+    let l = List<Box>();
+    l.push(Box(21));
+    let b = l.at(0);
+    assert.equalInt(b.v, 21);
+}
+
+@test
+fn test_present_optional_method(): void {
+    let l = List<Box>();
+    l.push(Box(21));
+    let b = l.at(0);
+    assert.equalInt(b.doubled(), 42);
+}
+
+@test
+fn test_narrowed_access(): void {
+    let l = List<Box>();
+    l.push(Box(7));
+    let b = l.at(0);
+    if (b != undefined) {
+        assert.equalInt(b.v, 7);
+    } else {
+        assert.fail("should be present");
+    }
+}
+
+@test
+fn test_see_through_in_loop(): void {
+    let l = List<Box>();
+    l.push(Box(1));
+    l.push(Box(2));
+    l.push(Box(3));
+    let sum = 0;
+    let i = 0;
+    while (i < l.size()) {
+        let b = l.at(i);
+        sum = sum + b.v;
+        i = i + 1;
+    }
+    assert.equalInt(sum, 6);
+}

@@ -1,0 +1,5 @@
+// EXPECT-FAIL: parse
+@test
+fn t(): void {
+    throw "this must not compile";
+}

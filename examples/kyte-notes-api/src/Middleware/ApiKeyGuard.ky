@@ -1,0 +1,32 @@
+// An auth middleware that SHORT-CIRCUITS: mutating requests (POST/PUT/PATCH/DELETE)
+// must carry a matching `x-api-key` header, or the guard returns 401 and the handler
+// never runs. Reads stay open. This is the other half of the middleware contract
+// (return without calling `next`), and the key is injected from config so secrets
+// come from the environment, not the code.
+import web.routing;
+import web.response;
+import web.status;
+import string;
+import Shared.JsonResponse;
+
+pub struct ApiKeyGuard impl RouteMiddleware {
+    required: string,
+
+    init(required: string) { self.required = required; }
+
+    async fn handle(self: ApiKeyGuard, ctx: routing.Context, next: routing.Chain): Response {
+        // Empty configured key means "no auth" (local development): let everything through.
+        if (string.eql(self.required, "")) { return await next.proceed(ctx); }
+
+        let m = ctx.request.method;
+        let mutating = string.eql(m, "POST") || string.eql(m, "PUT")
+            || string.eql(m, "PATCH") || string.eql(m, "DELETE");
+        if (!mutating) { return await next.proceed(ctx); }
+
+        let provided = ctx.request.getHeader("x-api-key") ?? "";
+        if (!string.eql(provided, self.required)) {
+            return JsonResponse.error(Status.Unauthorized, "missing or invalid x-api-key");
+        }
+        return await next.proceed(ctx);
+    }
+}

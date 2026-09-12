@@ -1,0 +1,11 @@
+// Ops routes: the kitchen/delivery operations console.
+import Shared.AppContext;
+import Features.Orders.Shared.OrderRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Ops.GetOps.handler;
+
+pub fn registerOps(ctx: AppContext): void {
+    let orders = OrderRepository(ctx.db);
+    let auth = AuthRepository(ctx.db);
+    ctx.app.get("/ops", GetOpsHandler(orders, auth));
+}

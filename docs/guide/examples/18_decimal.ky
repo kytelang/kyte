@@ -1,0 +1,48 @@
+import list;
+
+struct LineItem {
+    pub name: string,
+    pub price: decimal,
+    pub qty: int,
+    init(n: string, p: decimal, q: int) { self.name = n; self.price = p; self.qty = q; }
+}
+
+fn main(): void {
+    let a: decimal = 0.1m;
+    let b: decimal = 0.2m;
+    console.log(`0.1m + 0.2m = ${a + b}`);
+    console.log(`exact 0.3?  = ${a + b == 0.3m}`);
+
+    console.log(`9.99m * 3m  = ${9.99m * 3m}`);
+    console.log(`10m / 4m    = ${10m / 4m}`);
+    console.log(`10m % 3m    = ${10m % 3m}`);
+    console.log(`1.50m - 0.25m = ${1.50m - 0.25m}`);
+
+    console.log(`0.1m < 0.2m  = ${a < b}`);
+    console.log(`0.3m >= 0.3m = ${0.3m >= 0.3m}`);
+
+    let cart = list.List<LineItem>();
+    cart.push(LineItem("coffee", 4.75m, 2));
+    cart.push(LineItem("bagel", 3.25m, 1));
+    cart.push(LineItem("tip", 0.99m, 1));
+
+    let total: decimal = 0m;
+    let i = 0;
+    while (i < cart.size()) {
+        let item = cart.at(i);
+        let line: decimal = item.price * intToDecimal(item.qty);
+        total = total + line;
+        i = i + 1;
+    }
+    console.log(`cart total = ${total}`);
+}
+
+fn intToDecimal(n: int): decimal {
+    let acc: decimal = 0m;
+    let i = 0;
+    while (i < n) {
+        acc = acc + 1m;
+        i = i + 1;
+    }
+    return acc;
+}

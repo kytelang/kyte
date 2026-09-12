@@ -1,0 +1,20 @@
+// The one resource this API serves. `@serializable` gives us both directions for
+// free: `Note__bind(source)` (used by `ctx.bind<Note>()` to read a JSON request
+// body) and `Note__toJson(note)` (used to render a JSON response). A no-argument
+// `init()` is required by the serde binder; the server fills `id` after binding.
+@serializable
+pub struct Note {
+    pub id: int,
+    pub title: string,
+    pub body: string,
+    pub tag: string,
+    pub done: bool,
+
+    init() {
+        self.id = 0;
+        self.title = "";
+        self.body = "";
+        self.tag = "";
+        self.done = false;
+    }
+}

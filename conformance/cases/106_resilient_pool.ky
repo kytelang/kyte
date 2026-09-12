@@ -1,0 +1,166 @@
+import assert;
+import list;
+import string;
+import db;
+import pool;
+import resilience.breaker;
+
+class Flag {
+    pub fail: bool,
+    pub calls: int,
+    pub emptyTag: bool,
+    init() { self.fail = false; self.calls = 0; self.emptyTag = false; }
+}
+
+struct FlakyConn impl Connection {
+    async fn queryWire(self, sql: string, params: List<DbValue>): WireRows { return wireRowsFromResultSet(await self.query(sql, params)); }
+    pub flag: Flag,
+    pub prepared: List<string>,
+    init(flag: Flag) { self.flag = flag; self.prepared = List<string>(); }
+
+    pub async fn query(self, sql: string, params: List<DbValue>): ResultSet {
+        self.flag.calls = self.flag.calls + 1;
+        // Model a real driver failure as an ERROR (hasError()==true), not an
+        // empty command tag: the breaker only trips on genuine errors now.
+        if (self.flag.fail) { return db.errorResult(DbError("08006", "mock failure")); }
+        let rs = ResultSet();
+        rs.columns.push(Column("n", DbType.Int4));
+        let r = Row();
+        r.cells.push(db.dbInt(1));
+        rs.rows.push(r);
+        rs.rows_affected = 1;
+        // A healthy result that happens to carry an EMPTY command tag (some backends
+        // return no tag for certain statements). This must NOT trip the breaker: the
+        // fix keys the breaker on hasError() only, never on an empty tag.
+        rs.tag = if (self.flag.emptyTag) "" else "SELECT 1";
+        return rs;
+    }
+    pub async fn exec(self, sql: string, params: List<DbValue>): ExecResult {
+        self.flag.calls = self.flag.calls + 1;
+        if (self.flag.fail) { return db.errorExec(DbError("08006", "mock failure")); }
+        return ExecResult(1, "OK");
+    }
+    pub fn close(self): void {}
+    pub fn setTimeout(self, ms: int): int { return 0; }
+    pub async fn prepare(self, sql: string): int { self.prepared.push(sql); return self.prepared.size() - 1; }
+    pub async fn queryPrepared(self, stmt: int, params: List<DbValue>): ResultSet {
+        if (stmt < 0 || stmt >= self.prepared.size()) { return ResultSet(); }
+        return await self.query(self.prepared.get(stmt) ?? "", params);
+    }
+    pub async fn execPrepared(self, stmt: int, params: List<DbValue>): ExecResult {
+        if (stmt < 0 || stmt >= self.prepared.size()) { return ExecResult(0, ""); }
+        return await self.exec(self.prepared.get(stmt) ?? "", params);
+    }
+    pub async fn begin(self): ExecResult { return await self.exec("BEGIN", List<DbValue>()); }
+    pub async fn commit(self): ExecResult { return await self.exec("COMMIT", List<DbValue>()); }
+    pub async fn rollback(self): ExecResult { return await self.exec("ROLLBACK", List<DbValue>()); }
+}
+
+struct FlakyDriver impl Driver {
+    pub flag: Flag,
+    init(flag: Flag) { self.flag = flag; }
+    pub async fn connect(self, dsn: string): Connection { return FlakyConn(self.flag); }
+}
+
+@test
+fn test_breaker_opens_after_threshold() : void {
+    let flag = Flag();
+    flag.fail = true;
+    let rp = ResilientPool(FlakyDriver(flag), "mock://x", 4, 3, 2, 1000);
+
+    assert.equalInt(rp.state(), breaker.STATE_CLOSED);
+    let p = List<DbValue>();
+    rp.query("SELECT 1", p);
+    rp.query("SELECT 1", p);
+    assert.isTrue(!rp.isOpen());
+    rp.query("SELECT 1", p);
+    assert.isTrue(rp.isOpen());
+    assert.equalInt(rp.state(), breaker.STATE_OPEN);
+}
+
+// Pins the actual fix (commit f62797c): a HEALTHY result with an EMPTY command tag
+// must NOT trip the breaker. Under the old `hasError() || tag==""` logic, these
+// success-but-empty-tag results would each look like a failure and open the breaker
+// after the threshold. With the fix (hasError() only), the breaker stays CLOSED no
+// matter how many empty-tag successes occur.
+@test
+fn test_empty_tag_success_does_not_trip_breaker(): void {
+    let flag = Flag();
+    flag.emptyTag = true;                 // healthy results, but empty command tag
+    let rp = ResilientPool(FlakyDriver(flag), "mock://x", 4, 3, 2, 1000);
+
+    let p = List<DbValue>();
+    let i = 0;
+    while (i < 10) {                      // well past the failure threshold of 3
+        let rs = rp.query("SELECT 1", p);
+        assert.equalStr(rs.tag, "");      // delivered from the backend, not CIRCUIT_OPEN
+        i = i + 1;
+    }
+    assert.isTrue(!rp.isOpen());
+    assert.equalInt(rp.state(), breaker.STATE_CLOSED);
+}
+
+@test
+fn test_open_fast_fails_without_touching_backend(): void {
+    let flag = Flag();
+    flag.fail = true;
+    let rp = ResilientPool(FlakyDriver(flag), "mock://x", 4, 2, 2, 100000);
+
+    let p = List<DbValue>();
+    rp.query("SELECT 1", p);
+    rp.query("SELECT 1", p);
+    assert.isTrue(rp.isOpen());
+    let callsBefore = flag.calls;
+
+    let rs = rp.query("SELECT 1", p);
+    assert.equalStr(rs.tag, "CIRCUIT_OPEN");
+    assert.equalInt(flag.calls, callsBefore);
+}
+
+@test
+fn test_half_open_recovers_to_closed(): void {
+    let flag = Flag();
+    flag.fail = true;
+    let rp = ResilientPool(FlakyDriver(flag), "mock://x", 4, 2, 2, 0);
+
+    let p = List<DbValue>();
+    rp.query("SELECT 1", p);
+    rp.query("SELECT 1", p);
+    assert.isTrue(rp.isOpen());
+
+    flag.fail = false;
+    let r1 = rp.query("SELECT 1", p);
+    assert.equalStr(r1.tag, "SELECT 1");
+    let r2 = rp.query("SELECT 1", p);
+    assert.equalStr(r2.tag, "SELECT 1");
+    assert.equalInt(rp.state(), breaker.STATE_CLOSED);
+}
+
+@test
+fn test_failed_probe_reopens(): void {
+    let flag = Flag();
+    flag.fail = true;
+    let rp = ResilientPool(FlakyDriver(flag), "mock://x", 4, 1, 2, 0);
+
+    let p = List<DbValue>();
+    rp.query("SELECT 1", p);
+    assert.isTrue(rp.isOpen());
+    rp.query("SELECT 1", p);
+    assert.isTrue(rp.isOpen());
+}
+
+@test
+fn test_exec_also_guarded(): void {
+    let flag = Flag();
+    flag.fail = true;
+    let rp = ResilientPool(FlakyDriver(flag), "mock://x", 4, 2, 2, 100000);
+
+    let p = List<DbValue>();
+    rp.exec("UPDATE t SET a=1", p);
+    rp.exec("UPDATE t SET a=1", p);
+    assert.isTrue(rp.isOpen());
+    let callsBefore = flag.calls;
+    let ex = rp.exec("UPDATE t SET a=1", p);
+    assert.equalStr(ex.tag, "CIRCUIT_OPEN");
+    assert.equalInt(flag.calls, callsBefore);
+}

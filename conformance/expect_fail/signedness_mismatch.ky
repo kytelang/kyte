@@ -1,0 +1,6 @@
+@test
+fn test_signedness_rejected(): void {
+    let s: int = -1;
+    let u: uint = s;
+    assert.isTrue(u == u);
+}

@@ -1,0 +1,10 @@
+// EXPECT-FAIL: typecheck
+import list;
+
+@test
+fn t_unguarded_optional_access(): void {
+    let l = List<int>();
+    l.push(10);
+    let x = l.get(5);
+    console.log(x.length);
+}

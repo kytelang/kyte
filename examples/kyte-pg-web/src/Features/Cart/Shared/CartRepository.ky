@@ -1,0 +1,85 @@
+// CartRepository: the server-side cart over the shared Db pool, keyed by a cart
+// id (carried in the browser's cartid cookie). Totals and money maths are in SQL
+// (exact DECIMAL). See DESIGN.md sections 7 and 15.
+//
+// This repository is intentionally read-model + set-based-write, not entity
+// based: the CartItem entity (Domain/Entities) is the table's shape, but the
+// reads here are a product JOIN (line names/prices) and an aggregate SUM
+// (summary), and the writes are set-based SQL (INSERT ... SELECT FROM products,
+// UPDATE quantity). These are the CQRS read side and set-based commands, where
+// materialising a CartItem entity per row would add round-trips, not clarity. So
+// the reads bind CartLineDto/CartSummaryDto projections directly.
+import list;
+import string;
+import data.db;
+import data.repository;
+import Shared.Db;
+import Domain.Contracts.cart;
+
+pub struct CartRepository {
+    db: Db,
+
+    init(db: Db) {
+        self.db = db;
+    }
+
+    // Adds one of a product to the cart, incrementing the line if it already
+    // exists, otherwise inserting it at the product's current price.
+    pub async fn add(self: CartRepository, cartId: string, productId: string): void {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(cartId));
+        p.push(db.dbText(productId));
+        let upd = await conn.exec(
+            "UPDATE cart_items SET quantity = quantity + 1 WHERE cart_id = $1 AND product_id = $2::uuid", p);
+        if (upd.rows_affected == 0) {
+            let p2 = list.List<DbValue>();
+            p2.push(db.dbText(cartId));
+            p2.push(db.dbText(productId));
+            let _i = await conn.exec(
+                "INSERT INTO cart_items (cart_id, product_id, quantity, unit_price) SELECT $1, id, 1, price FROM products WHERE id = $2::uuid", p2);
+        }
+        self.db.pool.release(conn);
+    }
+
+    pub async fn setQty(self: CartRepository, cartId: string, itemId: string, qty: int): void {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(itemId));
+        p.push(db.dbText(cartId));
+        p.push(db.dbInt(qty));
+        if (qty <= 0) {
+            let _d = await conn.exec("DELETE FROM cart_items WHERE id = $1::uuid AND cart_id = $2", p);
+        } else {
+            let _u = await conn.exec("UPDATE cart_items SET quantity = $3::int WHERE id = $1::uuid AND cart_id = $2", p);
+        }
+        self.db.pool.release(conn);
+    }
+
+    pub async fn remove(self: CartRepository, cartId: string, itemId: string): void {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(itemId));
+        p.push(db.dbText(cartId));
+        let _d = await conn.exec("DELETE FROM cart_items WHERE id = $1::uuid AND cart_id = $2", p);
+        self.db.pool.release(conn);
+    }
+
+    pub async fn lines(self: CartRepository, cartId: string): Rows<CartLineDto> {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(cartId));
+        let rows = await Repository<CartLineDto>(conn, "cart_items").query("SELECT ci.id, p.name AS productName, ci.unit_price AS unitPrice, ci.quantity, ci.unit_price * ci.quantity AS lineTotal FROM cart_items ci JOIN products p ON p.id = ci.product_id WHERE ci.cart_id = $1 ORDER BY ci.created_at ASC", p);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    pub async fn summary(self: CartRepository, cartId: string): Rows<CartSummaryDto> {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(cartId));
+        let rows = await Repository<CartSummaryDto>(conn, "cart_items").query("SELECT COALESCE(SUM(ci.quantity),0)::int AS itemCount, COALESCE(SUM(ci.unit_price*ci.quantity),0) AS subtotal, ROUND(COALESCE(SUM(ci.unit_price*ci.quantity),0) * 0.08, 2) AS tax, ROUND(COALESCE(SUM(ci.unit_price*ci.quantity),0) * 1.08, 2) AS total FROM cart_items ci WHERE ci.cart_id = $1", p);
+        self.db.pool.release(conn);
+        return rows;
+    }
+}

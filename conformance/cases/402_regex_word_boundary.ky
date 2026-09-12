@@ -1,0 +1,16 @@
+import text.regex;
+import assert;
+@test
+fn word_boundary(): void {
+    assert.isTrue(regex.compile("\\bcat\\b").test("the cat sat"));
+    assert.isTrue(!regex.compile("\\bcat\\b").test("category"));
+    assert.isTrue(!regex.compile("\\bcat\\b").test("bobcat9"));
+    assert.isTrue(regex.compile("\\Bcat\\B").test("locate"));
+    assert.isTrue(!regex.compile("\\Bcat\\B").test("a cat b"));
+}
+@test
+fn escapes_and_counted_still_work(): void {
+    assert.isTrue(regex.compile("\\d{3}").test("x415y"));
+    assert.isTrue(regex.compile("\\w+").test("hello"));
+    assert.isTrue(!regex.compile("^\\d{3}$").test("12"));
+}

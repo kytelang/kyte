@@ -1,0 +1,21 @@
+import assert;
+import serde.json;
+
+@test
+fn malformed_returns_undefined(): void {
+    assert.isTrue(json.tryParse("[1,2,") == undefined);
+    assert.isTrue(json.tryParse("{\"a\": 1") == undefined);
+    assert.isTrue(json.tryParse("") == undefined);
+    assert.isTrue(json.tryParse("123 x") == undefined);
+    assert.isTrue(json.tryParse("[1,,2]") == undefined);
+}
+
+@test
+fn valid_returns_present(): void {
+    let a = json.tryParse("[1, 2, 3]");
+    assert.isTrue(a != undefined);
+    let o = json.tryParse("{\"a\": 1, \"b\": [2, 3], \"c\": \"s\"}");
+    assert.isTrue(o != undefined);
+    let n = json.tryParse("42");
+    assert.isTrue(n != undefined);
+}

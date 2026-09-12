@@ -1,0 +1,23 @@
+import web.routing;
+import string;
+import Features.Orders.PlaceOrder.command;
+import Features.Orders.Shared.OrderRepository;
+import Features.Orders.Mappers.orderMappers;
+import Features.Orders.views.orders;
+import ds_response;
+import web.response;
+
+pub struct PlaceOrderHandler impl RouteHandler {
+    repo: OrderRepository,
+    init(repo: OrderRepository) { self.repo = repo; }
+    async fn serve(self: PlaceOrderHandler, ctx: routing.Context): Response { let c = ctx.bind<PlaceOrder>();
+        let oid = await self.repo.placeOrder(c.cartid, c.uid, c.delivery);
+        if (string.eql(oid, "")) {
+            return await ds_response.patch("<div id=\"content\" class=\"flex-1 overflow-y-auto p-6 text-slate-400\">Your cart is empty.</div>");
+        }
+        let ord = await self.repo.order(oid);
+        // Map the freshly-created Order entity to its confirmation DTO.
+        let o = orderMappers.toOrderDto(ord.items.get(0) ?? orderMappers.emptyOrder());
+        return await ds_response.patch(orders.confirmation(o));
+    }
+}

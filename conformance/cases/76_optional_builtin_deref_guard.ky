@@ -1,0 +1,28 @@
+import assert;
+import list;
+
+@test
+fn test_narrowed_length(): void {
+    let xs = List<string>();
+    xs.push("hello");
+    let s = xs.get(0);
+    if (s != undefined) {
+        assert.equalInt(s.length, 5);
+    }
+}
+
+@test
+fn test_narrowed_index(): void {
+    let xs = List<string>();
+    xs.push("abc");
+    let s = xs.get(0);
+    if (s != undefined) {
+        assert.equalInt(s[0], 97);
+    }
+}
+
+@test
+fn test_present_length_direct(): void {
+    let s = "world";
+    assert.equalInt(s.length, 5);
+}

@@ -1,0 +1,44 @@
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+
+    pub fn code(self: Color): int {
+        switch (self) {
+            case Color.Red:   { return 1; }
+            case Color.Green: { return 2; }
+            case Color.Blue:  { return 3; }
+        }
+        return 0;
+    }
+}
+
+enum Node {
+    Leaf(int),
+    Branch(int),
+
+    pub fn describe(self: Node): string {
+        switch (self) {
+            case Node.Leaf(v):   { return `leaf(${v})`; }
+            case Node.Branch(v): { return `branch(${v})`; }
+        }
+        return "?";
+    }
+}
+
+fn main(): void {
+    let c = Color.Green;
+    console.log(`green code = ${c.code()}`);
+    console.log(`blue  code = ${Color.Blue.code()}`);
+
+    let leaf = Node.Leaf(3);
+    let branch = Node.Branch(10);
+    console.log(leaf.describe());
+    console.log(branch.describe());
+
+    let total = 0;
+    switch (leaf)   { case Node.Leaf(v): { total = total + v; } case Node.Branch(v): { total = total + v; } }
+    switch (branch) { case Node.Leaf(v): { total = total + v; } case Node.Branch(v): { total = total + v; } }
+    console.log(`total payload = ${total}`);
+}

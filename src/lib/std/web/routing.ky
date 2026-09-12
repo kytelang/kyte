@@ -1,0 +1,250 @@
+import string;
+import list;
+import map;
+import serde.source;
+import web.request;
+import web.response;
+import web.status;
+
+pub struct Context {
+    pub request: Request,
+    pub params: Map<string, string>,
+
+    init(req: Request, params: Map<string, string>) {
+        self.request = req;
+        self.params = params;
+    }
+
+    pub fn source(self: Context): ValueSource {
+        let merged = Map<string, string>(8, string.hash);
+        self.request.cookies.forEach((k, v) => {
+            merged.set(k, v);
+        });
+        self.request.query.forEach((k, v) => {
+            merged.set(k, v);
+        });
+        self.params.forEach((k, v) => {
+            merged.set(k, v);
+        });
+        let paramSrc = source.ParamSource(merged);
+        let mth = self.request.method;
+        if (string.eql(mth, "POST") || string.eql(mth, "PUT") || string.eql(mth, "PATCH")) {
+            let ct = string.toLowerCase(self.request.getHeader("content-type") ?? "");
+            if (string.indexOf(ct, "multipart/form-data") != -1) {
+                return source.CompositeSource(paramSrc, request.multipartSource(ct, self.request.body));
+            }
+            if (string.indexOf(ct, "x-www-form-urlencoded") != -1) {
+                return source.CompositeSource(paramSrc, request.formSource(self.request.body));
+            }
+            return source.CompositeSource(paramSrc, source.fromJson(self.request.body));
+        }
+        let ds = self.request.query.get("datastar");
+        if (ds != undefined) {
+            return source.CompositeSource(paramSrc, source.fromJson(ds ?? "{}"));
+        }
+        return paramSrc;
+    }
+
+    pub fn bind<T>(self: Context): T {
+        return serde.bind<T>(self.source());
+    }
+
+    pub fn query(self: Context, key: string): string {
+        return self.request.query.get(key) ?? "";
+    }
+
+    pub fn param(self: Context, key: string): string {
+        return self.params.get(key) ?? "";
+    }
+}
+
+pub trait RouteHandler {
+    async fn serve(self: RouteHandler, ctx: Context): Response;
+}
+
+pub trait RouteMiddleware {
+    async fn handle(self: RouteMiddleware, ctx: Context, next: Chain): Response;
+}
+
+pub struct Chain {
+    pub mws: List<RouteMiddleware>,
+    pub idx: int,
+    pub terminal: RouteHandler,
+
+    init(mws: List<RouteMiddleware>, idx: int, terminal: RouteHandler) {
+        self.mws = mws;
+        self.idx = idx;
+        self.terminal = terminal;
+    }
+
+    pub async fn proceed(self: Chain, ctx: Context): Response {
+        if (self.idx >= self.mws.size()) {
+            return await self.terminal.serve(ctx);
+        }
+        let mw = self.mws.at(self.idx);
+        let nxt = Chain(self.mws, self.idx + 1, self.terminal);
+        return await mw.handle(ctx, nxt);
+    }
+}
+
+pub struct Seg {
+    pub is_param: bool,
+    pub text: string,
+    pub ptype: string,
+
+    init(is_param: bool, text: string, ptype: string) {
+        self.is_param = is_param;
+        self.text = text;
+        self.ptype = ptype;
+    }
+}
+
+pub struct Route {
+    pub method: string,
+    pub segs: List<Seg>,
+    pub key: string,
+    pub handler: (Request) -> Response,
+    pub isCtrl: bool,
+
+    init(method: string, segs: List<Seg>, key: string, handler: (Request) -> Response, isCtrl: bool) {
+        self.method = method;
+        self.segs = segs;
+        self.key = key;
+        self.handler = handler;
+        self.isCtrl = isCtrl;
+    }
+}
+
+pub struct RouteMatch {
+    pub matched: bool,
+    pub typedBad: bool,
+    pub methodNotAllowed: bool,
+    pub params: Map<string, string>,
+    pub key: string,
+    pub routeIndex: int,
+
+    init(matched: bool, typedBad: bool, methodNotAllowed: bool, params: Map<string, string>, key: string, routeIndex: int) {
+        self.matched = matched;
+        self.typedBad = typedBad;
+        self.methodNotAllowed = methodNotAllowed;
+        self.params = params;
+        self.key = key;
+        self.routeIndex = routeIndex;
+    }
+}
+
+pub fn parsePattern(path: string): List<Seg> {
+    let segs = List<Seg>();
+    let splits = request.pathSegs(path);
+    let pi = 0;
+    while (pi < splits.size()) {
+        let p = splits.at(pi);
+        if (string.startsWith(p, "{") && string.endsWith(p, "}")) {
+            let inner = string.slice(p, 1, p.length - 1);
+            let colon = string.indexOf(inner, ":");
+            if (colon == -1) {
+                segs.push(Seg(true, inner, "string"));
+            } else {
+                let nm = string.slice(inner, 0, colon);
+                let ty = string.slice(inner, colon + 1, inner.length);
+                segs.push(Seg(true, nm, ty));
+            }
+        } else {
+            segs.push(Seg(false, p, ""));
+        }
+        pi = pi + 1;
+    }
+    return segs;
+}
+
+pub struct Router {
+    pub routes: List<Route>,
+
+    init() {
+        self.routes = List<Route>();
+    }
+
+    pub fn __addRoute(self: Router, method: string, path: string, key: string): void {
+        self.routes.push(Route(method, parsePattern(path), key, (req) => response.Response(Status.NotFound, "Not Found"), false));
+    }
+
+    pub fn handle(self: Router, method: string, path: string, handler: (Request) -> Response): void {
+        self.routes.push(Route(method, parsePattern(path), "", handler, true));
+    }
+
+    pub fn resolve(self: Router, method: string, path: string): RouteMatch {
+        let segs = request.pathSegs(path);
+        let nseg = segs.size();
+        let pathMatched = false;
+        let r = 0;
+        while (r < self.routes.size()) {
+            let route = self.routes.at(r);
+            if (route.segs.size() == nseg) {
+                let params = Map<string, string>(8, string.hash);
+                let ok = true;
+                let typedBad = false;
+                let i = 0;
+                while (i < nseg) {
+                    let pat = route.segs.at(i);
+                    let val = segs.get(i) ?? "";
+                    if (pat.is_param) {
+                        if (string.eql(pat.ptype, "int") && !request.isAllDigits(val)) {
+                            typedBad = true;
+                            ok = false;
+                        } else {
+                            params.set(pat.text, val);
+                        }
+                    } else if (!string.eql(pat.text, val)) {
+                        ok = false;
+                    }
+                    i = i + 1;
+                }
+                if (ok) {
+                    pathMatched = true;
+                    if (string.eql(route.method, method)) {
+                        return RouteMatch(true, false, false, params, route.key, r);
+                    }
+                } else if (typedBad && string.eql(route.method, method)) {
+                    return RouteMatch(false, true, false, Map<string, string>(1, string.hash), "", -1);
+                }
+            }
+            r = r + 1;
+        }
+        if (pathMatched) {
+            return RouteMatch(false, false, true, Map<string, string>(1, string.hash), "", -1);
+        }
+        return RouteMatch(false, false, false, Map<string, string>(1, string.hash), "", -1);
+    }
+
+    pub fn matchRoute(self: Router, method: string, path: string): Route | undefined {
+        let m = self.resolve(method, path);
+        if (m.matched) {
+            return self.routes.at(m.routeIndex);
+        }
+        return undefined;
+    }
+
+    // Serves a request through a CLOSURE-registered route table (routes added via
+    // `handle(method, path, fn)`, so `isCtrl` is true). This is the small,
+    // self-contained router used directly in tests and simple handlers; the full
+    // App uses `routeRouter.resolve` + a `RouteHandler` trait table instead.
+    pub fn serve(self: Router, req: Request): Response {
+        let m = self.resolve(req.method, req.path);
+        if (m.matched) {
+            let route = self.routes.at(m.routeIndex);
+            let h = route.handler;
+            return h(req);
+        }
+        if (m.typedBad) {
+            return response.Response(Status.BadRequest, "Bad Request: invalid path parameter");
+        }
+        if (m.methodNotAllowed) {
+            return response.Response(Status.MethodNotAllowed, "405");
+        }
+        return response.Response(Status.NotFound, "404");
+    }
+
+    pub fn route(self: Router, req: Request): Response {
+        return self.serve(req);
+    }
+}

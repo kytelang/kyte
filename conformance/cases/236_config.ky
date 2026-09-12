@@ -1,0 +1,24 @@
+import assert;
+import config;
+import env;
+
+@test
+fn test_config_defaults(): void {
+    let cfg = config.newConfig();
+    cfg.setDefault("http.port", "8080");
+    cfg.setDefault("debug", "true");
+    assert.equalInt(cfg.getInt("http.port", 0), 8080);
+    assert.isTrue(cfg.getBool("debug", false));
+    assert.equalStr(cfg.getString("missing", "fallback"), "fallback");
+    assert.equalInt(cfg.getInt("missing", 42), 42);
+    assert.isTrue(cfg.has("http.port"));
+    assert.isTrue(!cfg.has("nope"));
+}
+
+@test
+fn test_config_env_override(): void {
+    env.set("APP_HTTP_PORT", "9090");
+    let cfg = config.newConfig().withPrefix("APP_");
+    cfg.setDefault("http.port", "8080");
+    assert.equalInt(cfg.getInt("http.port", 0), 9090);
+}

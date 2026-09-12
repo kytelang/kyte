@@ -1,0 +1,714 @@
+//! Project scaffold file templates for `kyte init`.
+//!
+//! Each `pub const` here is the verbatim text of ONE file that `kyte init`
+//! writes when creating a new project, stored as a Zig multiline string
+//! literal. They are pure data: [`scaffold`] selects the right set for the
+//! requested project kind (`console` / `web` / `desktop`) and writes each to
+//! disk. The `web_*` set scaffolds a vertical-slice web app (command/query
+//! request types, their handlers, a validator, a repository, an `.kyx` view,
+//! and the front-end shell). Editing a template here changes what a freshly
+//! initialised project looks like; it does not affect already-created apps.
+
+/// The `main.ky` written by `kyte init console`: a hello-world entry point.
+pub const console_main_sample =
+    \\import string;
+    \\
+    \\fn main(): void {
+    \\    console.log("Hello, World from Kyte console application!");
+    \\}
+;
+
+/// `.vscode/launch.json`: the lldb-dap debug configuration, which imports the Kyte value formatters so `List`/`Map`/`struct`/`str.Str` display cleanly.
+pub const vscode_launch_json =
+    \\{
+    \\  "version": "0.2.0",
+    \\  "configurations": [
+    \\    {
+    \\      "type": "lldb-dap",
+    \\      "request": "launch",
+    \\      "name": "Debug Kyte (debug build)",
+    \\      "program": "${workspaceFolder}/build/debug/bin/${workspaceFolderBasename}",
+    \\      "cwd": "${workspaceFolder}",
+    \\      "preLaunchTask": "kyte: build (debug)",
+    \\      "initCommands": [
+    \\        "command script import ~/.kyte/std/debug/kyte_formatters.py"
+    \\      ]
+    \\    }
+    \\  ]
+    \\}
+    \\
+;
+
+/// `.vscode/tasks.json`: wires `kyte build` (debug) as the editor's default build task, used by the launch config's preLaunchTask.
+pub const vscode_tasks_json =
+    \\{
+    \\  "version": "2.0.0",
+    \\  "tasks": [
+    \\    {
+    \\      "label": "kyte: build (debug)",
+    \\      "type": "shell",
+    \\      "command": "kyte build",
+    \\      "problemMatcher": [],
+    \\      "group": { "kind": "build", "isDefault": true }
+    \\    }
+    \\  ]
+    \\}
+    \\
+;
+
+/// A starter `@test` for a console project, asserting through the `assert` module (so `kyte test` has something to run).
+pub const console_test_sample =
+    \\import assert;
+    \\
+    \\@test
+    \\fn test_sample(): void {
+    \\    assert.equalInt(1, 1);
+    \\}
+;
+
+
+/// The web app composition root (`main.ky`, the Go "server struct" / Program.cs analogue): constructs
+/// the shared dependencies once, lets each feature register its own routes, wires static files, runs.
+pub const web_main_sample =
+    \\// main.ky, the composition root. It constructs the app-wide dependencies ONCE (here just a
+    \\// repository), then hands them to each feature's `register(...)` so the feature can wire its own
+    \\// routes. A route maps a path to a handler INSTANCE that implements `RouteHandler` (one uniform
+    \\// `async serve(ctx): Response` method) and holds its dependencies as fields. There is no mediator
+    \\// and no DI container in the default setup: dependencies are plain constructor arguments, resolved
+    \\// right here where you can see them. Vertical slices live under Features/.
+    \\import web.app;
+    \\import env;
+    \\import list;
+    \\import string;
+    \\import data.migrate;
+    \\import migrations;
+    \\import Features.Products.Shared.repository;
+    \\import Features.Products.routes;
+    \\
+    \\fn buildApp(): App {
+    \\    let app = App();
+    \\
+    \\    // Build the shared dependencies once, then let each feature register its routes against them.
+    \\    // As the app grows, add a feature module with its own `register(app, deps...)` and call it here.
+    \\    let repo = ProductRepository();
+    \\    registerProducts(app, repo);
+    \\
+    \\    // Serve static assets (wwwroot/) for any unmatched GET.
+    \\    app.useStatic("/", "./wwwroot");
+    \\    return app;
+    \\}
+    \\
+    \\fn hasFlag(args: list.List<string>, flag: string): bool {
+    \\    let i = 0;
+    \\    while (i < args.size()) {
+    \\        if (string.eql(args.get(i) ?? "", flag)) { return true; }
+    \\        i = i + 1;
+    \\    }
+    \\    return false;
+    \\}
+    \\
+    \\// `--migrate` mode: apply this app's schema migrations, then EXIT (do not serve). The orchestrator
+    \\// runs the SAME binary in this mode once, to success, BEFORE it rolls out new replicas -- so the schema
+    \\// is ready before any new code serves traffic. Enable it in app.yaml with:
+    \\//     migrate: { args: ["--migrate"], timeoutMs: 120000 }
+    \\// The migrations themselves live in src/migrations.ky and ship inside this binary, so code and schema
+    \\// never drift. A non-zero exit here aborts the rollout and keeps the last-good replicas serving.
+    \\fn runMigrations(): int {
+    \\    let ms = migrations.all();
+    \\    // Warn on any migration that is not expand-only (unsafe to apply while old replicas still run).
+    \\    let warns = migrate.lintAll(ms);
+    \\    let wi = 0;
+    \\    while (wi < warns.size()) { console.log("migrate warning: " + (warns.get(wi) ?? "")); wi = wi + 1; }
+    \\    // This starter has no database (ProductRepository returns stub data), so there is nothing to apply.
+    \\    // Once you connect a database, open the connection here and run the migrations against it -- make
+    \\    // this fn `async` and:
+    \\    //     import data.db;
+    \\    //     let conn = ...open your connection (once, at sync top level)...;
+    \\    //     let rep = await migrate.run(conn, ms);
+    \\    //     if (!rep.ok()) { console.log("migrate failed: " + rep.err); return 1; }  // non-zero aborts the rollout
+    \\    //     console.log(`migrated: ${rep.applied} applied`);
+    \\    console.log(`migrate: ${ms.size()} migration(s) declared; no database configured, nothing to apply`);
+    \\    return 0;
+    \\}
+    \\
+    \\fn main(): int {
+    \\    // Deploy-time schema gate: `app --migrate` applies migrations and exits (see runMigrations).
+    \\    if (hasFlag(env.args(), "--migrate")) { return runMigrations(); }
+    \\    let app = buildApp();
+    \\    // Configuration lives in app.yaml at the project root and is loaded for you into `app.config`
+    \\    // when `App()` is constructed -- you never load config by hand, and there are no environment
+    \\    // variables (they collide when several apps share a machine). The listen port comes from
+    \\    // `--port N` if the orchestrator passed one, else `config.port` in app.yaml, else the 8080
+    \\    // default here. For a typed section, add an `@serializable` struct and read it with
+    \\    // `app.config.bind<MyConfig>("mysection")`.
+    \\    let port = app.config.port(8080);
+    \\    console.log("Listening on http://127.0.0.1:" + `${port}`);
+    \\    app.run(port);
+    \\    return 0;
+    \\}
+;
+
+/// `src/migrations.ky`: the app's ordered schema-migration list. Ships inside the binary and is applied by
+/// `--migrate` (see web_main_sample). Self-contained (only data.migrate + list), so it compiles with no DB.
+pub const web_migrations_sample =
+    \\import data.migrate;
+    \\import list;
+    \\
+    \\// The ordered schema migrations this app owns. They ship INSIDE the app binary, so the code and its
+    \\// schema never drift, and the orchestrator applies them (via `app --migrate`) before rolling out new
+    \\// code. Each has a unique, ASCENDING `version`; `up` moves the schema forward and `down` reverses it.
+    \\//
+    \\// Keep every migration EXPAND-ONLY: add tables, add nullable columns, add indexes. Do NOT DROP, RENAME,
+    \\// ALTER a column TYPE, or SET NOT NULL in the same release as the code that needs it -- during a rolling
+    \\// deploy the OLD and NEW versions run against this one schema at the same time, and a tightening change
+    \\// breaks the still-running old version. Ship destructive changes as a SEPARATE, later release, after
+    \\// every replica already speaks the new schema. `migrate.lintExpandOnly` flags the risky cases for you.
+    \\pub fn all(): list.List<migrate.Migration> {
+    \\    let ms = list.List<migrate.Migration>();
+    \\    ms.push(migrate.migration(
+    \\        1,
+    \\        "create_products",
+    \\        migrate.table("products").id()
+    \\            .column("name", "TEXT", "NOT NULL")
+    \\            .column("price", "BIGINT", "NOT NULL")
+    \\            .toSqlIfNotExists(),
+    \\        migrate.dropTableSql("products")));
+    \\    return ms;
+    \\}
+;
+
+/// `app.yaml`: the project-root manifest. It is BOTH the app's configuration (read by the framework
+/// into `app.config`) and, when deployed, the orchestrator's workload manifest -- one file, two readers
+/// that ignore each other's sections.
+pub const web_app_yaml_sample =
+    \\# app.yaml -- this app's manifest and configuration, in one file.
+    \\#
+    \\# The framework reads the `config:` section into `app.config` at startup (never environment
+    \\# variables, which collide when several apps share a machine). A local run reads this file from the
+    \\# project root; a deployed replica is pointed at its own copy by the orchestrator via `--config`.
+    \\config:
+    \\  # The listen port. `--port N` on the command line overrides this (the orchestrator sets it per
+    \\  # replica, so co-located replicas never clash).
+    \\  port: 8080
+    \\
+    \\  # Add your own typed sections here and read each with `app.config.bind<T>("name")` from an
+    \\  # @serializable struct. For example, a database section:
+    \\  # db:
+    \\  #   dsn: "novadb://127.0.0.1:3009?db=app"
+    \\  #   poolSize: 16
+    \\
+    \\# The sections below are read by the ORCHESTRATOR when you deploy this app (it ignores `config:`
+    \\# above, just as the app ignores these). They are commented out so a local `kyte build && run`
+    \\# needs nothing. Uncomment and fill in when you deploy -- see the "Deploying with the orchestrator"
+    \\# guide chapter.
+    \\# metadata: { name: my-app }
+    \\# workload: { binary: ./bin/my-app, args: [], restartPolicy: always }
+    \\# replicas: { min: 1, max: 3 }
+    \\#
+    \\# Pre-rollout database migration gate. When present, the orchestrator runs this binary once in
+    \\# `--migrate` mode (see src/migrations.ky + main.ky) and only rolls out new replicas if it exits 0,
+    \\# so the schema is ready before any new code serves traffic. timeoutMs bounds the one-shot.
+    \\# migrate: { args: ["--migrate"], timeoutMs: 120000 }
+;
+
+/// The Products feature's route table: maps each path to a handler instance, injecting the repository.
+pub const web_routes_sample =
+    \\// A feature's route table. Each `app.<verb>(path, Handler(deps))` binds a path to a handler
+    \\// instance and injects that handler's dependencies (here the shared ProductRepository) as plain
+    \\// constructor arguments. Keeping routes in one small file per feature is what keeps the composition
+    \\// root (main.ky) tidy as the app grows: main builds the shared deps and calls one `register` per
+    \\// feature. `{id:int}` is a typed path parameter, bound to the handler's request struct by name.
+    \\import web.app;
+    \\import Features.Products.Shared.repository;
+    \\import Features.Products.CreateProduct.handler;
+    \\import Features.Products.GetProductById.handler;
+    \\
+    \\pub fn registerProducts(app: App, repo: ProductRepository): void {
+    \\    app.post("/api/products", CreateProductHandler(repo));
+    \\    app.get("/api/products/{id:int}", GetProductByIdHandler(repo));
+    \\}
+;
+
+/// Sample WRITE-side request type (a `create` command) for a vertical feature slice.
+pub const web_create_command_sample =
+    \\// The command: what the client sends to create a product. `@serializable` is what lets
+    \\// `ctx.bind<CreateProduct>()` in the handler populate this struct from the request (the form or
+    \\// JSON body for a POST, merged with any path/query params), so the handler works with typed fields
+    \\// instead of reading the body by hand.
+    \\@serializable pub struct CreateProduct {
+    \\    pub name: string,
+    \\    pub price: int,
+    \\
+    \\    init() {
+    \\        self.name = "";
+    \\        self.price = 0;
+    \\    }
+    \\}
+;
+
+/// The response type returned by the create handler.
+pub const web_create_response_sample =
+    \\// Create response DTO (Domain/Dtos). DTOs are the request/response shapes the
+    \\// feature slices bind and return; entities (Domain/Entities) model the rows.
+    \\@serializable pub struct CreateProductDto {
+    \\    pub id: int,
+    \\    pub name: string,
+    \\}
+;
+
+/// A validator for the create command, run before the handler.
+pub const web_create_validator_sample =
+    \\import Features.Products.CreateProduct.command;
+    \\
+    \\// Validate a command before the handler runs. Returns "" when valid, else the error.
+    \\pub fn validateCreateProduct(cmd: CreateProduct): string {
+    \\    if (cmd.name.length == 0) { return "name is required"; }
+    \\    if (cmd.price < 0) { return "price must be >= 0"; }
+    \\    return "";
+    \\}
+;
+
+/// The `RouteHandler` that implements the create command (the write handler).
+pub const web_create_handler_sample =
+    \\import web.routing;
+    \\import web.response;
+    \\import web.status;
+    \\import Features.Products.CreateProduct.command;
+    \\import Features.Products.CreateProduct.validator;
+    \\import Features.Products.Shared.repository;
+    \\import Features.Products.views.product_card;
+    \\
+    \\// Handles POST /api/products. A `RouteHandler` is a plain struct that holds its dependencies as
+    \\// fields (here the ProductRepository, injected in routes.ky) and exposes ONE uniform method,
+    \\// `serve(ctx)`. It reads its typed input with `ctx.bind<CreateProduct>()`, does its work, and
+    \\// returns a `Response`. This is a hypermedia app, so the response body is an HTML fragment (the new
+    \\// product's card) that the browser swaps into the page; return JSON instead if you are building an API.
+    \\pub struct CreateProductHandler impl RouteHandler {
+    \\    repo: ProductRepository,
+    \\    init(repo: ProductRepository) { self.repo = repo; }
+    \\
+    \\    async fn serve(self: CreateProductHandler, ctx: Context): Response {
+    \\        let cmd = ctx.bind<CreateProduct>();
+    \\        let err = validateCreateProduct(cmd);
+    \\        if (err.length != 0) {
+    \\            return response.Response(Status.BadRequest, err);
+    \\        }
+    \\        let id = self.repo.create(cmd.name);
+    \\        let html = productCard(cmd.name, cmd.price);
+    \\        return response.Response(Status.Created, html)
+    \\            .setHeader("Content-Type", "text/html; charset=utf-8");
+    \\    }
+    \\}
+;
+
+/// A data repository for the feature over the `db` interface (the ORM bind + query surface).
+pub const web_repository_sample =
+    \\import Domain.Dtos.ProductDto;
+    \\
+    \\// A repository. Handlers receive it as a constructor argument (wired in Features/Products/routes.ky),
+    \\// so it is a plain struct: no DI container, no marker trait to implement. This starter returns stub
+    \\// data so the app runs with no database.
+    \\//
+    \\// For a real database, hold a connection (or a pool) and use the generic repository from the stdlib:
+    \\//
+    \\//     import data.db;
+    \\//     import data.repository;
+    \\//     let repo = Repository<ProductDto>(conn, "products");
+    \\//     let rows = await repo.query("SELECT id, name, price FROM products WHERE id = $1", params);  // Rows<ProductDto>
+    \\//     let _r  = await repo.add(entity);   // INSERT from a Domain.Entities.Product
+    \\//
+    \\// Repository<T> binds T from the ORM layer and keeps the connection, so slices stay free of bind code.
+    \\// Connect ONCE at sync top level in main.ky (an async connect driven inside a request would abort),
+    \\// then pass the connection down to the repositories here.
+    \\pub struct ProductRepository {
+    \\    init() {}
+    \\
+    \\    pub fn findById(self: ProductRepository, id: int): ProductDto {
+    \\        return ProductDto{ id: id, name: "Sample Product", price: 999 };
+    \\    }
+    \\
+    \\    pub fn create(self: ProductRepository, name: string): int {
+    \\        return 1;
+    \\    }
+    \\}
+;
+
+/// Sample READ-side request type (a `get` query) for the feature slice.
+pub const web_get_query_sample =
+    \\// The query: fetch a product by id. `ctx.bind<GetProductById>()` populates `id` from the route
+    \\// parameter `{id:int}` (path/query/body are merged into one source before binding), so the handler
+    \\// reads a typed field rather than parsing the URL itself.
+    \\@serializable pub struct GetProductById {
+    \\    pub id: int,
+    \\
+    \\    init() {
+    \\        self.id = 0;
+    \\    }
+    \\}
+;
+
+/// The response type returned by the get query handler.
+pub const web_get_response_sample =
+    \\// Read DTO (Domain/Dtos): the shape returned to clients and bound from query rows.
+    \\@serializable pub struct ProductDto {
+    \\    pub id: int,
+    \\    pub name: string,
+    \\    pub price: int,
+    \\}
+;
+
+/// The `RouteHandler` that implements the get query (the read handler).
+pub const web_get_handler_sample =
+    \\import web.routing;
+    \\import web.response;
+    \\import web.status;
+    \\import Features.Products.GetProductById.query;
+    \\import Features.Products.Shared.repository;
+    \\import Features.Products.views.product_card;
+    \\
+    \\// Handles GET /api/products/{id:int}. `ctx.bind<GetProductById>()` fills `id` from the route
+    \\// parameter, the injected repository loads the product, and the KyX view renders it as an HTML
+    \\// fragment. One `serve(ctx): Response` shape covers reads and writes alike.
+    \\pub struct GetProductByIdHandler impl RouteHandler {
+    \\    repo: ProductRepository,
+    \\    init(repo: ProductRepository) { self.repo = repo; }
+    \\
+    \\    async fn serve(self: GetProductByIdHandler, ctx: Context): Response {
+    \\        let q = ctx.bind<GetProductById>();
+    \\        let product = self.repo.findById(q.id);
+    \\        let html = productCard(product.name, product.price);
+    \\        return response.Response(Status.Ok, html)
+    \\            .setHeader("Content-Type", "text/html; charset=utf-8");
+    \\    }
+    \\}
+;
+
+/// The `.kyx` hypermedia view template that renders the feature's response as markup.
+pub const web_view_sample =
+    \\// A per-feature KyX view. View code lives in `.kyx` files (same language as `.ky`, just filed apart
+    \\// so markup stays separate from logic) and returns an HTML string the handler or a page route renders.
+    \\// An KyX element is a `string`, so expressions embed inline with `{...}` and views compose directly.
+    \\//
+    \\// A `{expr}` interpolation is HTML-ESCAPED automatically, so user text like a product name is safe by
+    \\// default: you never call an escaper here. To insert an ALREADY-rendered HTML fragment unescaped (one
+    \\// view composing another), wrap it in `response.raw(fragment)` from `web.response`.
+    \\//
+    \\// The root carries `id="product"`: that is the hypermedia SWAP TARGET the wwwroot/index.html demo
+    \\// aims at (htmx and htmz replace this element with the returned card; Unpoly and Alpine AJAX match it
+    \\// by id in the response). Rename it in both places if you retarget the demo.
+    \\pub fn productCard(name: string, price: int): Html {
+    \\    return <div id="product" class="rounded-lg border border-slate-200 p-4 shadow-sm">
+    \\        <h3 class="font-semibold text-slate-800">{name}</h3>
+    \\        <p class="mt-1 text-sm text-slate-500">{price}</p>
+    \\    </div>;
+    \\}
+;
+
+/// The domain entity/model type the feature's repository maps to and from.
+pub const web_domain_entity_sample =
+    \\// Domain entity, the core business object (persistence-agnostic).
+    \\pub struct Product {
+    \\    pub id: int,
+    \\    pub name: string,
+    \\    pub price: int,
+    \\
+    \\    init(id: int, name: string, price: int) {
+    \\        self.id = id;
+    \\        self.name = name;
+    \\        self.price = price;
+    \\    }
+    \\}
+;
+
+/// The root `index.html` shell, wired for **htmx** (`kyte init web --framework htmx`, the default).
+///
+/// htmx reads plain HTML attributes (`hx-get`/`hx-target`/`hx-swap`) and swaps the HTML fragment the
+/// server returns into the page. That is exactly what this template's handlers already return (a product
+/// card, `Status.Ok, html`), so the button below is a working end-to-end demo with no extra server code.
+pub const web_index_html_htmx =
+    \\<!doctype html>
+    \\<html lang="en">
+    \\<head>
+    \\  <meta charset="utf-8">
+    \\  <meta name="viewport" content="width=device-width, initial-scale=1">
+    \\  <title>Kyte Web App</title>
+    \\  <!-- Styles are built by Tailwind CLI from styles/app.css into wwwroot/app.css.
+    \\       Run `npm install` once, then `npm run css:watch` while developing. -->
+    \\  <link rel="stylesheet" href="/app.css">
+    \\  <!-- htmx, the hypermedia framework. It turns the hx-* attributes below into AJAX calls and swaps
+    \\       the returned HTML fragment into the page, so your Kyte handlers just return the markup they
+    \\       already render. Pin the version you build against. -->
+    \\  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
+    \\</head>
+    \\<body class="mx-auto max-w-2xl p-10 font-sans text-slate-800">
+    \\  <h1 class="text-2xl font-bold tracking-tight">Kyte Web App</h1>
+    \\  <p class="mt-2 text-slate-600">A hypermedia app powered by htmx. The button GETs a product and swaps
+    \\     the returned card (its <code>id="product"</code>) into the page, with no reload.</p>
+    \\  <button class="mt-4 rounded-lg bg-slate-800 px-4 py-2 text-white hover:bg-slate-700"
+    \\          hx-get="/api/products/1" hx-target="#product" hx-swap="outerHTML">
+    \\    Load product #1
+    \\  </button>
+    \\  <div id="product" class="mt-4 text-slate-400">Not loaded yet.</div>
+    \\</body>
+    \\</html>
+;
+
+/// The root `index.html` shell, wired for **Unpoly** (`kyte init web --framework unpoly`).
+///
+/// Unpoly follows a link/form, fetches the URL, and swaps the element matching `up-target` using the
+/// element of the SAME selector in the response. So the returned product card must carry `id="product"`
+/// (it does -- see the KyX view). Plain HTML fragments, no special content type: a straight fit for the
+/// handlers here.
+pub const web_index_html_unpoly =
+    \\<!doctype html>
+    \\<html lang="en">
+    \\<head>
+    \\  <meta charset="utf-8">
+    \\  <meta name="viewport" content="width=device-width, initial-scale=1">
+    \\  <title>Kyte Web App</title>
+    \\  <!-- Styles are built by Tailwind CLI from styles/app.css into wwwroot/app.css.
+    \\       Run `npm install` once, then `npm run css:watch` while developing. -->
+    \\  <link rel="stylesheet" href="/app.css">
+    \\  <!-- Unpoly, the hypermedia framework (script + its stylesheet). It follows up-* links/forms and
+    \\       swaps the matching fragment from the HTML response. Pin the version you build against. -->
+    \\  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/unpoly@3.10.2/unpoly.min.css">
+    \\  <script src="https://cdn.jsdelivr.net/npm/unpoly@3.10.2/unpoly.min.js"></script>
+    \\</head>
+    \\<body class="mx-auto max-w-2xl p-10 font-sans text-slate-800">
+    \\  <h1 class="text-2xl font-bold tracking-tight">Kyte Web App</h1>
+    \\  <p class="mt-2 text-slate-600">A hypermedia app powered by Unpoly. The link GETs a product and swaps
+    \\     the matching <code>#product</code> fragment from the response, with no reload.</p>
+    \\  <a href="/api/products/1" up-target="#product" up-follow
+    \\     class="mt-4 inline-block rounded-lg bg-slate-800 px-4 py-2 text-white hover:bg-slate-700">
+    \\    Load product #1
+    \\  </a>
+    \\  <div id="product" class="mt-4 text-slate-400">Not loaded yet.</div>
+    \\</body>
+    \\</html>
+;
+
+/// The root `index.html` shell, wired for **htmz** (`kyte init web --framework htmz`).
+///
+/// htmz has no CDN package -- it IS the ~166-byte inline snippet below. A link with `target=htmz` loads
+/// the URL into the hidden iframe; the iframe's onload then replaces the element named by the URL hash
+/// (`#product`) with the response body, so the returned card (which carries `id="product"`) drops in.
+pub const web_index_html_htmz =
+    \\<!doctype html>
+    \\<html lang="en">
+    \\<head>
+    \\  <meta charset="utf-8">
+    \\  <meta name="viewport" content="width=device-width, initial-scale=1">
+    \\  <title>Kyte Web App</title>
+    \\  <!-- Styles are built by Tailwind CLI from styles/app.css into wwwroot/app.css.
+    \\       Run `npm install` once, then `npm run css:watch` while developing. -->
+    \\  <link rel="stylesheet" href="/app.css">
+    \\</head>
+    \\<body class="mx-auto max-w-2xl p-10 font-sans text-slate-800">
+    \\  <h1 class="text-2xl font-bold tracking-tight">Kyte Web App</h1>
+    \\  <p class="mt-2 text-slate-600">A hypermedia app powered by htmz. The link GETs a product into the
+    \\     hidden iframe, which swaps the <code>#product</code> fragment in place, with no reload.</p>
+    \\  <a href="/api/products/1#product" target=htmz
+    \\     class="mt-4 inline-block rounded-lg bg-slate-800 px-4 py-2 text-white hover:bg-slate-700">
+    \\    Load product #1
+    \\  </a>
+    \\  <div id="product" class="mt-4 text-slate-400">Not loaded yet.</div>
+    \\  <!-- htmz, the entire library: a hidden iframe that swaps the response into the element named by
+    \\       the URL hash. Keep it at the end of the body. -->
+    \\  <iframe hidden name=htmz onload="setTimeout(()=>document.querySelector(this.contentWindow.location.hash||null)?.replaceWith(...this.contentDocument.body.children))"></iframe>
+    \\</body>
+    \\</html>
+;
+
+/// The root `index.html` shell, wired for **Alpine AJAX** (`kyte init web --framework alpine`).
+///
+/// Alpine AJAX (the alpine-ajax plugin on Alpine.js) intercepts an `x-target` link/form, fetches the URL,
+/// and merges the response elements whose ids are listed (`product`) into the page. So the returned card
+/// must carry `id="product"` (it does). The plugin script MUST load BEFORE Alpine's core; both `defer`.
+pub const web_index_html_alpine =
+    \\<!doctype html>
+    \\<html lang="en">
+    \\<head>
+    \\  <meta charset="utf-8">
+    \\  <meta name="viewport" content="width=device-width, initial-scale=1">
+    \\  <title>Kyte Web App</title>
+    \\  <!-- Styles are built by Tailwind CLI from styles/app.css into wwwroot/app.css.
+    \\       Run `npm install` once, then `npm run css:watch` while developing. -->
+    \\  <link rel="stylesheet" href="/app.css">
+    \\  <!-- Alpine AJAX: the alpine-ajax plugin FIRST, then Alpine core (order matters), both deferred.
+    \\       Pin the versions you build against. -->
+    \\  <script defer src="https://cdn.jsdelivr.net/npm/@imacrayon/alpine-ajax@0.12.4/dist/cdn.min.js"></script>
+    \\  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+    \\</head>
+    \\<body class="mx-auto max-w-2xl p-10 font-sans text-slate-800">
+    \\  <h1 class="text-2xl font-bold tracking-tight">Kyte Web App</h1>
+    \\  <p class="mt-2 text-slate-600">A hypermedia app powered by Alpine AJAX. The link GETs a product and
+    \\     merges the returned <code>#product</code> fragment into the page, with no reload.</p>
+    \\  <a href="/api/products/1" x-target="product"
+    \\     class="mt-4 inline-block rounded-lg bg-slate-800 px-4 py-2 text-white hover:bg-slate-700">
+    \\    Load product #1
+    \\  </a>
+    \\  <div id="product" class="mt-4 text-slate-400">Not loaded yet.</div>
+    \\</body>
+    \\</html>
+;
+
+/// The root `index.html` shell, wired for **datastar** (`kyte init web --framework datastar`).
+///
+/// datastar reads `data-*` attributes and drives reactive signals in the browser. The counter below works
+/// with only the CDN script (no server round-trip), so it is a live demo out of the box. datastar's
+/// server-driven actions (`@get`/`@post`) expect a `text/event-stream` SSE response that PATCHES elements,
+/// not a plain HTML fragment -- for that path, stream `datastar-patch-elements` events from a Kyte SSE
+/// handler (`web.sse`, see the guide's SSE section), rather than returning a fragment as these handlers do.
+pub const web_index_html_datastar =
+    \\<!doctype html>
+    \\<html lang="en">
+    \\<head>
+    \\  <meta charset="utf-8">
+    \\  <meta name="viewport" content="width=device-width, initial-scale=1">
+    \\  <title>Kyte Web App</title>
+    \\  <!-- Styles are built by Tailwind CLI from styles/app.css into wwwroot/app.css.
+    \\       Run `npm install` once, then `npm run css:watch` while developing. -->
+    \\  <link rel="stylesheet" href="/app.css">
+    \\  <!-- datastar, the hypermedia framework, loaded as an ES module. It reads the data-* attributes below
+    \\       and keeps the DOM in sync with its reactive signals. Pin the version you build against. -->
+    \\  <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0/bundles/datastar.js"></script>
+    \\</head>
+    \\<body class="mx-auto max-w-2xl p-10 font-sans text-slate-800">
+    \\  <h1 class="text-2xl font-bold tracking-tight">Kyte Web App</h1>
+    \\  <p class="mt-2 text-slate-600">A hypermedia app powered by datastar. The counter below is a reactive
+    \\     signal, driven entirely by data-* attributes.</p>
+    \\  <div data-signals="{count: 0}" class="mt-4">
+    \\    <button class="rounded-lg bg-slate-800 px-4 py-2 text-white hover:bg-slate-700" data-on-click="$count++">
+    \\      Clicked <span data-text="$count"></span> times
+    \\    </button>
+    \\  </div>
+    \\</body>
+    \\</html>
+;
+
+/// The `package.json` for the app's front-end tooling (Tailwind build, etc.).
+pub const web_package_json_sample =
+    \\{
+    \\  "name": "kyte-web-app",
+    \\  "private": true,
+    \\  "scripts": {
+    \\    "css": "tailwindcss -i ./styles/app.css -o ./wwwroot/app.css --minify",
+    \\    "css:watch": "tailwindcss -i ./styles/app.css -o ./wwwroot/app.css --watch"
+    \\  },
+    \\  "devDependencies": {
+    \\    "@tailwindcss/cli": "^4.1.0",
+    \\    "tailwindcss": "^4.1.0"
+    \\  }
+    \\}
+;
+
+/// The Tailwind entry stylesheet imported by the app shell.
+pub const web_tailwind_css_sample =
+    \\@import "tailwindcss";
+    \\
+    \\/* The content globs (which files Tailwind scans for class names, including the `.kyx` views) live in
+    \\   tailwind.config.js at the project root, loaded here. */
+    \\@config "../tailwind.config.js";
+;
+
+/// The Tailwind configuration (content globs + theme).
+pub const web_tailwind_config_sample =
+    \\/** @type {import('tailwindcss').Config} */
+    \\module.exports = {
+    \\  content: [
+    \\    "./src/**/*.{kyx,ky}",
+    \\    "./wwwroot/*.html",
+    \\  ],
+    \\};
+;
+
+/// The `.gitignore` written into a scaffolded project (ignores build output and local artefacts).
+pub const web_gitignore_sample =
+    \\node_modules/
+    \\wwwroot/app.css
+;
+
+/// A starter `@test` for a web feature slice.
+pub const web_test_sample =
+    \\import assert;
+    \\import string;
+    \\import web.app;
+    \\import web.request;
+    \\import web.response;
+    \\import Features.Products.Shared.repository;
+    \\import Features.Products.CreateProduct.handler;
+    \\import Features.Products.GetProductById.handler;
+    \\import Features.Products.views.product_card;
+    \\
+    \\// Build the app exactly as the composition root does: construct the repository, register handler
+    \\// instances on the routes. `app.dispatch(req)` runs one request through the router and handler
+    \\// without opening a socket, so these tests are fully offline.
+    \\fn testApp(): App {
+    \\    let repo = ProductRepository();
+    \\    let app = App();
+    \\    app.post("/api/products", CreateProductHandler(repo));
+    \\    app.get("/api/products/{id:int}", GetProductByIdHandler(repo));
+    \\    return app;
+    \\}
+    \\
+    \\@test
+    \\fn test_get_product(): void {
+    \\    let app = testApp();
+    \\    let req = Request.fromString("GET /api/products/7 HTTP/1.1\r\nHost: x\r\n\r\n");
+    \\    let res = app.dispatch(req);
+    \\    assert.equalInt(res.status.toCode(), 200);
+    \\    // The handler renders the product card fragment (stub repo returns "Sample Product").
+    \\    assert.isTrue(string.indexOf(res.body, "Sample Product") != -1);
+    \\}
+    \\
+    \\@test
+    \\fn test_create_product(): void {
+    \\    let app = testApp();
+    \\    // Hypermedia forms POST url-encoded, which `ctx.bind<CreateProduct>()` reads directly.
+    \\    let req = Request.fromString("POST /api/products HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\nname=Widget&price=9");
+    \\    let res = app.dispatch(req);
+    \\    assert.equalInt(res.status.toCode(), 201);
+    \\    assert.isTrue(string.indexOf(res.body, "Widget") != -1);
+    \\}
+    \\
+    \\@test
+    \\fn test_product_card_view(): void {
+    \\    // The `.kyx` view renders, and untrusted text is HTML-escaped via response.escapeHtml.
+    \\    let html = productCard("<b>Gadget</b>", 42);
+    \\    assert.isTrue(string.indexOf(html, "&lt;b&gt;Gadget") != -1);
+    \\    assert.isTrue(string.indexOf(html, "42") != -1);
+    \\}
+;
+
+/// The `main.ky` written by `kyte init desktop`.
+pub const desktop_main_sample =
+    \\// main.ky, a native desktop app: a webview window rendering KyX, with a Kyte
+    \\// handler bound to a JS call. Build native and run to open the window.
+    \\import webview;
+    \\
+    \\// JS -> Kyte: window.greet(name) calls this; `req` is a JSON array of the JS args.
+    \\fn greet(req: string): string {
+    \\    return "\"Hello from Kyte! args=" + req + "\"";
+    \\}
+    \\
+    \\fn main(): void {
+    \\    let w = webview.Webview(true);
+    \\    w.setTitle("Kyte Desktop");
+    \\    w.setSize(900, 640, webview.HINT_NONE);
+    \\
+    \\    let page = <html>
+    \\        <body style="font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#0f172a;color:#e2e8f0">
+    \\            <div style="text-align:center">
+    \\                <h1>Kyte Desktop</h1>
+    \\                <button onclick="window.greet('world').then(r => document.querySelector('#out').textContent = r)">Call Kyte</button>
+    \\                <p id="out"></p>
+    \\            </div>
+    \\        </body>
+    \\    </html>;
+    \\
+    \\    w.bind("greet", greet);
+    \\    w.setHtml(page);
+    \\    w.run();
+    \\    w.delete();
+    \\}
+;

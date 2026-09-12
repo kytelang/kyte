@@ -1,0 +1,51 @@
+
+import assert;
+
+enum E { A(int), B(int) }
+enum Color { Red, Green, Blue }
+enum Msg { Text(string), Code(int) }
+
+@test
+fn test_same_variant_same_payload_is_equal(): void {
+    let x = E.A(3);
+    let y = E.A(3);
+    assert.isTrue(x == y);
+}
+
+@test
+fn test_same_variant_different_payload_is_not_equal(): void {
+    assert.isFalse(E.A(3) == E.A(4));
+}
+
+@test
+fn test_different_variant_is_not_equal(): void {
+    assert.isFalse(E.A(3) == E.B(3));
+}
+
+@test
+fn test_ne_operator(): void {
+    assert.isTrue(E.A(3) != E.A(4));
+    assert.isFalse(E.A(3) != E.A(3));
+}
+
+@test
+fn test_aliased_box_is_equal(): void {
+    let x = E.A(7);
+    let y = x;
+    assert.isTrue(x == y);
+}
+
+@test
+fn test_payloadless_enum_still_correct(): void {
+    let a = Color.Green;
+    assert.isTrue(a == Color.Green);
+    assert.isFalse(a == Color.Red);
+}
+
+@test
+fn test_value_payload_across_variants_with_heap_variant(): void {
+    assert.isTrue(Msg.Code(5) == Msg.Code(5));
+    assert.isFalse(Msg.Code(5) == Msg.Code(6));
+    let t = Msg.Text("hi");
+    assert.isTrue(t == t);
+}

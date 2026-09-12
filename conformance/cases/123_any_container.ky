@@ -1,0 +1,65 @@
+import assert;
+import map;
+
+// A plain struct used purely as a value to box into `any` slots.
+struct Logger { pub tag: int, init(t: int) { self.tag = t; } }
+
+@test
+fn test_any_map_value(): void {
+    let m = Map<string, any>(8, string.hash);
+    m.set("k", 42);
+    let c = m.get("k");
+    if (c != undefined) {
+        assert.equalInt(42, (c ?? 0) as int);
+    } else {
+        assert.fail("key should be present");
+    }
+}
+
+@test
+fn test_any_struct_roundtrip_live(): void {
+    let boxed: any = Logger(7);
+    let lg = boxed as Logger;
+    assert.equalInt(7, lg.tag);
+}
+
+struct FnBox {
+    pub f: Map<string, (int) -> any>,
+    init() { self.f = Map<string, (int) -> any>(8, string.hash); }
+    pub fn add(self: FnBox, k: string, g: (int) -> any): void { self.f.set(k, g); }
+}
+@test
+fn test_closure_into_any_map(): void {
+    let b = FnBox();
+    b.add("mk", (n) => { return 42; });
+    assert.isTrue(true);
+}
+
+struct Box { pub v: int, init(x: int) { self.v = x; } }
+@test
+fn test_heap_struct_any_survives_binding(): void {
+    let m = Map<string, any>(8, string.hash);
+    {
+        let b = Box(99);
+        m.set("k", b);
+    }
+    let got = m.get("k");
+    if (got != undefined) {
+        let bb = (got ?? Box(0)) as Box;
+        assert.equalInt(99, bb.v);
+    } else {
+        assert.fail("heap struct should survive in the container");
+    }
+}
+
+@test
+fn test_heap_string_any_roundtrip(): void {
+    let m = Map<string, any>(8, string.hash);
+    m.set("s", "payload string in an any slot");
+    let got = m.get("s");
+    if (got != undefined) {
+        assert.equalStr("payload string in an any slot", (got ?? "") as string);
+    } else {
+        assert.fail("string should be present");
+    }
+}

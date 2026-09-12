@@ -1,0 +1,16 @@
+// Typed configuration sections, bound from config.yaml by serde (the same binder
+// used for request bodies). Non-secret defaults live in the YAML; the API key is
+// a secret, so it is left empty here and supplied from the environment via
+// .fromEnv("api.apiKey", "NOTES_API_KEY") in main.ky.
+@serializable
+pub struct ApiConfig {
+    pub port: int,
+    pub apiKey: string,
+    pub name: string,
+
+    init() {
+        self.port = 8098;
+        self.apiKey = "";
+        self.name = "nova-notes-api";
+    }
+}

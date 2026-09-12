@@ -1,0 +1,36 @@
+import web.routing;
+import string;
+import Features.Board.GetBoard.query;
+import Features.Orders.Shared.OrderRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Orders.Mappers.orderMappers;
+import Features.Board.views.board;
+import ds_response;
+import web.response;
+
+// The kitchen or delivery board (one phase-parameterised handler, registered
+// twice: GetBoardHandler(orders, auth, "kitchen") and (..., "delivery")). Shows
+// the phase's unclaimed "Available" pool alongside the acting staff member's own
+// claimed orders. Only the matching staff role (or an admin) may open it.
+pub struct GetBoardHandler impl RouteHandler {
+    orders: OrderRepository,
+    auth: AuthRepository,
+    phase: string,
+    init(orders: OrderRepository, auth: AuthRepository, phase: string) {
+        self.orders = orders; self.auth = auth; self.phase = phase;
+    }
+    async fn serve(self: GetBoardHandler, ctx: routing.Context): Response { let q = ctx.bind<GetBoard>();
+        let role = await self.auth.roleOf(q.uid);
+        if (!string.eql(role, self.phase) && !string.eql(role, "admin")) {
+            return await ds_response.patch(board.notAllowed(self.phase));
+        }
+        if (string.eql(self.phase, "kitchen")) {
+            let av = await self.orders.kitchenAvailable();
+            let mn = await self.orders.kitchenMine(q.uid);
+            return await ds_response.patch(board.board("kitchen", orderMappers.toOrderDtos(av.items), orderMappers.toOrderDtos(mn.items)));
+        }
+        let av = await self.orders.deliveryAvailable();
+        let mn = await self.orders.deliveryMine(q.uid);
+        return await ds_response.patch(board.board("delivery", orderMappers.toOrderDtos(av.items), orderMappers.toOrderDtos(mn.items)));
+    }
+}

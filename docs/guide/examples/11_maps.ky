@@ -1,0 +1,23 @@
+import collections.map;
+import string;
+
+fn main(): void {
+    let ages = map.Map<string, int>(16, string.hash);
+    ages.set("alice", 30);
+    ages.set("bob", 25);
+    ages.set("carol", 41);
+    console.log(`size = ${ages.size()}`);
+
+    console.log(`alice = ${ages.get("alice") ?? -1}`);
+    console.log(`dave  = ${ages.get("dave") ?? -1}`);
+
+    console.log(`has bob = ${ages.has("bob")}`);
+    ages.delete_key("bob");
+    console.log(`has bob = ${ages.has("bob")} (after delete)`);
+
+    let sum = 0;
+    for ((name, age) in ages) { sum = sum + age; }
+    console.log(`total of remaining ages = ${sum}`);
+
+    console.log(`key count = ${ages.keys().size()}`);
+}

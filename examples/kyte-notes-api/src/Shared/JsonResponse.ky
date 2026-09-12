@@ -1,0 +1,48 @@
+// Small helpers for JSON responses. This is the SPA/REST counterpart to the shop's
+// datastar `ds_response` helpers: instead of returning HTML fragments, every handler
+// returns `application/json`. `note`/`notes` render via the generated
+// `Note__toJson`; `error` and `message` build tiny JSON objects by hand.
+import web.response;
+import web.status;
+import list;
+import string;
+import Domain.Note;
+import Shared.ApiError;
+
+// A JSON body with the correct content-type header and the given status.
+pub fn json(stat: Status, body: string): Response {
+    return response.Response(stat, body).setHeader("content-type", "application/json");
+}
+
+pub fn note(stat: Status, n: Note): Response {
+    return json(stat, Note__toJson(n));
+}
+
+// A bare JSON array of notes, `[{...},{...}]`, built from the generated per-note
+// encoder so the array shape stays in sync with the struct automatically.
+pub fn notes(ns: List<Note>): Response {
+    let sb = StringBuilder();
+    sb.append("[");
+    let i = 0;
+    while (i < ns.size()) {
+        if (i > 0) { sb.append(","); }
+        sb.append(Note__toJson(ns.at(i)));
+        i = i + 1;
+    }
+    sb.append("]");
+    return json(Status.Ok, sb.toString());
+}
+
+pub fn error(stat: Status, msg: string): Response {
+    return json(stat, "{\"error\":\"" + msg + "\"}");
+}
+
+pub fn message(stat: Status, msg: string): Response {
+    return json(stat, "{\"message\":\"" + msg + "\"}");
+}
+
+// Renders a domain ApiError as a JSON error body with its mapped status. This is the
+// single conversion point handlers use at the boundary: `run(ctx) catch (e) fromError(e)`.
+pub fn fromError(e: ApiError): Response {
+    return error(Status.fromCode(e.code()), e.message());
+}

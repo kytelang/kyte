@@ -1,0 +1,6 @@
+import assert;
+fn add(a: int, b: int): int { return a + b; }
+@test
+fn t(): void {
+    let x = add(1);
+}

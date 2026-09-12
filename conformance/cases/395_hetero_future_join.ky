@@ -1,0 +1,25 @@
+import concurrency.async_util;
+import assert;
+
+async fn dbl(n: int): int { return n * 2; }
+async fn tag(s: string): string { return s; }
+async fn neg(n: int): int { return 0 - n; }
+
+async fn drive2(): int {
+    let pair = await async_util.join2<int, string>(spawn dbl(21), spawn tag("hi"));
+    assert.equalInt(pair.0, 42);
+    assert.equalStr(pair.1, "hi");
+    return 0;
+}
+async fn drive3(): int {
+    let t = await async_util.join3<int, string, int>(spawn dbl(5), spawn tag("x"), spawn neg(7));
+    assert.equalInt(t.0, 10);
+    assert.equalStr(t.1, "x");
+    assert.equalInt(t.2, -7);
+    return 0;
+}
+
+@test
+fn join2_heterogeneous(): void { assert.equalInt(drive2(), 0); }
+@test
+fn join3_heterogeneous(): void { assert.equalInt(drive3(), 0); }

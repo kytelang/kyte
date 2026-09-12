@@ -1,0 +1,48 @@
+import assert;
+
+struct Box { pub tag: string }
+
+fn firstNonEmpty(a: string | undefined, b: string): string {
+    return a ?? b;
+}
+
+fn isDefaulted(a: Box | undefined, b: Box): bool {
+    return (a ?? b) == b;
+}
+
+fn boxOr(a: Box | undefined, b: Box): Box {
+    return a ?? b;
+}
+
+fn clampOr(v: int | undefined, d: int): int {
+    return v ?? d;
+}
+
+@test
+fn test_ref_string_nullish(): void {
+    let present: string | undefined = "hi";
+    let absent: string | undefined = undefined;
+    assert.equalStr(firstNonEmpty(present, "def"), "hi");
+    assert.equalStr(firstNonEmpty(absent, "def"), "def");
+}
+
+@test
+fn test_ref_class_nullish(): void {
+    let d = Box{ tag: "D" };
+    let present: Box | undefined = Box{ tag: "P" };
+    let absent: Box | undefined = undefined;
+    assert.isFalse(isDefaulted(present, d));
+    assert.isTrue(isDefaulted(absent, d));
+    assert.equalStr(boxOr(present, d).tag, "P");
+    assert.equalStr(boxOr(absent, d).tag, "D");
+}
+
+@test
+fn test_value_optional_nullish_fallback(): void {
+    let present: int | undefined = 7;
+    let absent: int | undefined = undefined;
+    let zero: int | undefined = 0;
+    assert.equalInt(clampOr(present, 99), 7);
+    assert.equalInt(clampOr(absent, 99), 99);
+    assert.equalInt(clampOr(zero, 99), 0);
+}

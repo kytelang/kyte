@@ -1,0 +1,19 @@
+import web.routing;
+import Features.Cart.RemoveCartItem.command;
+import Features.Cart.Shared.CartRepository;
+import Features.Cart.views.cart;
+import Domain.Contracts.cart;
+import ds_response;
+import web.response;
+
+pub struct RemoveCartItemHandler impl RouteHandler {
+    repo: CartRepository,
+    init(repo: CartRepository) { self.repo = repo; }
+    async fn serve(self: RemoveCartItemHandler, ctx: routing.Context): Response { let c = ctx.bind<RemoveCartItem>();
+        await self.repo.remove(c.cartid, c.item);
+        let lines = await self.repo.lines(c.cartid);
+        let summ = await self.repo.summary(c.cartid);
+        let s = summ.items.get(0) ?? CartSummaryDto{ itemCount: 0, subtotal: 0.0, tax: 0.0, total: 0.0 };
+        return await ds_response.patch(cart.cartView(lines.items, s));
+    }
+}

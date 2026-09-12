@@ -1,0 +1,12 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+trait G { fn v(self: G): int; }
+struct A impl G { fn v(self: A): int { return 3; } }
+struct Holder { pub g: G }
+
+@test
+fn t(): void {
+    let h = Holder{};
+    assert.equalInt(h.g.v(), 3);
+}

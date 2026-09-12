@@ -1,0 +1,65 @@
+import list;
+import assert;
+
+fn mk(s: string): string { return s + "!"; }
+
+@test
+fn test_closure_int_interp_bound_called(): void {
+    let g = (x) => `n${x}`;
+    let r = g(5);
+    assert.equalStr(r, "n5");
+}
+
+@test
+fn test_closure_string_interp_bound_called(): void {
+    let f = (s) => `<${s}>`;
+    let a = mk("x");
+    let r = f(a);
+    assert.equalStr(r, "<x!>");
+    assert.equalStr(a, "x!");
+}
+
+@test
+fn test_closure_box_and_result_released(): void {
+    let g = (x) => `v${x}`;
+    let r1 = g(1);
+    let r2 = g(2);
+    assert.equalStr(r1, "v1");
+    assert.equalStr(r2, "v2");
+}
+
+@test
+fn test_map_int_interp(): void {
+    let xs = list.List<int>();
+    xs.push(3); xs.push(7);
+    let ys = xs.map((z) => `v${z}`);
+    assert.equalStr(ys.get(0) ?? "", "v3");
+    assert.equalStr(ys.get(1) ?? "", "v7");
+}
+
+@test
+fn test_closure_called_in_nested_block(): void {
+    let g = (s) => `<${s}>`;
+    let c = 1;
+    if (c > 0) {
+        let r = g(mk("a"));
+        assert.equalStr(r, "<a!>");
+    }
+}
+
+@test
+fn test_closure_call_nested_in_args(): void {
+    let g = (s) => `<${s}>`;
+    let r = mk(g(mk("q")));
+    assert.equalStr(r, "<q!>!");
+}
+
+@test
+fn test_chained_map_owned_elements(): void {
+    let xs = list.List<int>();
+    xs.push(1); xs.push(2); xs.push(3);
+    let ys = xs.map((x) => `v${x}`).map((s) => `[${s}]`);
+    assert.equalInt(ys.size(), 3);
+    assert.equalStr(ys.get(0) ?? "", "[v1]");
+    assert.equalStr(ys.get(2) ?? "", "[v3]");
+}

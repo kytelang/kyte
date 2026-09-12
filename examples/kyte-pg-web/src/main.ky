@@ -1,0 +1,42 @@
+import web.app;
+import Shared.Db;
+import Shared.AppContext;
+import Shared.AppConfig;
+import Features.Catalog.routes;
+import Features.Cart.routes;
+import Features.Orders.routes;
+import Features.Auth.routes;
+import Features.Admin.routes;
+import Features.Ops.routes;
+import Features.Board.routes;
+
+// Build the app. `App()` loads the app's config from its manifest (app.yaml, or the orchestrator's
+// `--config` path) in the framework itself, exposed as `app.config` -- the app never loads config
+// manually and never touches an environment variable. The app only declares its own typed sections
+// (Shared/AppConfig.ky) and binds them here.
+fn buildApp(): App {
+    let app = App();
+    let dbCfg = app.config.bind<DbConfig>("db");
+
+    // Composition root: build the app-wide context once (app + db), then let each feature register its
+    // handlers and routes. A feature that needs config binds its own section from `ctx.cfg`, e.g.
+    // `ctx.cfg.bind<PaymentConfig>("payment")`.
+    let ctx = AppContext(app, Db(dbCfg.dsn, dbCfg.poolSize), app.config);
+    registerCatalog(ctx);
+    registerCart(ctx);
+    registerOrders(ctx);
+    registerAuth(ctx);
+    registerAdmin(ctx);
+    registerOps(ctx);
+    registerBoards(ctx);
+    ctx.app.useStatic("/", "./wwwroot");
+    return ctx.app;
+}
+
+fn main(): void {
+    let app = buildApp();
+    // Port is orchestrator plumbing: `--port N` per replica, else the manifest, else 8097. No env var.
+    let port = app.config.port(8097);
+    console.log("kyte sandwich shop on http://127.0.0.1:" + `${port}`);
+    app.run(port);
+}

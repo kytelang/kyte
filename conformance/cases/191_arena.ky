@@ -1,0 +1,36 @@
+import assert;
+import bytes;
+import io.arena;
+
+@test
+fn test_arena_bump_and_reset(): void {
+    let ar = arena.Arena(256);
+    let p1 = ar.alloc(10);
+    let p2 = ar.alloc(20);
+    assert.isTrue(p1 != 0);
+    assert.isTrue(p2 != 0);
+    assert.isTrue(p2 > p1);
+    assert.isTrue(p2 - p1 == 16);
+
+    bytes.write_i32(p1, 0, 111);
+    bytes.write_i32(p2, 0, 222);
+    assert.equalInt(bytes.read_i32(p1, 0) as int, 111);
+    assert.equalInt(bytes.read_i32(p2, 0) as int, 222);
+
+    ar.reset();
+    let p3 = ar.alloc(10);
+    assert.isTrue(p3 == p1);
+    ar.destroy();
+}
+
+@test
+fn test_arena_grows_past_first_block(): void {
+    let ar = arena.Arena(16);
+    assert.equalInt(ar.blockCount(), 1);
+    let a = ar.alloc(16);
+    assert.isTrue(a != 0);
+    let b = ar.alloc(8);
+    assert.isTrue(b != 0);
+    assert.isTrue(ar.blockCount() > 1);
+    ar.destroy();
+}

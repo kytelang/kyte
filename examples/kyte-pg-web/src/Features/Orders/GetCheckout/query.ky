@@ -1,0 +1,5 @@
+@serializable
+pub struct GetCheckout {
+    pub cartid: string,
+    init() { self.cartid = ""; }
+}

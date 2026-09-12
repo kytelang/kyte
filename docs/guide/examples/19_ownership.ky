@@ -1,0 +1,46 @@
+import collections.list;
+
+struct Team {
+    pub name: string,
+    pub members: List<string>,
+    init(n: string) {
+        self.name = n;
+        self.members = list.List<string>();
+    }
+    pub fn add(self: Team, who: string): void {
+        self.members.push(who);
+    }
+    pub fn roster(self: Team): string {
+        let out = self.name + ": ";
+        let i = 0;
+        while (i < self.members.size()) {
+            out = out + self.members.at(i);
+            if (i < self.members.size() - 1) { out = out + ", "; }
+            i = i + 1;
+        }
+        return out;
+    }
+}
+
+fn greet(who: string): string {
+    return `hello, ${who}`;
+}
+
+fn buildTeam(): Team {
+    let t = Team("Platform");
+    t.add("Ada");
+    t.add("Grace");
+    t.add("Alan");
+    return t;
+}
+
+fn main(): void {
+    let name = "Ada";
+    console.log(greet(name));
+    console.log(`still own name: ${name}`);
+
+    let team = buildTeam();
+    console.log(team.roster());
+    console.log(`size = ${team.members.size()}`);
+
+}

@@ -1,0 +1,36 @@
+// AppContext: the composition context, constructed once at startup and handed to
+// every feature's `register(ctx)`. It bundles the `App` being built together with
+// the app-wide shared services (the database, and later a logger, config, a
+// clock), so a feature's register takes a single argument and reads both the
+// router (`ctx.app`) and its dependencies (`ctx.db`) from it. This is the Go
+// "server struct" shape (one value holding the mux and the deps).
+//
+// It is a concrete class (a single shared instance, passed by reference),
+// deliberately NOT a trait: a trait cannot carry fields, and reaching them would
+// need an unsound downcast. Add whatever the whole app needs here and every
+// feature can use it without any register signature changing.
+//
+// Distinct from `web.routing.Context`, which is the PER-REQUEST context a handler
+// receives (`bind`/`param`/`query`); this one is app-lifetime.
+import web.app;
+import web.config;
+import Shared.Db;
+
+pub class AppContext {
+    /// The web application being configured; features register routes on it.
+    pub app: App,
+    /// The database, wrapping the shared connection pool.
+    pub db: Db,
+    /// The loaded app config (framework `web.config`, read from app.yaml). A feature binds its OWN typed
+    /// section from this, for example `ctx.cfg.bind<PaymentConfig>("payment")`, so config stays
+    /// decentralised per slice rather than living in one central struct.
+    pub cfg: AppConfig,
+    // Future shared services go here, for example:
+    //   pub logger: Logger,
+
+    init(app: App, db: Db, cfg: AppConfig) {
+        self.app = app;
+        self.db = db;
+        self.cfg = cfg;
+    }
+}

@@ -1,0 +1,44 @@
+import assert;
+
+struct Point { pub x: int, pub y: int, init(x: int, y: int) { self.x = x; self.y = y; } }
+
+@test
+fn test_closure_returns_struct_field_read(): void {
+    let make = () => { return Point(3, 4); };
+    assert.equalInt(make().x, 3);
+    assert.equalInt(make().y, 4);
+}
+
+@test
+fn test_closure_struct_bind_then_read(): void {
+    let make = () => { return Point(7, 8); };
+    let p = make();
+    assert.equalInt(p.x, 7);
+}
+
+@test
+fn test_local_ctor_inside_closure(): void {
+    let f = () => { let p = Point(5, 6); return p.x + p.y; };
+    assert.equalInt(f(), 11);
+}
+
+@test
+fn test_nested_closures_distinct_return_types(): void {
+    let outer = () => {
+        let inner = () => { return "ab"; };
+        return Point(inner().length, 0);
+    };
+    assert.equalInt(outer().x, 2);
+}
+
+@test
+fn test_closure_returns_int(): void {
+    let f = () => { return 42; };
+    assert.equalInt(f(), 42);
+}
+
+@test
+fn test_closure_returns_string(): void {
+    let f = () => { return "hi"; };
+    assert.equalStr(f(), "hi");
+}

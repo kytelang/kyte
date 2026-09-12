@@ -1,0 +1,2 @@
+@serializable
+pub struct Logout { init() { } }

@@ -1,0 +1,280 @@
+name: release
+
+# Build the 4 Kyte toolchain bundles -- macOS arm64, Linux {x86_64, arm64}, Windows x86_64 -- and publish
+# them to a GitHub Release. (macOS Intel and Windows arm64 are NOT shipped.)
+#
+# The two LINUX jobs also build and publish KYNATOR (the orchestrator: service / kynatord / kynatorctl /
+# artifactd). Kynator is Kyte code, so it needs a built `kyte` to compile -- and the coherent way to get
+# one is to reuse THIS build: `zig build archive` installs the kyte it just built into ~/.kyte, and each
+# Linux job compiles Kynator against that (same tag, no second LLVM build). The archive is built
+# ReleaseFast so this kyte is not the Debug build whose leak gate would fail `kyte build`.
+# Kynator ships Linux-only (its fd-handoff data plane is AF_UNIX/SCM_RIGHTS, a Linux/POSIX concern), so
+# there is no macOS/Windows Kynator bundle. The orchestrator repo therefore needs no release workflow of
+# its own; releasing a Kyte tag releases a matching Kynator.
+# Windows arm64 is dropped: the native `zig build` on windows-11-arm crashes with an access violation
+# (0xC0000005) in Zig 0.16's build system before Kyte ever compiles -- an upstream Zig aarch64-windows
+# issue, not a Kyte one. See lang/CLAUDE.md.
+#
+#   * -Dcpu=baseline on every archive build is REQUIRED for portability. A plain native `zig build`
+#     targets the RUNNER's CPU (GitHub's arm64 runners are Neoverse-class with SVE2/bf16/i8mm; x86_64
+#     may have AVX-512), so the shipped `kyte` compiler executable would use instructions absent on
+#     other CPUs and die with SIGILL (Illegal instruction) on first run -- e.g. it did on Apple-Silicon.
+#     baseline = the arch's baseline ISA (armv8-a / x86-64-v1); the hand-written crypto .S still calls
+#     AES/SHA/PMULL because those are gated on the RUNTIME CPU, not the compiler's -mcpu.
+#   * macOS/Linux: LLVM 21 from the OS package manager (build.zig globs the install's libLLVM*.a),
+#     pointed at via KYTE_LLVM_PREFIX, statically linked.
+#   * Windows x86_64: DYNAMIC LLVM (Chocolatey LLVM-C); the build-windows job bundles LLVM-C.dll beside
+#     kyte.exe. Windows arm64: DYNAMIC LLVM from the LLVM.org clang+llvm aarch64-windows drop (LLVM 22),
+#     built natively on a windows-11-arm runner and bundled the same way. The DLL-free static path
+#     (WIN_STATIC_LLVM_{X64,ARM64}_URL) is a later upgrade; see CLAUDE.md.
+#   * kynalyzer (the language server) IS bundled: each runner checks out the sibling `kynalyzer` repo and the
+#     archive step builds it from that source, pinned to THIS lang checkout via `-Dkyte-src`. kynalyzer is
+#     pure-Zig (no LLVM link), so it builds on every runner without extra toolchain. If the `kynalyzer` repo
+#     is private, set the `NLS_TOKEN` secret to a PAT with read access (else the checkout falls back to
+#     the workflow's GITHUB_TOKEN, which only works when kynalyzer is in the same repo/owner and permitted).
+#     To ship a kyte-only bundle, set the repo variable `SKIP_KYNALYZER=1`.
+#   * NOTE: the arm64 Linux runner is BILLED on private repos.
+#
+# Trigger: push a tag `v*`, or run manually (Actions -> release -> Run workflow) with a version.
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v0.1.0); names the archives"
+        required: true
+        default: "v0.0.0-dev"
+
+permissions:
+  contents: write
+
+env:
+  KYTE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+  # Bundle kynalyzer unless the repo variable SKIP_KYNALYZER is set to 1 (archive step reads KYTE_ARCHIVE_SKIP_KYNALYZER).
+  KYTE_ARCHIVE_SKIP_KYNALYZER: ${{ vars.SKIP_KYNALYZER || '0' }}
+
+jobs:
+  build-macos:
+    # Apple Silicon only. macOS Intel (x86_64) is not shipped.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: lang }
+      # kynalyzer (language server): checked out as a SIBLING of lang so the archive step builds it from
+      # source, version-pinned to this lang checkout via -Dkyte-src. Skipped only if SKIP_KYNALYZER=1.
+      - uses: actions/checkout@v4
+        if: ${{ vars.SKIP_KYNALYZER != '1' }}
+        with:
+          repository: kytelang/kynalyzer
+          path: kynalyzer
+          token: ${{ secrets.NLS_TOKEN || github.token }}
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - name: Install LLVM 21 (Homebrew) and point the build at it
+        run: |
+          brew install llvm@21 || brew install llvm
+          PREFIX="$(brew --prefix llvm@21 2>/dev/null || brew --prefix llvm)"
+          echo "KYTE_LLVM_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          "$PREFIX/bin/llvm-config" --version
+          # arm64 uses the vendored deps/zstd, so no Homebrew zstd is needed.
+      - name: Build archive
+        working-directory: lang
+        run: zig build archive -Doptimize=ReleaseFast -Dcpu=baseline -Dstatic-llvm=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kyte-macos-arm64
+          path: |
+            lang/zig-out/kyte-*-macos-*.tar.gz
+            lang/zig-out/kyte-*-macos-*.tar.gz.sha256
+
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ ubuntu-latest, ubuntu-24.04-arm ]   # x86_64, arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: lang }
+      # kynalyzer (language server): checked out as a SIBLING of lang so the archive step builds it from
+      # source, version-pinned to this lang checkout via -Dkyte-src. Skipped only if SKIP_KYNALYZER=1.
+      - uses: actions/checkout@v4
+        if: ${{ vars.SKIP_KYNALYZER != '1' }}
+        with:
+          repository: kytelang/kynalyzer
+          path: kynalyzer
+          token: ${{ secrets.NLS_TOKEN || github.token }}
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      - name: Install LLVM 21 (apt.llvm.org) + static-link deps, point the build at it
+        run: |
+          wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 21
+          sudo apt-get install -y llvm-21-dev libzstd-dev zlib1g-dev libxml2-dev liblzma-dev
+          echo "KYTE_LLVM_PREFIX=/usr/lib/llvm-21" >> "$GITHUB_ENV"
+          /usr/lib/llvm-21/bin/llvm-config --version
+          # apt's LLVM does not bundle libstdc++.so/libgcc_s.so (system libs); expose them under the
+          # exact names the static link expects and point KYTE_LLVM_STDCXX_DIR at them.
+          mkdir -p "$HOME/stdcxx"
+          ln -sf "$(g++ -print-file-name=libstdc++.so)" "$HOME/stdcxx/libstdc++.so"
+          ln -sf "$(gcc -print-file-name=libgcc_s.so.1)" "$HOME/stdcxx/libgcc_s.so"
+          echo "KYTE_LLVM_STDCXX_DIR=$HOME/stdcxx" >> "$GITHUB_ENV"
+      - name: Build archive
+        working-directory: lang
+        run: zig build archive -Doptimize=ReleaseFast -Dcpu=baseline -Dstatic-llvm=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kyte-linux-${{ matrix.runner }}
+          path: |
+            lang/zig-out/kyte-*-linux-*.tar.gz
+            lang/zig-out/kyte-*-linux-*.tar.gz.sha256
+
+      # ---- Kynator (the orchestrator), built with the kyte we just produced -------------------------
+      # Only the orchestrator SOURCE is checked out; the toolchain comes from the archive above. If the
+      # repo is private, KYTE_TOKEN (a PAT with read access) is used, falling back to the workflow token.
+      - name: Check out the Kynator (orchestrator) source
+        uses: actions/checkout@v4
+        with:
+          repository: kytelang/kynator
+          path: kynator
+          token: ${{ secrets.KYTE_TOKEN || github.token }}
+
+      # The archive step above ran the install step first, so THIS run's kyte is already in ~/.kyte
+      # (bin + lib + std). Reuse it -- build.sh needs only `kyte` on PATH. It must be a ReleaseFast kyte:
+      # a Debug kyte's leak gate exits 1 on every `kyte build`, which would fail build.sh (hence
+      # -Doptimize=ReleaseFast on the archive step). Kynator's core binaries import stdlib only (no novadb,
+      # no external packages); orchweb imports the vendored nova-datastar and is skipped best-effort by
+      # build.sh, so its absence does not fail the job.
+      - name: Build Kynator with the freshly built kyte
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.kyte/bin:$PATH"
+          command -v kyte >/dev/null || { echo "kyte not found in ~/.kyte/bin (archive install step did not run?)"; exit 1; }
+          kyte version || true
+          ( cd kynator && ./build.sh --release )
+          d="kynator/build/release/bin"
+          [ -d "$d" ] || { echo "no $d (orchestrator build produced no binaries)"; exit 1; }
+          arch=$(uname -m)                                   # x86_64 | aarch64 (matches the kyte asset arch)
+          base="kynator-${KYTE_VERSION}-linux-${arch}"
+          mkdir -p out
+          tar -C "$d" -czf "out/${base}.tar.gz" .
+          ( cd out && sha256sum "${base}.tar.gz" > "${base}.tar.gz.sha256" )
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kynator-linux-${{ matrix.runner }}
+          path: |
+            out/kynator-*.tar.gz
+            out/kynator-*.tar.gz.sha256
+
+  build-windows:
+    # x86_64 only. windows-arm64 is NOT shipped: the native `zig build` on windows-11-arm crashes with an
+    # access violation (0xC0000005) while evaluating build.zig -- a Zig-0.16 aarch64-windows build-system
+    # bug (zig version/env work; the Kyte compiler never even builds). Parked; needs upstream Zig or local
+    # debugging on an arm64 box, not a workflow change.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: lang }
+      # kynalyzer (language server): checked out as a SIBLING of lang so the archive step builds it from
+      # source, version-pinned to this lang checkout via -Dkyte-src. Skipped only if SKIP_KYNALYZER=1.
+      - uses: actions/checkout@v4
+        if: ${{ vars.SKIP_KYNALYZER != '1' }}
+        with:
+          repository: kytelang/kynalyzer
+          path: kynalyzer
+          token: ${{ secrets.NLS_TOKEN || github.token }}
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+      # DYNAMIC Windows build: link the LLVM C API (LLVM-C.dll) that Chocolatey ships, rather than a
+      # self-hosted static LLVM. The resulting kyte.exe needs LLVM-C.dll at run time, so the bundling step
+      # below drops that DLL next to kyte.exe inside the archive. (The DLL-free static path -- zig build
+      # archive -Dstatic-llvm=true against a prebuilt static LLVM via WIN_STATIC_LLVM_X64_URL -- is the
+      # eventual upgrade; see CLAUDE.md.)
+      - name: Install LLVM (dynamic LLVM-C)
+        shell: pwsh
+        run: |
+          function Find-Prefix {
+            if (Test-Path "C:/Program Files/LLVM/lib/LLVM-C.lib") { return "C:/Program Files/LLVM" }
+            $clang = Get-Command clang.exe -ErrorAction SilentlyContinue
+            if ($clang) {
+              $p = Split-Path (Split-Path $clang.Source)
+              if (Test-Path "$p/lib/LLVM-C.lib") { return $p }
+            }
+            return $null
+          }
+          $prefix = Find-Prefix
+          if (-not $prefix) {
+            choco install llvm --no-progress -y
+            $prefix = Find-Prefix
+            if (-not $prefix) { $prefix = "C:/Program Files/LLVM" }
+          }
+          echo "KYTE_LLVM_PREFIX=$prefix" >> $env:GITHUB_ENV
+          # The dynamic build needs exactly two files: lib/LLVM-C.lib to link kyte.exe against and
+          # bin/LLVM-C.dll to bundle for run time. Verify THOSE, not llvm-config.exe -- the official LLVM
+          # Windows distribution (and Chocolatey's package) does not ship llvm-config.exe, so calling it
+          # always fails even though the build is fine.
+          $lib = "$prefix/lib/LLVM-C.lib"; $dll = "$prefix/bin/LLVM-C.dll"
+          if (-not (Test-Path $lib)) { Write-Error "LLVM-C.lib not found at $lib"; exit 1 }
+          if (-not (Test-Path $dll)) { Write-Error "LLVM-C.dll not found at $dll"; exit 1 }
+          Write-Host "LLVM prefix=$prefix (LLVM-C.lib + LLVM-C.dll present)"
+      - name: Build archive (dynamic LLVM-C)
+        working-directory: lang
+        run: zig build archive -Doptimize=ReleaseFast -Dcpu=baseline
+      - name: Bundle LLVM-C.dll into the Windows archive
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem lang/zig-out/kyte-*-windows-*.zip | Select-Object -First 1
+          if (-not $zip) { Write-Error "no windows archive produced"; exit 1 }
+          $dll = Join-Path $env:KYTE_LLVM_PREFIX "bin/LLVM-C.dll"
+          if (-not (Test-Path $dll)) { Write-Error "LLVM-C.dll not found at $dll"; exit 1 }
+          $work = "$env:RUNNER_TEMP/zipwork"
+          Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+          Expand-Archive -Path $zip.FullName -DestinationPath $work
+          $exe = Get-ChildItem -Path $work -Recurse -Filter kyte.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "kyte.exe not found in the archive"; exit 1 }
+          Copy-Item $dll (Split-Path $exe.FullName)
+          Remove-Item $zip.FullName
+          Compress-Archive -Path (Join-Path $work '*') -DestinationPath $zip.FullName
+          # Refresh the per-file sha256 sidecar (the aggregate SHA256SUMS.txt is recomputed in the release job).
+          $sha = (Get-FileHash -Algorithm SHA256 $zip.FullName).Hash.ToLower()
+          "$sha  $($zip.Name)" | Set-Content -NoNewline -Path ($zip.FullName + ".sha256")
+          Write-Host "bundled LLVM-C.dll beside kyte.exe; sha256=$sha"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kyte-windows-x64
+          path: |
+            lang/zig-out/kyte-*-windows-*.zip
+            lang/zig-out/kyte-*-windows-*.zip.sha256
+
+  # Publish a GitHub Release ONLY on a real version tag. A manual `workflow_dispatch` run just builds
+  # and archives (the bundles are downloadable as workflow artifacts); it does not cut a release.
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [ build-macos, build-linux, build-windows ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist }
+      - name: Collect + checksums
+        run: |
+          mkdir -p out
+          find dist -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.sha256' \) -exec cp {} out/ \;
+          ( cd out && sha256sum kyte-*.tar.gz kyte-*.zip kynator-*.tar.gz 2>/dev/null > SHA256SUMS.txt || true )
+          ls -la out
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.KYTE_VERSION }}
+          name: Kyte ${{ env.KYTE_VERSION }}
+          generate_release_notes: true
+          files: |
+            out/kyte-*.tar.gz
+            out/kyte-*.tar.gz.sha256
+            out/kyte-*.zip
+            out/kyte-*.zip.sha256
+            out/kynator-*.tar.gz
+            out/kynator-*.tar.gz.sha256
+            out/SHA256SUMS.txt

@@ -1,0 +1,41 @@
+// Order mappers: Order entity -> OrderDto summary. The AutoMapper-Profile
+// stand-in for the order domain: convention copies (status, subtotal, tax) plus
+// two explicit renames (order_number -> orderNumber, total_amount -> total), the
+// ForMember equivalents. Used by the Orders, Admin, and Ops handlers; the
+// repositories return Order entities, the handlers project them for the views.
+import list;
+import string;
+import Domain.Entities.Order;
+import Domain.Contracts.orders;
+
+// Derive function for OrderDto.paid (@derive(orderPaid) on the DTO). @derive
+// resolves the function at the SPREAD CALL SITE's module, which is this mapper,
+// so it lives here rather than beside the DTO. Whole-source: it is handed the
+// Order entity and computes a value no single column carries.
+pub fn orderPaid(o: Order): bool {
+    return !string.eql(o.payment_id, "");
+}
+
+// A zero-value Order for the `?? ...` unwrap after an emptiness check; never the
+// value actually rendered.
+pub fn emptyOrder(): Order {
+    return Order{
+        id: "", user_id: "", order_number: "", status: "", subtotal: 0.0,
+        tax: 0.0, total_amount: 0.0, delivery_type: "", delivery_address: "",
+        payment_method: "", payment_id: "", notes: "", assigned_to: "", created_at: "", updated_at: "",
+    };
+}
+
+pub fn toOrderDto(o: Order): orders.OrderDto {
+    // Convention copies + @from("total_amount") + @derive(orderPaid). This uses
+    // the DIRECT spread (not mapper.mapTo): a @derive function is resolved in the
+    // module where the spread is written, and orderPaid lives here, whereas the
+    // generic mapTo expands its spread inside the mapper module and could not see
+    // it. So @derive pins the mapping to a hand-written spread by design.
+    return orders.OrderDto{ ...from(o) };
+}
+
+pub fn toOrderDtos(os: list.List<Order>): list.List<orders.OrderDto> {
+    // Collection mapping: the element mapper over the list.
+    return os.map(toOrderDto);
+}

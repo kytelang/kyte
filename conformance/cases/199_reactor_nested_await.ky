@@ -1,0 +1,46 @@
+import assert;
+import bytes;
+
+async fn leaf(): int {
+    return 7;
+}
+
+async fn middle(): int {
+    let x = await leaf();
+    return x + 100;
+}
+
+async fn topMulti(cell: long): void {
+    let y = await middle();
+    bytes.write_i32(cell, 0, y);
+}
+
+@test
+fn test_multilevel_await_on_reactor(): void {
+    let cell = bytes.alloc(8);
+    bytes.write_i32(cell, 0, -1);
+    coroStart(topMulti(cell));
+    assert.equalInt(bytes.read_i32(cell, 0) as int, 107);
+    bytes.free(cell);
+}
+
+async fn dbl(n: int): int {
+    return n * 2;
+}
+
+async fn topSpawn(cell: long): void {
+    let a = spawn dbl(10);
+    let b = spawn dbl(20);
+    let ra = await a;
+    let rb = await b;
+    bytes.write_i32(cell, 0, ra + rb);
+}
+
+@test
+fn test_spawn_await_on_reactor(): void {
+    let cell = bytes.alloc(8);
+    bytes.write_i32(cell, 0, -1);
+    coroStart(topSpawn(cell));
+    assert.equalInt(bytes.read_i32(cell, 0) as int, 60);
+    bytes.free(cell);
+}

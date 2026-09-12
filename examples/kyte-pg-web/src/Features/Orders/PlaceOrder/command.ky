@@ -1,0 +1,9 @@
+@serializable
+pub struct PlaceOrder {
+    pub name: string,
+    pub email: string,
+    pub delivery: string,
+    pub cartid: string,
+    pub uid: string,
+    init() { self.name = ""; self.email = ""; self.delivery = "pickup"; self.cartid = ""; self.uid = ""; }
+}

@@ -1,0 +1,14 @@
+// EXPECT-FAIL: typecheck
+exception BadError {
+    Oops(string),
+    Broken(int),
+}
+
+fn f(): int | BadError {
+    return BadError.Oops("boom");
+}
+
+@test
+fn t_exception_without_message(): void {
+    let x = f() catch -1;
+}

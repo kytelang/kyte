@@ -1,0 +1,37 @@
+import assert;
+
+trait Greeter {
+    fn name(self: Self): string;
+    fn greet(self: Self): string {
+        return "Hello, " + self.name();
+    }
+}
+
+struct English impl Greeter {
+    pub fn name(self: English): string { return "World"; }
+}
+
+struct Loud impl Greeter {
+    pub fn name(self: Loud): string { return "everyone"; }
+    pub fn greet(self: Loud): string { return "HEY " + self.name(); }
+}
+
+fn greetVia(g: Greeter): string {
+    return g.greet();
+}
+
+@test
+fn default_used_and_overridden(): void {
+    let e = English {};
+    assert.equalStr(e.greet(), "Hello, World");
+    let l = Loud {};
+    assert.equalStr(l.greet(), "HEY everyone");
+}
+
+@test
+fn default_through_dyn_dispatch(): void {
+    let e = English {};
+    assert.equalStr(greetVia(e), "Hello, World");
+    let l = Loud {};
+    assert.equalStr(greetVia(l), "HEY everyone");
+}

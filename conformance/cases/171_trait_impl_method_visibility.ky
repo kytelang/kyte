@@ -1,0 +1,35 @@
+
+import assert;
+
+trait Handler<TReq, TResp> {
+    fn handle(self, req: TReq): TResp;
+}
+
+struct Q { pub id: int, init() { self.id = 0; } }
+struct R { pub id: int, init() { self.id = 0; } }
+
+struct GetHandler impl Handler<Q, R> {
+    fn handle(self, req: Q): R { let r = R(); r.id = req.id + 1; return r; }
+}
+
+@test
+fn test_call_form_construction_then_let_bind(): void {
+    let h = GetHandler();
+    let q = Q(); q.id = 7;
+    let resp = h.handle(q);
+    assert.equalInt(resp.id, 8);
+}
+
+@test
+fn test_brace_form_still_works(): void {
+    let h = GetHandler{};
+    let q = Q(); q.id = 10;
+    assert.equalInt(h.handle(q).id, 11);
+}
+
+@test
+fn test_inline_call_works(): void {
+    let h = GetHandler();
+    let q = Q(); q.id = 3;
+    assert.equalInt(h.handle(q).id, 4);
+}

@@ -1,0 +1,16 @@
+import assert;
+
+@deprecated("use newSum instead")
+fn oldSum(a: int, b: int): int { return a + b; }
+
+@deprecated
+fn oldBare(): int { return 7; }
+
+fn newSum(a: int, b: int): int { return a + b; }
+
+@test
+fn deprecated_still_runs(): void {
+    assert.equalInt(oldSum(2, 3), 5);
+    assert.equalInt(oldBare(), 7);
+    assert.equalInt(newSum(2, 3), 5);
+}

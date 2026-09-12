@@ -1,0 +1,13 @@
+import web.routing;
+import Features.Auth.Logout.command;
+import Features.Auth.views.auth;
+import ds_response;
+import web.response;
+
+pub struct LogoutHandler impl RouteHandler {
+    init() { }
+    async fn serve(self: LogoutHandler, ctx: routing.Context): Response { let c = ctx.bind<Logout>();
+        let r = await ds_response.patch(auth.banner("Logged out", "See you soon.", true));
+        return r.setCookie("uid", "");
+    }
+}

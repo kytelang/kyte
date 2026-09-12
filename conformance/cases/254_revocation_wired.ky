@@ -1,0 +1,96 @@
+import crypto.tls.truststore;
+import crypto.tls.revocation;
+import crypto.x509;
+import crypto.ocsp;
+import crypto.crl;
+import bytes;
+import assert;
+
+const CERT: string = "308201a130820147a00302010202141132d0ad2cb5a5aec6d088a049552374cbbca34b300a06082a8648ce3d040302301b3119301706035504030c106e6f76612e7365727665722e74657374301e170d3236303732393133303632325a170d3336303732363133303632325a301b3119301706035504030c106e6f76612e7365727665722e746573743059301306072a8648ce3d020106082a8648ce3d03010703420004d921dfec51642932c9708bba6c381bfa3c2be73b257131e5174bd0f24731f64be497968ec1d04110412c5a84296bec7a1cc509c7c1a39b615bb1df985d2fbf73a3693067301d0603551d0e04160414826695b337da03b19b733834f0477dd3b548376a301f0603551d23041830168014826695b337da03b19b733834f0477dd3b548376a300f0603551d130101ff040530030101ff30140603551d11040d300b82096c6f63616c686f7374300a06082a8648ce3d0403020348003045022005cdb781873d82d91c39162afe7cf08981be5d25a6d068e0228b7125f52f3134022100e1656421fa188dba029990964ce2e1914a294995104592cac75024b011bc30a3";
+const PRIV: string = "accfe82d31600d5810b9984176898804a4ba458216b1ac913231be5008ca82f1";
+const CLEN: int = 421;
+
+fn hexNib(c: int): int { if (c >= 48 && c <= 57) { return c - 48; } if (c >= 97 && c <= 102) { return c - 87; } return 0; }
+fn hexBuf(hex: string): ptr {
+    let n = hex.length / 2; let b = bytes.alloc(n);
+    let i = 0; while (i < n) { bytes.write_byte(b, i, hexNib(hex[i * 2]) * 16 + hexNib(hex[i * 2 + 1])); i = i + 1; }
+    return b;
+}
+fn mkTime(): ptr {
+    let t = "20260803120000Z"; let b = bytes.alloc(15);
+    let i = 0; while (i < 15) { bytes.write_byte(b, i, t[i]); i = i + 1; }
+    return b;
+}
+fn keyHash(): ptr { let b = bytes.alloc(20); let i = 0; while (i < 20) { bytes.write_byte(b, i, 0x33); i = i + 1; } return b; }
+fn certList(cert: ptr): ptr {
+    let out = bytes.alloc(CLEN + 8);
+    bytes.write_byte(out, 0, (CLEN >> 16) & 0xff); bytes.write_byte(out, 1, (CLEN >> 8) & 0xff); bytes.write_byte(out, 2, CLEN & 0xff);
+    let i = 0; while (i < CLEN) { bytes.write_byte(out, 3 + i, bytes.read_byte(cert, i)); i = i + 1; }
+    bytes.write_byte(out, 3 + CLEN, 0); bytes.write_byte(out, 4 + CLEN, 0);
+    return out;
+}
+
+@test
+fn test_revocation_module_binds_and_verifies(): void {
+    let cert = hexBuf(CERT);
+    let key = hexBuf(PRIV);
+    let leaf = x509.parseCert(cert, CLEN);
+    assert.isTrue(leaf.ok);
+    let serial = (cert as long + leaf.serialStart) as ptr;
+
+    let good = bytes.alloc(1024);
+    let gn = ocsp.buildTestResponse(serial, leaf.serialLen, ocsp.CERT_GOOD, key, keyHash(), mkTime(), good);
+    assert.equalInt(revocation.REV_GOOD, revocation.checkOcspStapled(leaf, leaf, good, gn));
+
+    let rev = bytes.alloc(1024);
+    let rn = ocsp.buildTestResponse(serial, leaf.serialLen, ocsp.CERT_REVOKED, key, keyHash(), mkTime(), rev);
+    assert.equalInt(revocation.REV_REVOKED, revocation.checkOcspStapled(leaf, leaf, rev, rn));
+
+    let other = bytes.alloc(8); let i = 0; while (i < 8) { bytes.write_byte(other, i, 0x55); i = i + 1; }
+    let mism = bytes.alloc(1024);
+    let mn = ocsp.buildTestResponse(other, 8, ocsp.CERT_GOOD, key, keyHash(), mkTime(), mism);
+    assert.equalInt(revocation.REV_UNKNOWN, revocation.checkOcspStapled(leaf, leaf, mism, mn));
+
+    let crlR = bytes.alloc(1024);
+    let cn = crl.buildTestCrl(serial, leaf.serialLen, 1, key, mkTime(), crlR);
+    assert.equalInt(revocation.REV_REVOKED, revocation.checkCrl(leaf, leaf, crlR, cn));
+    let crlEmpty = bytes.alloc(512);
+    let en = crl.buildTestCrl(bytes.alloc(1), leaf.serialLen, 0, key, mkTime(), crlEmpty);
+    assert.equalInt(revocation.REV_GOOD, revocation.checkCrl(leaf, leaf, crlEmpty, en));
+}
+
+@test
+fn test_truststore_hard_fails_on_revoked(): void {
+    let cert = hexBuf(CERT);
+    let key = hexBuf(PRIV);
+    let leaf = x509.parseCert(cert, CLEN);
+    let serial = (cert as long + leaf.serialStart) as ptr;
+    let list = certList(cert);
+    let store = truststore.newTrustStoreDer(hexBuf(CERT), CLEN);
+    let now = 20260803120000;
+
+    assert.isTrue(store.trusts(list, CLEN + 5, "localhost", now));
+
+    let good = bytes.alloc(1024);
+    let gn = ocsp.buildTestResponse(serial, leaf.serialLen, ocsp.CERT_GOOD, key, keyHash(), mkTime(), good);
+    assert.isTrue(store.trustsNotRevoked(list, CLEN + 5, "localhost", now, good, gn, bytes.alloc(1), 0));
+
+    let rev = bytes.alloc(1024);
+    let rn = ocsp.buildTestResponse(serial, leaf.serialLen, ocsp.CERT_REVOKED, key, keyHash(), mkTime(), rev);
+    assert.isFalse(store.trustsNotRevoked(list, CLEN + 5, "localhost", now, rev, rn, bytes.alloc(1), 0));
+
+    assert.isTrue(store.trustsNotRevoked(list, CLEN + 5, "localhost", now, bytes.alloc(1), 0, bytes.alloc(1), 0));
+
+    // Fail-closed hardening: a PRESENT but unverifiable (unknown) stapled OCSP
+    // must now be REJECTED, not silently ignored. Here a response signed for a
+    // different serial verifies as REV_UNKNOWN, so a supplied-but-not-good staple
+    // fails the chain (absent evidence above still soft-passes).
+    let other = bytes.alloc(8); let oi = 0; while (oi < 8) { bytes.write_byte(other, oi, 0x55); oi = oi + 1; }
+    let mism = bytes.alloc(1024);
+    let mn = ocsp.buildTestResponse(other, 8, ocsp.CERT_GOOD, key, keyHash(), mkTime(), mism);
+    assert.isFalse(store.trustsNotRevoked(list, CLEN + 5, "localhost", now, mism, mn, bytes.alloc(1), 0));
+
+    let crlR = bytes.alloc(1024);
+    let cn = crl.buildTestCrl(serial, leaf.serialLen, 1, key, mkTime(), crlR);
+    assert.isFalse(store.trustsNotRevoked(list, CLEN + 5, "localhost", now, bytes.alloc(1), 0, crlR, cn));
+}

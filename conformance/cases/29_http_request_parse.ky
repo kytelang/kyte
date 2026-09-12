@@ -1,0 +1,38 @@
+import web.request;
+import assert;
+
+@test
+fn test_request_line_and_query() {
+    let raw = "GET /search?q=hello%20world&tag=a%2Bb HTTP/1.1\r\nHost: example.com\r\n\r\nbody";
+    let req = request.Request.fromString(raw);
+    assert.equalStr(req.method, "GET");
+    assert.equalStr(req.path, "/search");
+    assert.equalStr(req.query.get("q") ?? "", "hello world");
+    assert.equalStr(req.query.get("tag") ?? "", "a+b");
+    assert.equalStr(req.body, "body");
+}
+
+@test
+fn test_headers_case_insensitive() {
+    let raw = "POST /api HTTP/1.1\r\nContent-Type: application/json\r\nX-Token: abc123\r\n\r\n{}";
+    let req = request.Request.fromString(raw);
+    assert.equalStr(req.getHeader("content-type") ?? "", "application/json");
+    assert.equalStr(req.getHeader("X-TOKEN") ?? "", "abc123");
+    assert.equalStr(req.method, "POST");
+    assert.equalStr(req.body, "{}");
+}
+
+@test
+fn test_cookies() {
+    let raw = "GET / HTTP/1.1\r\nCookie: session=xyz; theme=dark\r\n\r\n";
+    let req = request.Request.fromString(raw);
+    assert.equalStr(req.getCookie("session") ?? "", "xyz");
+    assert.equalStr(req.getCookie("theme") ?? "", "dark");
+}
+
+@test
+fn test_no_body_no_query() {
+    let req = request.Request.fromString("GET /plain HTTP/1.1\r\n\r\n");
+    assert.equalStr(req.path, "/plain");
+    assert.equalStr(req.body, "");
+}

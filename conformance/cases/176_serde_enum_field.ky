@@ -1,0 +1,51 @@
+
+import assert;
+import serde.source;
+import serde.json;
+import data.orm;
+import data.db;
+import string;
+import list;
+
+enum Status { Active, Inactive, Pending }
+
+@serializable
+struct Account {
+    pub id: int,
+    pub status: Status,
+    pub prev: Status | undefined,
+    init() { self.id = 0; self.status = Status.Active; self.prev = undefined; }
+}
+
+@test
+fn test_bind_and_tojson_roundtrip(): void {
+    let a = Account__bind(source.fromJson("{\"id\":5,\"status\":\"Inactive\",\"prev\":\"Pending\"}"));
+    assert.equalInt(a.id, 5);
+    assert.equalStr(Status__name(a.status), "Inactive");
+    assert.equalStr(Status__name(a.prev ?? Status.Active), "Pending");
+    assert.equalStr(Account__toJson(a), "{\"id\":5,\"status\":\"Inactive\",\"prev\":\"Pending\"}");
+}
+
+@test
+fn test_optional_enum_absent_omitted(): void {
+    let a = Account__bind(source.fromJson("{\"id\":1,\"status\":\"Active\"}"));
+    assert.equalStr(Status__name(a.status), "Active");
+    assert.isTrue(a.prev == undefined);
+    assert.equalStr(Account__toJson(a), "{\"id\":1,\"status\":\"Active\"}");
+}
+
+@test
+fn test_fromName_default_is_first_variant(): void {
+    let a = Account__bind(source.fromJson("{\"id\":9,\"status\":\"Bogus\"}"));
+    assert.equalStr(Status__name(a.status), "Active");
+}
+
+@test
+fn test_write_side_enum_as_name(): void {
+    let m = Account();
+    m.id = 7; m.status = Status.Pending;
+    let ps = orm.toParams<Account>(m);
+    assert.equalInt(ps.cols.size(), 2);
+    assert.isTrue(string.eql(ps.cols.at(1), "status"));
+    assert.isTrue(string.eql(ps.vals.at(1).asText(), "Pending"));
+}

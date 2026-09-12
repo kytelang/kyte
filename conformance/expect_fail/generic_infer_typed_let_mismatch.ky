@@ -1,0 +1,10 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+fn id<T>(v: T): T { return v; }
+
+@test
+fn mismatch(): void {
+    let x: string = id(42);
+    assert.isTrue(x == "x");
+}

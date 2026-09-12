@@ -1,0 +1,43 @@
+// Auth views as NSX: login and register forms, and a small result banner.
+import str;
+
+pub fn loginForm(): Html {
+    return <div id="content" class="flex-1 overflow-y-auto p-6 max-w-sm" data-signals="{email: '', password: ''}">
+        <h1 class="text-xl font-bold text-slate-800 mb-4">Log in</h1>
+        <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+            <input data-bind="email" type="email" placeholder="Email" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <input data-bind="password" type="password" placeholder="Password" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <button class="w-full px-4 py-2.5 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700" data-on:click={"@post('/login')"}>Log in</button>
+            <p class="text-xs text-slate-400 text-center">No account? <button class="text-emerald-700" data-on:click={"@get('/register')"}>Register</button></p>
+        </div>
+    </div>;
+}
+
+pub fn registerForm(): Html {
+    return <div id="content" class="flex-1 overflow-y-auto p-6 max-w-sm" data-signals="{email: '', password: '', name: '', role: 'customer'}">
+        <h1 class="text-xl font-bold text-slate-800 mb-4">Create account</h1>
+        <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+            <input data-bind="name" placeholder="Full name" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <input data-bind="email" type="email" placeholder="Email" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <input data-bind="password" type="password" placeholder="Password" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <label class="block text-xs font-medium text-slate-500">I am registering as</label>
+            <select data-bind="role" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                <option value="customer">Customer</option>
+                <option value="kitchen">Kitchen operator</option>
+                <option value="delivery">Delivery partner</option>
+            </select>
+            <button class="w-full px-4 py-2.5 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700" data-on:click={"@post('/register')"}>Register</button>
+            <p class="text-xs text-slate-400 text-center">Have an account? <button class="text-emerald-700" data-on:click={"@get('/login')"}>Log in</button></p>
+        </div>
+    </div>;
+}
+
+pub fn banner(title: string, message: string, ok: bool): Html {
+    return <div id="content" class="flex-1 overflow-y-auto p-6 max-w-sm">
+        <div class={if (ok) "p-4 rounded-lg bg-emerald-50 text-emerald-800" else "p-4 rounded-lg bg-red-50 text-red-700"}>
+            <p class="font-semibold">{title}</p>
+            <p class="text-sm mt-1">{message}</p>
+        </div>
+        <button class="mt-4 text-sm text-emerald-700" data-on:click={"@get('/products')"}>Back to the menu</button>
+    </div>;
+}

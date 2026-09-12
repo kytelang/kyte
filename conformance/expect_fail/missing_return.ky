@@ -1,0 +1,7 @@
+// EXPECT-FAIL: typecheck
+import assert;
+fn noReturn(): int { let x = 1; }
+@test
+fn run() {
+    assert.equalInt(noReturn(), 1);
+}

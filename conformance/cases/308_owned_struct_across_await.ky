@@ -1,0 +1,87 @@
+
+import assert;
+import bytes;
+
+struct Box { pub s: string, pub v: int, init(t: string, x: int) { self.s = t; self.v = x; } }
+struct Counter { pub n: int, init(x: int) { self.n = x; } pub fn get(self: Counter): int { return self.n; } }
+
+async fn dbl(n: int): int { return n * 2; }
+
+async fn holdAcross(cell: long): void {
+    let b = Box("payload", 42);
+    let h = spawn dbl(5);
+    let r = await h;
+    let ok = if (b.v == 42) 1 else 0;
+    bytes.write_i32(cell, 0, b.v + r + ok);
+}
+
+async fn twoAwaits(cell: long): void {
+    let b = Box("aa", 10);
+    let r1 = await dbl(1);
+    let mid = b.v + r1;
+    let r2 = await dbl(2);
+    bytes.write_i32(cell, 0, b.v + mid + r2);
+}
+
+async fn methodAfter(cell: long): void {
+    let c = Counter(99);
+    let r = await dbl(3);
+    bytes.write_i32(cell, 0, c.get() + r);
+}
+
+async fn awaitInLoop(cell: long): void {
+    let b = Box("loop", 100);
+    let acc = 0;
+    let i = 0;
+    while (i < 3) {
+        let r = await dbl(i);
+        acc = acc + b.v + r;
+        i = i + 1;
+    }
+    bytes.write_i32(cell, 0, acc + b.v);
+}
+
+async fn returnAfter(): Box {
+    let b = Box("r", 7);
+    let r = await dbl(3);
+    return Box(b.s, b.v + r);
+}
+
+@test
+fn test_single_await(): void {
+    let cell = bytes.alloc(8);
+    coroStart(holdAcross(cell));
+    assert.equalInt(53, bytes.read_i32(cell, 0) as int);
+    bytes.free(cell);
+}
+
+@test
+fn test_between_two_awaits(): void {
+    let cell = bytes.alloc(8);
+    coroStart(twoAwaits(cell));
+    assert.equalInt(26, bytes.read_i32(cell, 0) as int);
+    bytes.free(cell);
+}
+
+@test
+fn test_method_receiver_after_await(): void {
+    let cell = bytes.alloc(8);
+    coroStart(methodAfter(cell));
+    assert.equalInt(105, bytes.read_i32(cell, 0) as int);
+    bytes.free(cell);
+}
+
+@test
+fn test_await_in_loop(): void {
+    let cell = bytes.alloc(8);
+    coroStart(awaitInLoop(cell));
+    assert.equalInt(406, bytes.read_i32(cell, 0) as int);
+    bytes.free(cell);
+}
+
+@test
+fn test_return_after_await(): void {
+    let bx = returnAfter();
+    assert.equalInt(13, bx.v);
+    assert.equalStr("r", bx.s);
+}

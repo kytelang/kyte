@@ -1,0 +1,53 @@
+import assert;
+import concurrency.asyncchan;
+
+trait Beh<M> {
+    fn recv(self, msg: int): int;
+}
+
+struct Cnt impl Beh<int> {
+    pub total: int,
+    init() { self.total = 0; }
+    fn recv(self: Cnt, msg: int): int { self.total = self.total + msg; return self.total; }
+}
+
+struct Cell<M> {
+    pub sig: long,
+    pub beh: Beh<M>,
+    init(beh: Beh<M>) { self.sig = asyncchan.chanNew(); self.beh = beh; }
+
+    pub async fn run(self: Cell<M>): int {
+        let v = await asyncchan.chanRecv(self.sig);
+        let r = self.beh.recv(v);
+        return r;
+    }
+}
+
+fn syncDispatch(): int {
+    let c = Cnt();
+    let cell = Cell<int>(c);
+    let r = cell.beh.recv(5);
+    let msg = `r=${r}`;
+    if (r != 5) { return -1; }
+    return c.total;
+}
+
+async fn asyncDispatch(): int {
+    let c = Cnt();
+    let cell = Cell<int>(c);
+    let f = spawn cell.run();
+    asyncchan.chanSend(cell.sig, 7);
+    let r = await f;
+    if (r != 7) { return -1; }
+    return c.total;
+}
+
+@test
+fn test_sync_generic_trait_field(): void {
+    assert.equalInt(syncDispatch(), 5);
+}
+
+@test
+fn test_async_generic_trait_field(): void {
+    assert.equalInt(asyncDispatch(), 7);
+}

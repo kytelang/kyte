@@ -1,0 +1,6 @@
+@serializable
+pub struct Login {
+    pub email: string,
+    pub password: string,
+    init() { self.email = ""; self.password = ""; }
+}

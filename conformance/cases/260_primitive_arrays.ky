@@ -1,0 +1,64 @@
+import assert;
+
+@test
+fn int_array_read_write_length(): void {
+    let a: int[4] = [10, 20, 30, 40];
+    assert.equalInt(4, a.length);
+    assert.equalInt(10, a[0]);
+    a[1] = 99;
+    a[3] = a[0] + a[1];
+    assert.equalInt(99, a[1]);
+    assert.equalInt(109, a[3]);
+}
+
+@test
+fn double_array_mutation(): void {
+    let d: double[3] = [1.5, 2.5, 3.5];
+    assert.equalInt(3, d.length);
+    d[0] = 9.25;
+    d[2] = d[0] + d[1];
+    assert.isTrue(d[0] > 9.2 && d[0] < 9.3);
+    assert.isTrue(d[2] > 11.7 && d[2] < 11.8);
+}
+
+@test
+fn array_literal_length_inferred(): void {
+    let a = [1, 2, 3, 4, 5];
+    assert.equalInt(5, a.length);
+    let sum = 0; let i = 0;
+    while (i < a.length) { sum = sum + a[i]; i = i + 1; }
+    assert.equalInt(15, sum);
+}
+
+struct Vec3 { xs: double[3] }
+
+@test
+fn array_as_struct_field(): void {
+    let v = Vec3 { xs: [1.0, 2.0, 3.0] };
+    v.xs[1] = 8.0;
+    assert.isTrue(v.xs[1] > 7.9 && v.xs[1] < 8.1);
+    assert.equalInt(3, v.xs.length);
+}
+
+fn scaleFirst(a: int[3]): int { a[0] = a[0] * 10; return a[0]; }
+
+@test
+fn array_as_param_mutation(): void {
+    let x = [5, 6, 7];
+    assert.equalInt(50, scaleFirst(x));
+}
+
+@test
+fn sized_creation_repeat_init(): void {
+    let z: double[8] = [0.0; 8];
+    assert.equalInt(8, z.length);
+    assert.isTrue(z[0] == 0.0 && z[7] == 0.0);
+    z[3] = 4.5;
+    assert.isTrue(z[3] > 4.4 && z[3] < 4.6);
+
+    let ones = [1; 100];
+    assert.equalInt(100, ones.length);
+    let sum = 0; let i = 0;
+    while (i < ones.length) { sum = sum + ones[i]; i = i + 1; }
+    assert.equalInt(100, sum);
+}

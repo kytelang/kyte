@@ -1,0 +1,29 @@
+
+import assert;
+
+@test
+fn test_i64_max(): void {
+    let x: long = 9223372036854775807;
+    assert.isTrue(x == 9223372036854775807);
+    assert.isTrue((x + 1) < 0);
+}
+
+@test
+fn test_i64_min(): void {
+    let x: long = -9223372036854775808;
+    assert.isTrue(x < 0);
+    assert.isTrue((x - 1) > 0);
+}
+
+@test
+fn test_hex_u64_mask(): void {
+    let m: ulong = 0xFFFFFFFFFFFFFFFF;
+    assert.isTrue(m != 0);
+    assert.isTrue((m + 1) == 0);
+}
+
+@test
+fn test_large_but_in_range_decimal(): void {
+    let u: ulong = 6364136223846793005;
+    assert.isTrue(u == 6364136223846793005);
+}

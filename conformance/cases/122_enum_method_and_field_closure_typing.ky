@@ -1,0 +1,53 @@
+import assert;
+import list;
+import map;
+import string;
+
+pub enum Level {
+    Low,
+    High,
+    Tagged(int),
+    pub fn label(self: Level): string {
+        switch (self) {
+            case Level.Low: { return "low"; }
+            case Level.High: { return "high"; }
+            case Level.Tagged(n): { return "tagged"; }
+        }
+        return "?";
+    }
+}
+
+fn enumMethodConcat(): string {
+    let r = Level.label(Level.High);
+    return "level=" + r;
+}
+
+struct Headers {
+    pub map: Map<string, string>,
+    init() { self.map = Map<string, string>(8, string.hash); }
+    pub fn add(self: Headers, k: string, v: string): void { self.map.set(k, v); }
+    pub fn render(self: Headers): string {
+        let lines = List<string>();
+        self.map.forEach((k, v) => { lines.push(k + "=" + v); });
+        return string.join(lines, ";");
+    }
+}
+
+@test
+fn test_enum_method_return_concats_as_string(): void {
+    assert.isTrue(string.eql(enumMethodConcat(), "level=high"));
+}
+
+@test
+fn test_enum_variant_construction_still_works(): void {
+    let d = Level.Tagged(7);
+    assert.isTrue(string.eql(Level.label(d), "tagged"));
+}
+
+@test
+fn test_field_map_closure_params_typed(): void {
+    let h = Headers();
+    h.add("a", "1");
+    let out = h.render();
+    assert.isTrue(string.eql(out, "a=1"));
+}

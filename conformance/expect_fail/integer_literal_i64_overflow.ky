@@ -1,0 +1,6 @@
+// EXPECT-FAIL: parse
+@test
+fn test_i64_overflow_literal_rejected(): void {
+    let x: long = 9999999999999999999;
+    assert.isTrue(x == x);
+}

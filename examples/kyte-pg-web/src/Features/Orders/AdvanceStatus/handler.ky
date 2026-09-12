@@ -1,0 +1,45 @@
+import web.routing;
+import string;
+import Features.Orders.AdvanceStatus.command;
+import Features.Orders.Shared.OrderRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Orders.Mappers.orderMappers;
+import Features.Orders.views.orders;
+import Features.Admin.views.admin;
+import Shared.orderstatus;
+import ds_response;
+import web.response;
+
+// Kitchen/admin/delivery action: advance an order one step IF the acting user's
+// role owns the current stage, publish the new status to the shared feed (so
+// every replica's viewer updates live), and re-render the order row for the
+// actor's console.
+pub struct AdvanceStatusHandler impl RouteHandler {
+    repo: OrderRepository,
+    auth: AuthRepository,
+    init(repo: OrderRepository, auth: AuthRepository) { self.repo = repo; self.auth = auth; }
+    async fn serve(self: AdvanceStatusHandler, ctx: routing.Context): Response { let c = ctx.bind<AdvanceStatus>();
+        let role = await self.auth.roleOf(c.uid);
+        if (string.eql(role, "")) { role = "customer"; }
+
+        let current = await self.repo.status(c.order);
+        if (string.eql(current, "")) {
+            return await ds_response.patch("<div id=\"content\" class=\"flex-1 overflow-y-auto p-6\">Unknown order.</div>");
+        }
+        // Authorisation: only the role that owns this stage (or admin) may advance.
+        if (!orderstatus.canAdvance(role, current)) {
+            let cur = await self.repo.order(c.order);
+            let co = orderMappers.toOrderDto(cur.items.get(0) ?? orderMappers.emptyOrder());
+            return await ds_response.patch(admin.orderRow(co, role));
+        }
+
+        let status = await self.repo.advanceStatus(c.order);
+        let ord = await self.repo.order(c.order);
+        let o = orderMappers.toOrderDto(ord.items.get(0) ?? orderMappers.emptyOrder());
+        // Push the new live status to the customer's My-orders / confirmation view.
+        let frag = orders.statusView(c.order, o.orderNumber, status);
+        await self.repo.publishStatus(c.order, frag);
+        // Re-render this row for the actor's own console.
+        return await ds_response.patch(admin.orderRow(o, role));
+    }
+}

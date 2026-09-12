@@ -1,0 +1,24 @@
+pub fn name(): string { return "iocp"; }
+pub const EVENT_SIZE: int = 32;
+pub const COMPLETION_BASED: bool = true;
+
+
+pub const OPEN_CREAT: int = 256;
+pub const OPEN_TRUNC: int = 512;
+pub const OPEN_APPEND: int = 8;
+pub const OPEN_NONBLOCK: int = 0;
+
+pub const MMAP_ANON: int = 0;
+
+pub const SOCKOPT_LEVEL: int = 65535;
+pub const SOCKOPT_ERROR: int = 4103;
+pub const SOCKOPT_REUSEADDR: int = 4;
+pub const SOCKOPT_REUSEPORT: int = 4;
+
+pub const STAT_MODE_OFFSET: int = 4;
+pub const DIRENT_NAME_OFFSET: int = 21;
+
+pub const ERR_AGAIN: int = 11;
+pub const ERR_INPROGRESS: int = 115;
+
+pub const ADDRINFO_ADDR_OFFSET: int = 32;

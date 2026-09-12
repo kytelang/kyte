@@ -1,0 +1,25 @@
+import assert;
+import web.response;
+import web.status;
+
+@test
+fn test_module_struct_ctor_in_closure(): void {
+    let f = () => { return response.Response(Status.Ok, "hi").body; };
+    assert.equalStr(f(), "hi");
+}
+
+@test
+fn test_module_struct_method_in_closure(): void {
+    let f = () => {
+        let r = response.Response(Status.Ok, "body");
+        r.setHeader("X-Test", "1");
+        return r.getHeader("X-Test") ?? "missing";
+    };
+    assert.equalStr(f(), "1");
+}
+
+@test
+fn test_module_fn_in_closure(): void {
+    let f = () => { return string.toUpperCase("hi"); };
+    assert.equalStr(f(), "HI");
+}

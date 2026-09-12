@@ -1,0 +1,21 @@
+import web.routing;
+import Features.Board.ReleaseOrder.command;
+import Features.Orders.Shared.OrderRepository;
+import Features.Board.Shared.render;
+import ds_response;
+import web.response;
+
+// Release an order back to the Available pool. The repository guards the update
+// by assigned_to = uid, so a member can only let go of their own claim; then the
+// board region re-renders (the order moves from "My orders" back to "Available").
+pub struct ReleaseOrderHandler impl RouteHandler {
+    orders: OrderRepository,
+    phase: string,
+    init(orders: OrderRepository, phase: string) {
+        self.orders = orders; self.phase = phase;
+    }
+    async fn serve(self: ReleaseOrderHandler, ctx: routing.Context): Response { let c = ctx.bind<ReleaseOrder>();
+        let _r = await self.orders.releaseOrder(c.order, c.uid);
+        return await ds_response.patch(await render.innerFor(self.orders, self.phase, c.uid));
+    }
+}

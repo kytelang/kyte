@@ -1,0 +1,6 @@
+{
+  "manifestsDir": ".",
+  "reconcileMs": 1000,
+  "nodeId": "shop-node-1",
+  "discoveryFile": "/tmp/shop-discovery"
+}

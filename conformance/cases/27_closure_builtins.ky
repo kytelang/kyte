@@ -1,0 +1,24 @@
+import assert;
+
+fn runInt(f: () -> int): int { return f(); }
+fn runVoid(f: () -> void): void { f(); }
+
+@test
+fn test_console_in_closure(): void {
+    runVoid(() => {
+        console.log("hello from a closure");
+    });
+    assert.isTrue(true);
+}
+
+@test
+fn test_bytes_in_closure(): void {
+    let r = runInt(() => {
+        let p = bytes.alloc(4);
+        bytes.write_byte(p, 0, 65);
+        let r = bytes.read_byte(p, 0);
+        bytes.free(p);
+        return r;
+    });
+    assert.equalInt(r, 65);
+}

@@ -1,0 +1,17 @@
+// EXPECT-FAIL: typecheck
+
+import assert;
+
+async fn fetch(): int {
+    return 42;
+}
+
+async fn caller(): int {
+    let x = fetch();
+    return x;
+}
+
+@test
+fn t_bare_async(): void {
+    assert.equalInt(caller(), 42);
+}

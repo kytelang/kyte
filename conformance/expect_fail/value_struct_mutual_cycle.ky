@@ -1,0 +1,11 @@
+// EXPECT-FAIL: typecheck
+struct A {
+    pub b: B,
+    pub x: int,
+}
+struct B {
+    pub a: A,
+    pub y: int,
+}
+@test
+fn t(): void { }

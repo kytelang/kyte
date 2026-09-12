@@ -1,0 +1,61 @@
+// AdminRepository: order and product management reads over the shared Db pool.
+// See DESIGN.md section 11.
+import list;
+import data.db;
+import data.repository;
+import Shared.Db;
+import Domain.Contracts.orders;
+import Domain.Entities.Order;
+import Domain.Entities.Product;
+import Features.Admin.Dtos.admin;
+
+pub struct AdminRepository {
+    db: Db,
+
+    init(db: Db) {
+        self.db = db;
+    }
+
+    // The full order list as Order entities; the handler maps them to OrderDtos.
+    pub async fn orders(self: AdminRepository): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let none = list.List<DbValue>();
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders ORDER BY created_at DESC LIMIT 100", none);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Loads one product as a Product entity for the edit form.
+    pub async fn product(self: AdminRepository, id: string): Rows<Product> {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(id));
+        let rows = await Repository<Product>(conn, "products").query("SELECT * FROM products WHERE id = $1::uuid", p);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Persists the edited fields of a Product entity. Hand-written UPDATE (not the
+    // generic Repository.update) because `products` has a uuid primary key that
+    // needs a ::uuid cast; the other columns bind straight from the entity.
+    pub async fn updateProduct(self: AdminRepository, p: Product): bool {
+        let conn = await self.db.pool.acquire();
+        let params = list.List<DbValue>();
+        params.push(db.dbText(p.name));
+        params.push(db.dbText(p.description));
+        params.push(db.dbDouble(p.price));
+        params.push(db.dbText(p.image_url));
+        params.push(db.dbText(p.id));
+        let r = await conn.exec("UPDATE products SET name = $1, description = $2, price = $3::numeric, image_url = $4, updated_at = now() WHERE id = $5::uuid", params);
+        self.db.pool.release(conn);
+        return r.ok() && r.rows_affected > 0;
+    }
+
+    pub async fn stats(self: AdminRepository): Rows<DashboardStatsDto> {
+        let conn = await self.db.pool.acquire();
+        let none = list.List<DbValue>();
+        let rows = await Repository<DashboardStatsDto>(conn, "orders").query("SELECT (SELECT count(*) FROM orders WHERE status IN ('pending','paid','preparing'))::int AS newOrders, (SELECT COALESCE(SUM(total_amount),0) FROM orders WHERE created_at::date = CURRENT_DATE AND status <> 'cancelled') AS revenueToday, (SELECT count(*) FROM products WHERE stock_quantity < 20)::int AS lowStock", none);
+        self.db.pool.release(conn);
+        return rows;
+    }
+}

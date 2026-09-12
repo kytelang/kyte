@@ -1,0 +1,72 @@
+import assert;
+import string;
+
+fn splitOnColon(line: string): (string, string) {
+    let idx = string.indexOf(line, ":");
+    let key = string.slice(line, 0, idx);
+    let val = string.slice(line, idx + 1, line.length);
+    return (key, val);
+}
+
+fn headAndLen(s: string): (string, int) {
+    let head = string.slice(s, 0, 3);
+    return (head, s.length);
+}
+
+@test
+fn test_two_heap_elements(): void {
+    let (k, v) = splitOnColon("Host:example.com");
+    assert.equalStr(k, "Host");
+    assert.equalStr(v, "example.com");
+}
+
+@test
+fn test_heap_and_scalar(): void {
+    let (h, n) = headAndLen("abcdef");
+    assert.equalStr(h, "abc");
+    assert.equalInt(n, 6);
+}
+
+@test
+fn test_repeated_calls_no_corruption(): void {
+    let i = 0;
+    while (i < 20) {
+        let (k, v) = splitOnColon("A:B");
+        assert.equalStr(k, "A");
+        assert.equalStr(v, "B");
+        i = i + 1;
+    }
+}
+
+
+fn splitVia(line: string): (string, string) {
+    let idx = string.indexOf(line, ":");
+    let key = string.slice(line, 0, idx);
+    let val = string.slice(line, idx + 1, line.length);
+    let t = (key, val);
+    return t;
+}
+
+@test
+fn test_return_tuple_via_local(): void {
+    let i = 0;
+    while (i < 20) {
+        let (k, v) = splitVia("Host:example.com");
+        assert.equalStr(k, "Host");
+        assert.equalStr(v, "example.com");
+        i = i + 1;
+    }
+}
+
+fn reSplit(line: string): (string, string) {
+    let (a, b) = splitVia(line);
+    let t = (b, a);
+    return t;
+}
+
+@test
+fn test_tuple_rebuilt_from_destructured(): void {
+    let (first, second) = reSplit("Host:example.com");
+    assert.equalStr(first, "example.com");
+    assert.equalStr(second, "Host");
+}

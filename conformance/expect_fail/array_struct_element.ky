@@ -1,0 +1,8 @@
+// EXPECT-FAIL: typecheck
+import assert;
+struct P { v: int }
+@test
+fn struct_array_rejected(): void {
+    let a = [P{ v: 1 }, P{ v: 2 }];
+    assert.equalInt(1, a[0].v);
+}

@@ -1,0 +1,48 @@
+// Typed, layered application settings: a YAML file bound into typed sections via
+// serde (the same binder used for request bodies), with explicit environment
+// overrides for secrets. Never put a secret in the file; leave it empty and set
+// it in the environment, registered with `fromEnv`. Distinct from the flat
+// key-value `config` stdlib module: this binds whole sections to typed structs.
+import serde.source;
+import string;
+import map;
+import env;
+import io.file;
+
+pub class Settings {
+    root: ValueSource,
+    overrides: Map<string, string>,
+
+    init(root: ValueSource) {
+        self.root = root;
+        self.overrides = Map<string, string>(16, string.hash);
+    }
+
+    // The value at dotted `path` (for example "db.dsn") comes from environment
+    // variable `envVar` when that is set, overriding the file. Chainable.
+    pub fn fromEnv(self: Settings, path: string, envVar: string): Settings {
+        let v = env.get(envVar);
+        if (!string.eql(v, "")) { self.overrides.set(path, v); }
+        return self;
+    }
+
+    // Binds config `section` to a typed struct `T`. Environment overrides
+    // registered for keys under `section.` win over the file.
+    pub fn bind<T>(self: Settings, section: string): T {
+        let base = self.root.getChild(section);
+        let ov = Map<string, string>(8, string.hash);
+        let prefix = section + ".";
+        self.overrides.forEach((k, v) => {
+            if (string.startsWith(k, prefix)) {
+                ov.set(string.slice(k, prefix.length, k.length), v);
+            }
+        });
+        return serde.bind<T>(source.CompositeSource(source.ParamSource(ov), base));
+    }
+}
+
+// Loads settings from a YAML file. A missing/empty file yields defaults + env.
+pub fn loadSettings(path: string): Settings {
+    let text = File.readText(path);
+    return Settings(source.fromYaml(text));
+}

@@ -1,0 +1,20 @@
+// RegisterValidator: FluentValidation-style checks for the Register command,
+// built on stdlib web/validation. A concrete struct (no generic Validator<T>),
+// injectable like a RequestHandler, so the handler holds it by constructor
+// injection and calls validate(cmd) before touching the database. The Rules
+// accumulator reads fluently; each failed check adds a {field, message}.
+import web.validation;
+import Features.Auth.Register.command;
+
+pub struct RegisterValidator {
+    init() {}
+
+    pub fn validate(self: RegisterValidator, c: Register): validation.ValidationResult {
+        return validation.Rules()
+            .check(validation.notEmpty(c.email),     "email",    "Email is required")
+            .check(validation.isEmail(c.email),      "email",    "Email is invalid")
+            .check(validation.notEmpty(c.name),      "name",     "Name is required")
+            .check(validation.minLen(c.password, 8), "password", "Password must be at least 8 characters")
+            .result();
+    }
+}

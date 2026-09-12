@@ -1,0 +1,6 @@
+@serializable
+pub struct ReleaseOrder {
+    pub order: string,
+    pub uid: string,
+    init() { self.order = ""; self.uid = ""; }
+}

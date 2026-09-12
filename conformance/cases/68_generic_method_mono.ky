@@ -1,0 +1,47 @@
+import assert;
+import serde.source;
+
+@serializable struct GetUser { pub id: int }
+@serializable struct AddReq { pub a: int, pub b: int }
+
+struct Reg {
+    init() {}
+    fn decode<T>(self: Reg, src: ValueSource): T {
+        return serde.bind<T>(src);
+    }
+    fn nameOf<T>(self: Reg): string {
+        return serde.typeName<T>();
+    }
+}
+
+@test
+fn test_generic_method_reifies_per_type(): void {
+    let r = Reg();
+    let u = r.decode<GetUser>(source.fromJson("{\"id\": 7}"));
+    assert.equalInt(u.id, 7);
+
+    let a = r.decode<AddReq>(source.fromJson("{\"a\": 20, \"b\": 22}"));
+    assert.equalInt(a.a, 20);
+    assert.equalInt(a.b, 22);
+}
+
+@test
+fn test_generic_method_typename(): void {
+    let r = Reg();
+    assert.equalStr(r.nameOf<GetUser>(), "GetUser");
+    assert.equalStr(r.nameOf<AddReq>(), "AddReq");
+}
+
+struct Builder {
+    init() {}
+    fn build<T>(self: Builder, base: int, src: ValueSource): int {
+        let f = (s) => serde.bind<T>(s).id + base;
+        return f(src);
+    }
+}
+
+@test
+fn test_closure_in_generic_method_reifies_t(): void {
+    let b = Builder();
+    assert.equalInt(b.build<GetUser>(100, source.fromJson("{\"id\": 7}")), 107);
+}

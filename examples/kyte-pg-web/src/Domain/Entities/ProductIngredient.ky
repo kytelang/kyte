@@ -1,0 +1,8 @@
+// Persistence entity: one row of the `product_ingredients` join table (composite
+// key product_id + ingredient_id) linking a product to its recipe quantities.
+@serializable
+pub struct ProductIngredient {
+    pub product_id: string,
+    pub ingredient_id: string,
+    pub quantity_required: double,
+}

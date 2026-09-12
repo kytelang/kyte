@@ -1,0 +1,15 @@
+// EXPECT-FAIL: typecheck
+// A struct with no explicit `init` cannot be constructed positionally: `Foo(a, b)` matches no
+// constructor. This previously fell through sema unchecked and codegen zero-inited the fields
+// (silent empty strings / 0 ints), which is exactly how the mongodb driver's SCRAM path crashed.
+// The supported form for a field-only struct is field syntax `Foo{ a: ..., b: ... }`. Sema must
+// reject the positional form fail-closed.
+import assert;
+
+struct Foo { pub a: string, pub b: string, }
+
+@test
+fn positional_no_init_rejected(): void {
+    let f = Foo("hello", "world");
+    assert.equalStr(f.a, "hello");
+}

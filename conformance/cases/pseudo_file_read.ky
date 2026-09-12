@@ -1,0 +1,18 @@
+// Regression: file.readText must read procfs/sysfs/cgroupfs pseudo-files. Those report length 0 to lseek
+// even though read() returns real bytes, so sizing the buffer from lseek used to drop the whole file and
+// return "". That silently broke kynator's cgroup CPU sampling (cpu.stat), so autoscaling never saw load.
+// Linux-only pseudo-file; off Linux the guarded path is skipped, so this case stays portable.
+import assert;
+import io.file;
+import string;
+
+@test
+fn test_readtext_reads_pseudo_file(): void {
+    let p = "/proc/self/stat";
+    if (file.File.exists(p)) {
+        let t = file.File.readText(p);
+        // A pseudo-file's lseek size is 0; the streaming fallback must still return its real content.
+        assert.isTrue(string.len(t) > 0);
+    }
+    // Off Linux (no /proc): nothing to assert; the case still compiles and exits 0.
+}

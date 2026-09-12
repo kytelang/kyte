@@ -1,0 +1,7 @@
+// EXPECT-FAIL: typecheck
+import assert;
+@test
+fn string_array_rejected(): void {
+    let a = ["x", "y"];
+    assert.equalInt(1, a.length);
+}

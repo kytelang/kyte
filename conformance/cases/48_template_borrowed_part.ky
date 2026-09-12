@@ -1,0 +1,53 @@
+import list;
+import assert;
+
+fn mk(s: string): string { return s + "!"; }
+fn wrap(s: string): string { return `<${s}>`; }
+fn wrap2(a: string, b: string): string { return `${a}|${b}`; }
+
+@test
+fn test_interpolate_parameter(): void {
+    let arg = mk("x");
+    let r = wrap(arg);
+    assert.equalStr(r, "<x!>");
+}
+
+@test
+fn test_interpolate_two_params(): void {
+    let a = mk("p");
+    let b = mk("q");
+    let r = wrap2(a, b);
+    assert.equalStr(r, "p!|q!");
+}
+
+@test
+fn test_interpolate_local_var(): void {
+    let s = mk("y");
+    let r = `[${s}]`;
+    assert.equalStr(r, "[y!]");
+    assert.equalStr(s, "y!");
+}
+
+@test
+fn test_interpolate_list_element_field(): void {
+    let xs = list.List<string>();
+    xs.push(mk("a"));
+    xs.push(mk("b"));
+    let r = `first=${xs.get(0) ?? ""}`;
+    assert.equalStr(r, "first=a!");
+    assert.equalStr(xs.get(1) ?? "", "b!");
+}
+
+@test
+fn test_interpolate_in_loop(): void {
+    let xs = list.List<string>();
+    xs.push(mk("a")); xs.push(mk("b")); xs.push(mk("c"));
+    let i = 0;
+    let last = "";
+    while (i < xs.size()) {
+        let v = xs.get(i) ?? "";
+        last = `#${v}`;
+        i = i + 1;
+    }
+    assert.equalStr(last, "#c!");
+}

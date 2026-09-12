@@ -1,0 +1,51 @@
+import assert;
+import list;
+
+struct Inner { pub items: List<string> }
+struct Outer { pub inner: Inner, pub tag: string }
+struct P { pub n: int }
+
+@test
+fn test_nested_struct_literal(): void {
+    let o = Outer{ inner: Inner{ items: List<string>() }, tag: "root" };
+    o.inner.items.push("deep");
+    o.inner.items.push("er");
+    assert.equalInt(o.inner.items.size(), 2);
+    assert.equalStr(o.inner.items.get(0), "deep");
+    assert.equalStr(o.tag, "root");
+}
+
+fn makePair(): (P, P) {
+    return (P{ n: 1 }, P{ n: 2 });
+}
+
+@test
+fn test_tuple_of_struct_literals(): void {
+    let (a, b) = makePair();
+    assert.equalInt(a.n, 1);
+    assert.equalInt(b.n, 2);
+}
+
+fn makeListPair(): (List<int>, List<string>) {
+    let xs = List<int>();
+    xs.push(7);
+    let ys = List<string>();
+    ys.push("seven");
+    return (xs, ys);
+}
+
+@test
+fn test_tuple_of_fresh_containers(): void {
+    let (xs, ys) = makeListPair();
+    assert.equalInt(xs.get(0), 7);
+    assert.equalStr(ys.get(0), "seven");
+}
+
+@test
+fn test_borrowed_element_still_retained(): void {
+    let shared = List<string>();
+    shared.push("shared");
+    let holder = Inner{ items: shared };
+    assert.equalInt(holder.items.size(), 1);
+    assert.equalStr(shared.get(0), "shared");
+}

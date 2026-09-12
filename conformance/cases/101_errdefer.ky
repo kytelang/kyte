@@ -1,0 +1,66 @@
+import list;
+import assert;
+
+enum E { Fail }
+
+fn work(fail: bool, log: List<int>): int | E {
+    log.push(10);
+    errdefer log.push(99);
+    if (fail) { return E.Fail; }
+    return 5;
+}
+
+fn outer(fail: bool, log: List<int>): int | E {
+    errdefer log.push(88);
+    let v = try work(fail, log);
+    return v + 1;
+}
+
+@test
+fn test_errdefer_fires_on_error_return(): void {
+    let log = List<int>();
+    let r = work(true, log) catch 0;
+    assert.equalInt(r, 0);
+    assert.equalInt(log.size(), 2);
+    assert.equalInt(log.get(0) ?? 0, 10);
+    assert.equalInt(log.get(1) ?? 0, 99);
+}
+
+@test
+fn test_errdefer_skipped_on_ok_return(): void {
+    let log = List<int>();
+    let r = work(false, log) catch 0;
+    assert.equalInt(r, 5);
+    assert.equalInt(log.size(), 1);
+}
+
+@test
+fn test_errdefer_fires_on_try_propagation(): void {
+    let log = List<int>();
+    let r = outer(true, log) catch 0;
+    assert.equalInt(r, 0);
+    assert.equalInt(log.size(), 3);
+    assert.equalInt(log.get(2) ?? 0, 88);
+}
+
+@test
+fn test_errdefer_skipped_on_ok_chain(): void {
+    let log = List<int>();
+    let r = outer(false, log) catch 0;
+    assert.equalInt(r, 6);
+    assert.equalInt(log.size(), 1);
+}
+
+@test
+fn test_multiple_errdefers_are_lifo(): void {
+    let log = List<int>();
+    let r = twoDefers(log) catch 0;
+    assert.equalInt(r, 0);
+    assert.equalInt(log.get(0) ?? 0, 2);
+    assert.equalInt(log.get(1) ?? 0, 1);
+}
+fn twoDefers(log: List<int>): int | E {
+    errdefer log.push(1);
+    errdefer log.push(2);
+    return E.Fail;
+}

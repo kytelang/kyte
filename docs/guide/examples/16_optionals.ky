@@ -1,0 +1,54 @@
+import collections.list;
+import collections.map;
+import string;
+
+struct User {
+    pub name: string,
+    pub age: int,
+    init(n: string, a: int) { self.name = n; self.age = a; }
+}
+
+fn findAdmin(names: List<string>): string | undefined {
+    let i = 0;
+    while (i < names.size()) {
+        let n = names.get(i) ?? "";
+        if (n == "root") { return n; }
+        i = i + 1;
+    }
+    return undefined;
+}
+
+fn main(): void {
+    let fruits = list.List<string>();
+    fruits.push("apple");
+    fruits.push("banana");
+    console.log(`fruits[0] = ${fruits.get(0) ?? "?"}`);
+    console.log(`fruits[9] = ${fruits.get(9) ?? "?"}`);
+
+    let ages = map.Map<string, int>(16, string.hash);
+    ages.set("ada", 36);
+    console.log(`ada     = ${ages.get("ada") ?? -1}`);
+    console.log(`babbage = ${ages.get("babbage") ?? -1}`);
+
+    let names = list.List<string>();
+    names.push("guest");
+    names.push("root");
+    let admin = findAdmin(names);
+    if (admin != undefined) {
+        console.log(`admin found: ${admin}`);
+    } else {
+        console.log("no admin");
+    }
+
+    let noAdmin = findAdmin(fruits);
+    if (noAdmin != undefined) {
+        console.log(`admin found: ${noAdmin}`);
+    } else {
+        console.log("no admin");
+    }
+
+    let users = map.Map<string, User>(16, string.hash);
+    users.set("ada", User("Ada", 36));
+    console.log(`ada  name = ${users.get("ada")?.name ?? "?"}`);
+    console.log(`grace name = ${users.get("grace")?.name ?? "?"}`);
+}

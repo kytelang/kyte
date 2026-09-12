@@ -1,0 +1,81 @@
+import assert;
+import string;
+import web.response;
+
+fn control(sig: string): string {
+    return <button
+        data-on-click={sig}
+        data-on-interval__duration.2s="@get('/tick')"
+        hx-get="/frag"
+        hx-target="#out"
+        :class="active"
+        @click="toggle()"
+        class="btn"
+        type="submit">Go</button>;
+}
+
+fn fieldset(childrenHtml: string): string {
+    // Embedding an already-rendered, trusted fragment: use response.raw so the child is
+    // NOT re-escaped. A plain `{childrenHtml}` is now always HTML-escaped (the XSS escaping point
+    // for interpolated text), so raw fragment composition must be explicit.
+    return <fieldset class="grp">{response.raw(childrenHtml)}</fieldset>;
+}
+
+fn boolInput(): string {
+    return <input type="text" readonly required/>;
+}
+
+@test
+fn test_hypermedia_attribute_names(): void {
+    let h = control("$open = !$open");
+    assert.isTrue(string.contains(h, "data-on-click=\"$open = !$open\""));
+    assert.isTrue(string.contains(h, "data-on-interval__duration.2s=\"@get('/tick')\""));
+    assert.isTrue(string.contains(h, "hx-get=\"/frag\""));
+    assert.isTrue(string.contains(h, "hx-target=\"#out\""));
+    assert.isTrue(string.contains(h, ":class=\"active\""));
+    assert.isTrue(string.contains(h, "@click=\"toggle()\""));
+    assert.isTrue(string.contains(h, ">Go</button>"));
+}
+
+@test
+fn test_valueless_boolean_attributes(): void {
+    let h = boolInput();
+    assert.isTrue(string.contains(h, "readonly=\"\""));
+    assert.isTrue(string.contains(h, "required=\"\""));
+    assert.isTrue(string.contains(h, "type=\"text\""));
+}
+
+@test
+fn test_raw_fragment_embedding(): void {
+    let inner = control("x") + control("y");
+    let wrapped = fieldset(inner);
+    assert.isTrue(string.contains(wrapped, "<fieldset class=\"grp\"><button"));
+    assert.isTrue(!string.contains(wrapped, "&lt;button"));
+}
+
+fn checkbox(label: string, sig: string): string {
+    return <label class="row"><input type="checkbox" data-bind={sig}/>{label}</label>;
+}
+fn section(title: string, body: string): string {
+    // title is text (escaped); body is a pre-rendered fragment (raw via response.raw).
+    return <section><h3>{title}</h3>{response.raw(body)}</section>;
+}
+
+@test
+fn test_compound_expression_child(): void {
+    let h = <div class="wrap">{response.raw(checkbox("Autoscale enabled", "auto"))}</div>;
+    assert.isTrue(string.contains(h, "Autoscale enabled"));
+    assert.isTrue(string.contains(h, "data-bind=\"auto\""));
+    assert.isTrue(!string.contains(h, "1055"));
+}
+
+@test
+fn test_nsx_element_as_concat_operand(): void {
+    let body = checkbox("First", "a") + <div class="mt-3">{response.raw(checkbox("Second", "b"))}</div>;
+    let h = section("Options", body);
+    assert.isTrue(string.contains(h, "<section><h3>Options</h3>"));
+    assert.isTrue(string.contains(h, "First"));
+    assert.isTrue(string.contains(h, "Second"));
+    assert.isTrue(string.contains(h, "class=\"mt-3\""));
+    assert.isTrue(!string.contains(h, "1055"));
+}

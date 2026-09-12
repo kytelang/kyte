@@ -1,0 +1,13 @@
+// Catalogue routes: browse products and categories.
+import Shared.AppContext;
+import Features.Catalog.Shared.CatalogRepository;
+import Features.Catalog.GetCategories.handler;
+import Features.Catalog.GetProducts.handler;
+import Features.Catalog.GetProductDetail.handler;
+
+pub fn registerCatalog(ctx: AppContext): void {
+    let repo = CatalogRepository(ctx.db);
+    ctx.app.get("/categories", GetCategoriesHandler(repo));
+    ctx.app.get("/products", GetProductsHandler(repo));
+    ctx.app.get("/products/{id}", GetProductDetailHandler(repo));
+}

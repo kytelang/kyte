@@ -1,0 +1,45 @@
+
+import assert;
+import string;
+
+@test
+fn test_values_at_and_beyond_int32(): void {
+    assert.isTrue(string.parseI64("2147483647") == 2147483647);
+    assert.isTrue(string.parseI64("2147483648") == 2147483648);
+    assert.isTrue(string.parseI64("9999999999") == 9999999999);
+    assert.isTrue(string.parseI64("1000000000000") == 1000000000000);
+}
+
+@test
+fn test_negatives_and_edges(): void {
+    assert.isTrue(string.parseI64("-5000000000") == -5000000000);
+    assert.isTrue(string.parseI64("-17") == -17);
+    assert.isTrue(string.parseI64("0") == 0);
+    assert.isTrue(string.parseI64("") == 0);
+}
+
+@test
+fn test_small_values_unchanged(): void {
+    assert.isTrue(string.parseI64("42") == 42);
+    assert.isTrue(string.parseI64("200") == 200);
+}
+
+@test
+fn test_i64_bounds_exact(): void {
+    assert.isTrue(string.parseI64("9223372036854775807") == 9223372036854775807);
+    assert.isTrue(string.parseI64("-9223372036854775808") == -9223372036854775808);
+}
+
+@test
+fn test_leading_sign_and_tail(): void {
+    assert.isTrue(string.parseI64("+7") == 7);
+    assert.isTrue(string.parseI64("12abc") == 12);
+    assert.isTrue(string.parseI64("1a2") == 1);
+    assert.isTrue(string.parseI64("-") == 0);
+}
+
+@test
+fn test_overflow_clamps_not_wraps(): void {
+    assert.isTrue(string.parseI64("99999999999999999999") == 9223372036854775807);
+    assert.isTrue(string.parseI64("-99999999999999999999") == -9223372036854775808);
+}

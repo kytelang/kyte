@@ -1,0 +1,41 @@
+
+import assert;
+import list;
+import map;
+
+@test
+fn test_present_undef_vs_absent(): void {
+    let m = Map<string, int | undefined>(8, string.hash);
+    m.set("holds_undef", undefined);
+    m.set("present", 42);
+
+    let inner_undef = m.get("holds_undef") ?? 999;
+    let inner_absent = m.get("absent") ?? 999;
+    let inner_present = m.get("present") ?? 999;
+
+    assert.equalInt(-1, inner_undef ?? -1);
+    assert.equalInt(999, inner_absent ?? -1);
+    assert.equalInt(42, inner_present ?? -1);
+}
+
+@test
+fn test_nested_get_undefined_default(): void {
+    let m = Map<string, int | undefined>(8, string.hash);
+    m.set("a", 7);
+    m.set("b", undefined);
+
+    assert.equalInt(7, (m.get("a") ?? undefined) ?? -1);
+    assert.equalInt(-1, (m.get("b") ?? undefined) ?? -1);
+    assert.equalInt(-1, (m.get("missing") ?? undefined) ?? -1);
+}
+
+@test
+fn test_list_nested_get(): void {
+    let xs = List<int | undefined>();
+    xs.push(5);
+    xs.push(undefined);
+
+    assert.equalInt(5, (xs.get(0) ?? 999) ?? -1);
+    assert.equalInt(-1, (xs.get(1) ?? 999) ?? -1);
+    assert.equalInt(999, (xs.get(9) ?? 999) ?? -1);
+}

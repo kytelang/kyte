@@ -1,0 +1,355 @@
+
+#include <cstring>
+
+extern "C" {
+long long kyte_bytes_alloc(long long size);
+const char *kyte_from_bytes(const char *c, long long len);
+void kyte_panic_cstr(const char *msg);
+}
+
+typedef unsigned __int128 kyte_u128;
+
+static const int KYTE_DEC128_BIAS = 6176;
+static const int KYTE_DEC128_MAX_DIGITS = 34;
+static const int KYTE_DEC128_MAX_BIASED = 12287;
+
+static int dec_num_digits(kyte_u128 v);
+
+static void kyte_dec128_pack(unsigned char *out, int sign, kyte_u128 coeff, int exp) {
+  int biased = exp + KYTE_DEC128_BIAS;
+  if (biased < 0) biased = 0;
+  if (biased > KYTE_DEC128_MAX_BIASED) biased = KYTE_DEC128_MAX_BIASED;
+  kyte_u128 v = coeff & ((((kyte_u128)1) << 113) - 1);
+  v |= ((kyte_u128)(biased & 0x3FFF)) << 113;
+  if (sign) v |= ((kyte_u128)1) << 127;
+  std::memcpy(out, &v, 16);
+}
+
+static long long dec_parse_bounded(const char *s, long long len) {
+  long long ptr = kyte_bytes_alloc(16);
+  unsigned char *buf = (unsigned char *)ptr;
+  if (!s || len <= 0) {
+    std::memset(buf, 0, 16);
+    kyte_dec128_pack(buf, 0, 0, 0);
+    return ptr;
+  }
+  const char *p = s;
+  const char *e_end = s + len;
+  while (p < e_end && *p == ' ') p++;
+  int sign = 0;
+  if (p < e_end && *p == '+') p++;
+  else if (p < e_end && *p == '-') { sign = 1; p++; }
+
+  kyte_u128 coeff = 0;
+  int digits = 0;
+  int frac = 0;
+  bool seen_dot = false;
+  // A literal may carry more than the 34 significant digits decimal128 can hold. The digits past the
+  // limit must ROUND the coefficient (round-half-even, matching the arithmetic path dec_round_drop),
+  // not be truncated (H4). Track the first dropped digit (round) and whether any later dropped digit is
+  // nonzero (sticky) -- the standard guard/round/sticky decision.
+  int round_digit = -1;
+  bool sticky = false;
+  for (; p < e_end; p++) {
+    char c = *p;
+    if (c == '_') continue; // digit separator (1_000_000.5m)
+    if (c == '.') { if (seen_dot) break; seen_dot = true; continue; }
+    if (c == 'e' || c == 'E') break;
+    if (c < '0' || c > '9') break;
+    int dv = c - '0';
+    if (digits < KYTE_DEC128_MAX_DIGITS) {
+      coeff = coeff * 10 + (kyte_u128)dv;
+      digits++;
+      if (seen_dot) frac++;
+    } else {
+      // Beyond 34 significant digits: this digit is dropped from the coefficient. An integer-position
+      // drop still scales the exponent up (frac--); a fractional-position drop just vanishes. Either way
+      // it feeds the rounding decision.
+      if (!seen_dot) frac--;
+      if (round_digit < 0) round_digit = dv;
+      else if (dv != 0) sticky = true;
+    }
+  }
+  int exp = -frac;
+  if (round_digit >= 0) {
+    bool round_up = false;
+    if (round_digit > 5) round_up = true;
+    else if (round_digit == 5) round_up = sticky ? true : ((coeff & 1) != 0);
+    if (round_up) {
+      coeff += 1;
+      // A carry can push the coefficient to 10^34 (35 digits); renormalise by dropping the now-trailing
+      // zero and bumping the exponent (e.g. 9.99e0 -> 1.00e1). The division is exact.
+      if (dec_num_digits(coeff) > KYTE_DEC128_MAX_DIGITS) {
+        coeff /= 10;
+        exp += 1;
+      }
+    }
+  }
+  if (p < e_end && (*p == 'e' || *p == 'E')) {
+    p++;
+    int esign = 1;
+    if (p < e_end && *p == '+') p++;
+    else if (p < e_end && *p == '-') { esign = -1; p++; }
+    int ev = 0;
+    for (; p < e_end && *p >= '0' && *p <= '9'; p++) ev = ev * 10 + (*p - '0');
+    exp += esign * ev;
+  }
+  kyte_dec128_pack(buf, sign, coeff, exp);
+  return ptr;
+}
+
+extern "C" long long kyte_decimal_from_string(const char *s) {
+  return dec_parse_bounded(s, s ? (long long)std::strlen(s) : 0);
+}
+
+extern "C" long long kyte_decimal_from_string_n(const char *s, long long len) {
+  return dec_parse_bounded(s, len);
+}
+
+extern "C" const char *kyte_decimal_to_string(long long ptr) {
+  unsigned char *buf = (unsigned char *)ptr;
+  kyte_u128 v;
+  std::memcpy(&v, buf, 16);
+  int sign = (int)(v >> 127);
+  if (((v >> 125) & 3) == 3) return kyte_from_bytes("0", 1);
+  int biased = (int)((v >> 113) & 0x3FFF);
+  kyte_u128 coeff = v & ((((kyte_u128)1) << 113) - 1);
+  int exp = biased - KYTE_DEC128_BIAS;
+
+  char digs[40];
+  int nd = 0;
+  if (coeff == 0) {
+    digs[nd++] = '0';
+  } else {
+    while (coeff > 0) { digs[nd++] = (char)('0' + (int)(coeff % 10)); coeff /= 10; }
+  }
+
+  char out[80];
+  int oi = 0;
+  if (sign && !(nd == 1 && digs[0] == '0')) out[oi++] = '-';
+  if (exp >= 0) {
+    for (int i = nd - 1; i >= 0; i--) out[oi++] = digs[i];
+    for (int i = 0; i < exp; i++) out[oi++] = '0';
+  } else {
+    int point = nd + exp;
+    if (point <= 0) {
+      out[oi++] = '0';
+      out[oi++] = '.';
+      for (int i = 0; i < -point; i++) out[oi++] = '0';
+      for (int i = nd - 1; i >= 0; i--) out[oi++] = digs[i];
+    } else {
+      int emitted = 0;
+      for (int i = nd - 1; i >= 0; i--) {
+        out[oi++] = digs[i];
+        emitted++;
+        if (emitted == point && i > 0) out[oi++] = '.';
+      }
+    }
+  }
+  out[oi] = 0;
+  return kyte_from_bytes(out, oi);
+}
+
+struct KyteDec {
+  int sign;
+  kyte_u128 coeff;
+  int exp;
+  bool special;
+};
+
+static KyteDec dec_decode(long long ptr) {
+  KyteDec d{0, 0, 0, false};
+  kyte_u128 v;
+  std::memcpy(&v, (unsigned char *)ptr, 16);
+  d.sign = (int)(v >> 127);
+  if (((v >> 125) & 3) == 3) { d.special = true; return d; }
+  int biased = (int)((v >> 113) & 0x3FFF);
+  d.coeff = v & ((((kyte_u128)1) << 113) - 1);
+  d.exp = biased - KYTE_DEC128_BIAS;
+  return d;
+}
+
+static int dec_num_digits(kyte_u128 v) {
+  int n = 0;
+  do { n++; v /= 10; } while (v > 0);
+  return n;
+}
+
+static kyte_u128 dec_pow10(int k) {
+  kyte_u128 r = 1;
+  while (k-- > 0) r *= 10;
+  return r;
+}
+
+static kyte_u128 dec_round_drop(kyte_u128 coeff, int k) {
+  if (k <= 0) return coeff;
+  if (k >= 39) return 0;
+  kyte_u128 div = dec_pow10(k);
+  kyte_u128 q = coeff / div;
+  kyte_u128 r = coeff % div;
+  kyte_u128 half = div / 2;
+  if (r > half) q += 1;
+  else if (r == half && (q & 1)) q += 1;
+  return q;
+}
+
+static long long dec_encode(KyteDec d) {
+  int nd = dec_num_digits(d.coeff);
+  if (nd > KYTE_DEC128_MAX_DIGITS) {
+    int drop = nd - KYTE_DEC128_MAX_DIGITS;
+    d.coeff = dec_round_drop(d.coeff, drop);
+    d.exp += drop;
+    if (dec_num_digits(d.coeff) > KYTE_DEC128_MAX_DIGITS) {
+      d.coeff = dec_round_drop(d.coeff, 1);
+      d.exp += 1;
+    }
+  }
+  if (d.coeff == 0) d.sign = 0;
+  long long ptr = kyte_bytes_alloc(16);
+  kyte_dec128_pack((unsigned char *)ptr, d.sign, d.coeff, d.exp);
+  return ptr;
+}
+
+static long long dec_zero() {
+  long long ptr = kyte_bytes_alloc(16);
+  kyte_dec128_pack((unsigned char *)ptr, 0, 0, 0);
+  return ptr;
+}
+
+static void dec_strip_to(KyteDec *d, int pref_exp) {
+  while (d->exp < pref_exp && d->coeff != 0 && d->coeff % 10 == 0) {
+    d->coeff /= 10;
+    d->exp += 1;
+  }
+}
+
+static void dec_align(KyteDec *a, KyteDec *b) {
+  int E = a->exp < b->exp ? a->exp : b->exp;
+  int amsd = a->exp + dec_num_digits(a->coeff);
+  int bmsd = b->exp + dec_num_digits(b->coeff);
+  int msd = amsd > bmsd ? amsd : bmsd;
+  int minE = msd - 37;
+  if (E < minE) E = minE;
+
+  if (a->exp > E) { a->coeff *= dec_pow10(a->exp - E); a->exp = E; }
+  else if (a->exp < E) { a->coeff = dec_round_drop(a->coeff, E - a->exp); a->exp = E; }
+  if (b->exp > E) { b->coeff *= dec_pow10(b->exp - E); b->exp = E; }
+  else if (b->exp < E) { b->coeff = dec_round_drop(b->coeff, E - b->exp); b->exp = E; }
+}
+
+static long long dec_add_signed(KyteDec a, KyteDec b) {
+  if (a.special || b.special) return dec_zero();
+  dec_align(&a, &b);
+  KyteDec r{0, 0, a.exp, false};
+  if (a.sign == b.sign) {
+    r.coeff = a.coeff + b.coeff;
+    r.sign = a.sign;
+  } else if (a.coeff >= b.coeff) {
+    r.coeff = a.coeff - b.coeff;
+    r.sign = a.sign;
+  } else {
+    r.coeff = b.coeff - a.coeff;
+    r.sign = b.sign;
+  }
+  return dec_encode(r);
+}
+
+extern "C" long long kyte_decimal_add(long long a, long long b) {
+  return dec_add_signed(dec_decode(a), dec_decode(b));
+}
+
+extern "C" long long kyte_decimal_sub(long long a, long long b) {
+  KyteDec bb = dec_decode(b);
+  bb.sign ^= 1;
+  return dec_add_signed(dec_decode(a), bb);
+}
+
+extern "C" long long kyte_decimal_mul(long long a, long long b) {
+  KyteDec x = dec_decode(a), y = dec_decode(b);
+  if (x.special || y.special) return dec_zero();
+
+  while (x.coeff != 0 && y.coeff != 0 &&
+         dec_num_digits(x.coeff) + dec_num_digits(y.coeff) > KYTE_DEC128_MAX_DIGITS) {
+    if (dec_num_digits(x.coeff) >= dec_num_digits(y.coeff)) { x.coeff = dec_round_drop(x.coeff, 1); x.exp += 1; }
+    else { y.coeff = dec_round_drop(y.coeff, 1); y.exp += 1; }
+  }
+  KyteDec r{x.sign ^ y.sign, x.coeff * y.coeff, x.exp + y.exp, false};
+  return dec_encode(r);
+}
+
+extern "C" long long kyte_decimal_div(long long a, long long b) {
+  KyteDec x = dec_decode(a), y = dec_decode(b);
+  if (x.special || y.special) return dec_zero();
+
+  if (y.coeff == 0) kyte_panic_cstr("decimal divide by zero");
+  if (x.coeff == 0) return dec_zero();
+
+  int P = KYTE_DEC128_MAX_DIGITS + 1 - dec_num_digits(x.coeff);
+  int maxP = 38 - dec_num_digits(x.coeff);
+  if (P < 0) P = 0;
+  if (P > maxP) P = maxP;
+  kyte_u128 num = x.coeff * dec_pow10(P);
+  kyte_u128 q = num / y.coeff;
+  kyte_u128 rem = num % y.coeff;
+  kyte_u128 twice = rem * 2;
+  if (twice > y.coeff) q += 1;
+  else if (twice == y.coeff && (q & 1)) q += 1;
+  KyteDec r{x.sign ^ y.sign, q, x.exp - y.exp - P, false};
+  dec_strip_to(&r, x.exp - y.exp);
+  return dec_encode(r);
+}
+
+extern "C" long long kyte_decimal_mod(long long a, long long b) {
+  KyteDec x = dec_decode(a), y = dec_decode(b);
+  if (x.special || y.special) return dec_zero();
+  if (y.coeff == 0) kyte_panic_cstr("decimal modulo by zero");
+  dec_align(&x, &y);
+  KyteDec r{x.sign, x.coeff % y.coeff, x.exp, false};
+  return dec_encode(r);
+}
+
+extern "C" long long kyte_decimal_from_int(long long n) {
+  int sign = 0;
+  unsigned long long mag;
+  if (n < 0) { sign = 1; mag = (unsigned long long)(-(n + 1)) + 1ULL; }
+  else mag = (unsigned long long)n;
+  KyteDec d{sign, (kyte_u128)mag, 0, false};
+  return dec_encode(d);
+}
+
+extern "C" long long kyte_decimal_to_int(long long ptr) {
+  KyteDec d = dec_decode(ptr);
+  if (d.special) return 0;
+  kyte_u128 mag = d.coeff;
+  const kyte_u128 imax = (kyte_u128)9223372036854775807ULL;
+  const kyte_u128 imin_mag = (kyte_u128)9223372036854775808ULL;
+  if (d.exp > 0) {
+    for (int i = 0; i < d.exp; i++) {
+      if (mag > imin_mag) kyte_panic_cstr("decimal to int overflow");
+      mag *= 10;
+    }
+  } else if (d.exp < 0) {
+    int k = -d.exp;
+    mag = (k >= 39) ? (kyte_u128)0 : mag / dec_pow10(k);
+  }
+  if (d.sign) {
+    if (mag > imin_mag) kyte_panic_cstr("decimal to int overflow");
+    if (mag == imin_mag) return (long long)(-9223372036854775807LL - 1);
+    return -(long long)mag;
+  }
+  if (mag > imax) kyte_panic_cstr("decimal to int overflow");
+  return (long long)mag;
+}
+
+extern "C" long long kyte_decimal_cmp(long long a, long long b) {
+  KyteDec x = dec_decode(a), y = dec_decode(b);
+  if (x.special || y.special) return 0;
+  bool xz = (x.coeff == 0), yz = (y.coeff == 0);
+  if (xz && yz) return 0;
+  int xs = xz ? 0 : (x.sign ? -1 : 1);
+  int ys = yz ? 0 : (y.sign ? -1 : 1);
+  if (xs != ys) return xs < ys ? -1 : 1;
+  dec_align(&x, &y);
+  int mag = (x.coeff < y.coeff) ? -1 : (x.coeff > y.coeff ? 1 : 0);
+  return (xs < 0) ? -mag : mag;
+}

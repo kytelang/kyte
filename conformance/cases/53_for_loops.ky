@@ -1,0 +1,114 @@
+import assert;
+import list;
+import collections.map;
+import string;
+
+@test
+fn test_range_exclusive(): void {
+    let s: int = 0;
+    for (i in 0..5) { s = s + i; }
+    assert.equalInt(s, 10);
+}
+
+@test
+fn test_range_inclusive(): void {
+    let s: int = 0;
+    for (i in 1..=5) { s = s + i; }
+    assert.equalInt(s, 15);
+}
+
+@test
+fn test_range_variable_bound(): void {
+    let n: int = 4;
+    let count: int = 0;
+    for (i in 0..n) { count = count + 1; }
+    assert.equalInt(count, 4);
+}
+
+@test
+fn test_c_style(): void {
+    let s: int = 0;
+    for (let i: int = 0; i < 5; i = i + 1) { s = s + i; }
+    assert.equalInt(s, 10);
+}
+
+@test
+fn test_break(): void {
+    let s: int = 0;
+    for (i in 0..100) {
+        if (i == 5) break;
+        s = s + i;
+    }
+    assert.equalInt(s, 10);
+}
+
+@test
+fn test_continue_runs_increment(): void {
+    let s: int = 0;
+    for (i in 0..10) {
+        if (i % 2 == 0) continue;
+        s = s + i;
+    }
+    assert.equalInt(s, 25);
+}
+
+@test
+fn test_nested(): void {
+    let s: int = 0;
+    for (i in 0..3) {
+        for (j in 0..3) { s = s + 1; }
+    }
+    assert.equalInt(s, 9);
+}
+
+@test
+fn test_collection_int(): void {
+    let xs: list.List<int> = list.List<int>();
+    xs.push(10); xs.push(20); xs.push(30);
+    let s: int = 0;
+    for (x in xs) { s = s + x; }
+    assert.equalInt(s, 60);
+}
+
+@test
+fn test_collection_string(): void {
+    let xs: list.List<string> = list.List<string>();
+    xs.push("a"); xs.push("b"); xs.push("c");
+    let out: string = "";
+    for (s in xs) { out = out + s; }
+    assert.equalStr(out, "abc");
+}
+
+@test
+fn test_collection_break_continue(): void {
+    let xs: list.List<int> = list.List<int>();
+    xs.push(1); xs.push(2); xs.push(3); xs.push(4); xs.push(5);
+    let s: int = 0;
+    for (x in xs) {
+        if (x == 4) break;
+        if (x % 2 == 0) continue;
+        s = s + x;
+    }
+    assert.equalInt(s, 4);
+}
+
+@test
+fn test_map_destructure(): void {
+    let m = map.Map<string, int>(16, string.hash);
+    m.set("a", 10); m.set("b", 20); m.set("c", 30);
+    let sum: int = 0;
+    for ((k, v) in m) { sum = sum + v; }
+    assert.equalInt(sum, 60);
+}
+
+@test
+fn test_map_break(): void {
+    let m = map.Map<string, int>(16, string.hash);
+    m.set("a", 1); m.set("b", 2); m.set("c", 3);
+    let n: int = 0;
+    for ((k, v) in m) {
+        if (n == 2) break;
+        n = n + 1;
+    }
+    assert.equalInt(n, 2);
+}

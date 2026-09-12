@@ -1,0 +1,40 @@
+import assert;
+import collections.list;
+
+struct Bag {
+    pub items: list.List<int>,
+    pub tag: int,
+    init(t: int) { self.items = list.List<int>(); self.tag = t; }
+}
+
+@test
+fn struct_list_field_copy_is_independent(): void {
+    let a = Bag(1);
+    a.items.push(10); a.items.push(20);
+    let b = a;
+    b.items.push(30);
+    b.tag = 99;
+    assert.equalInt(a.items.size(), 2);
+    assert.equalInt(b.items.size(), 3);
+    assert.equalInt(a.tag, 1);
+    assert.equalInt(b.tag, 99);
+}
+
+struct Names {
+    pub xs: list.List<string>,
+    init() { self.xs = list.List<string>(); }
+}
+@test
+fn struct_owned_container_copy_no_leak(): void {
+    let i = 0;
+    while (i < 50) {
+        let a = Names();
+        a.xs.push("alpha"); a.xs.push("beta");
+        let b = a;
+        b.xs.push("gamma");
+        assert.equalInt(a.xs.size(), 2);
+        assert.equalInt(b.xs.size(), 3);
+        i = i + 1;
+    }
+    assert.isTrue(true);
+}

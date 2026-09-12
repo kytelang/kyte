@@ -1,0 +1,71 @@
+import assert;
+
+enum Color { Red, Green, Blue }
+
+enum HttpCode { Ok = 200, NotFound = 404, Teapot = 418 }
+
+enum State { Idle, Run, Done }
+
+fn classify(c: Color): int {
+    if (c == Color.Green) { return 1; }
+    if (c == Color.Blue) { return 2; }
+    return 0;
+}
+
+fn notRed(c: Color): int {
+    if (c != Color.Red) { return 5; }
+    return 9;
+}
+
+fn code(c: HttpCode): int {
+    if (c == HttpCode.NotFound) { return 1; }
+    if (c == HttpCode.Teapot) { return 2; }
+    return 0;
+}
+
+fn turn(s: State): int {
+    switch (s) {
+        case State.Idle: { return 10; }
+        case State.Run: { return 20; }
+        case State.Done: { return 30; }
+        default: { return 40; }
+    }
+    return -1;
+}
+
+fn next(s: State): State {
+    if (s == State.Idle) { return State.Run; }
+    return State.Done;
+}
+
+fn viaLocal(c: Color): int {
+    let cur: Color = c;
+    if (cur == Color.Red) { return 100; }
+    return 200;
+}
+
+@test
+fn test_enum(): void {
+    assert.equalInt(classify(Color.Red), 0);
+    assert.equalInt(classify(Color.Green), 1);
+    assert.equalInt(classify(Color.Blue), 2);
+
+    assert.equalInt(notRed(Color.Red), 9);
+    assert.equalInt(notRed(Color.Green), 5);
+
+    assert.equalInt(code(HttpCode.Ok), 0);
+    assert.equalInt(code(HttpCode.NotFound), 1);
+    assert.equalInt(code(HttpCode.Teapot), 2);
+
+    assert.equalInt(turn(State.Idle), 10);
+    assert.equalInt(turn(State.Run), 20);
+    assert.equalInt(turn(State.Done), 30);
+
+    let n: State = next(State.Idle);
+    assert.isTrue(n == State.Run);
+    let d: State = next(State.Run);
+    assert.isTrue(d == State.Done);
+
+    assert.equalInt(viaLocal(Color.Red), 100);
+    assert.equalInt(viaLocal(Color.Blue), 200);
+}

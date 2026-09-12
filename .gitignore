@@ -1,0 +1,34 @@
+# Zig build
+zig-out/
+.zig-cache/
+zig-pkg/
+# kyte build output
+build/
+# vendored deps: keep source, ignore their build artifacts
+deps/*/build/
+deps/*/.zig-cache/
+deps/*/zig-out/
+deps/*/build_*/
+
+*.dSYM/
+*.o
+# local scratch
+my_app/
+recovered/
+.DS_Store
+*.log
+
+docs/guide/yt
+
+# Local crypto reference copy (not part of the build)
+deps/BearSSL/
+__kyte_test.exe
+__kyte_test.pdb
+*.pdb
+
+# Debug dump of the merged front-end source (KYTE_DUMP_MERGED=1); never part of the build
+merged.ky
+
+examples/kyte-pg-web/node_modules/
+# release archives are published to GitHub Releases, not kept in-tree
+dist/

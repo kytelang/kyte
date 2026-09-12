@@ -1,0 +1,37 @@
+import assert;
+import bytes;
+import net.tcp.server;
+import net.tcp.client;
+import net.tcp.stream;
+
+@test
+fn test_send_n_is_binary_safe(): void {
+    let payload = bytes.alloc(5);
+    bytes.write_byte(payload, 0, 65);
+    bytes.write_byte(payload, 1, 0);
+    bytes.write_byte(payload, 2, 66);
+    bytes.write_byte(payload, 3, 0);
+    bytes.write_byte(payload, 4, 67);
+
+    let listener = server.TcpListener.bind(54871);
+    let clientStream = client.TcpClient.connect("127.0.0.1", 54871);
+    let serverStream = listener.accept();
+
+    let sent = clientStream.writeBytes(payload, 5);
+    assert.equalInt(sent, 5);
+
+    let got = serverStream.read(64);
+    assert.equalInt(got.length, 5);
+
+    let gp = got as ptr;
+    assert.equalInt(bytes.read_byte(gp, 0), 65);
+    assert.equalInt(bytes.read_byte(gp, 1), 0);
+    assert.equalInt(bytes.read_byte(gp, 2), 66);
+    assert.equalInt(bytes.read_byte(gp, 3), 0);
+    assert.equalInt(bytes.read_byte(gp, 4), 67);
+
+    clientStream.close();
+    serverStream.close();
+    listener.close();
+    bytes.free(payload);
+}

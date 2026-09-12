@@ -1,0 +1,8 @@
+import assert;
+
+@test
+fn t(): void {
+    if (42) {
+        assert.isTrue(true);
+    }
+}

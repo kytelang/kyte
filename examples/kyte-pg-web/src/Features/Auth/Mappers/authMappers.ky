@@ -1,0 +1,14 @@
+// Auth mapper: User entity -> UserDto. The single explicit concern is that the
+// DTO OMITS password_hash (the entity's sensitive field). full_name -> fullName
+// is a convention rename. Mirrors AutoMapper CreateMap<User, UserDto>() where the
+// hash is simply never projected onto the response DTO.
+import data.mapper;
+import Domain.Entities.User;
+import Features.Auth.Dtos.user;
+
+pub fn toUserDto(u: User): UserDto {
+    // id/email/role fill by convention; fullName matches full_name. password_hash
+    // is simply not a UserDto field, so the spread never projects it: the
+    // security omission falls out of the type, no explicit exclusion needed.
+    return mapper.mapTo<UserDto, User>(u);
+}

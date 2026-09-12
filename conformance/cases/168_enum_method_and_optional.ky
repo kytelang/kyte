@@ -1,0 +1,61 @@
+
+import assert;
+import list;
+import map;
+
+enum Color {
+    Red,
+    Blue,
+    Green,
+    pub fn hex(self: Color): string {
+        switch (self) {
+            case Color.Red: { return "f00"; }
+            case Color.Blue: { return "00f"; }
+            case Color.Green: { return "0f0"; }
+        }
+        return "?";
+    }
+}
+
+fn maybe(present: bool): Color | undefined {
+    if (present) { return Color.Red; }
+    return undefined;
+}
+
+@test
+fn test_enum_instance_method_return_concats(): void {
+    let v = Color.Blue;
+    let a = v.hex();
+    assert.isTrue(string.eql("hex=" + a, "hex=00f"));
+    assert.isTrue(string.eql("inline=" + Color.Green.hex(), "inline=0f0"));
+}
+
+@test
+fn test_payloadless_enum_optional_tag0(): void {
+    let c = maybe(true) ?? Color.Green;
+    assert.isTrue(string.eql(c.hex(), "f00"));
+    let d = maybe(false) ?? Color.Green;
+    assert.isTrue(string.eql(d.hex(), "0f0"));
+}
+
+@test
+fn test_enum_optional_narrowing(): void {
+    let x = maybe(true);
+    if (x != undefined) {
+        assert.isTrue(string.eql(x.hex(), "f00"));
+    } else {
+        assert.isTrue(false);
+    }
+}
+
+@test
+fn test_enum_optional_in_containers(): void {
+    let m = Map<string, Color>(8, string.hash);
+    m.set("k", Color.Red);
+    assert.isTrue(string.eql((m.get("k") ?? Color.Green).hex(), "f00"));
+    assert.isTrue(string.eql((m.get("miss") ?? Color.Green).hex(), "0f0"));
+
+    let xs = List<Color>();
+    xs.push(Color.Red);
+    assert.isTrue(string.eql((xs.get(0) ?? Color.Green).hex(), "f00"));
+}

@@ -1,0 +1,55 @@
+import assert;
+import bytes;
+import os.sys;
+
+@test
+fn test_memchr_delimiter_scan(): void {
+    let line = bytes.alloc(9);
+    bytes.write_byte(line, 0, 72);
+    bytes.write_byte(line, 1, 111);
+    bytes.write_byte(line, 2, 115);
+    bytes.write_byte(line, 3, 116);
+    bytes.write_byte(line, 4, 58);
+    bytes.write_byte(line, 5, 32);
+    bytes.write_byte(line, 6, 120);
+    bytes.write_byte(line, 7, 13);
+    bytes.write_byte(line, 8, 10);
+
+    let colon = sys.memchr(line, 58, 9);
+    assert.isTrue(colon != 0);
+    assert.equalInt((colon - line) as int, 4);
+
+    let cr = sys.memchr(line, 13, 9);
+    assert.isTrue(cr != 0);
+    assert.equalInt((cr - line) as int, 7);
+
+    let none = sys.memchr(line, 63, 9);
+    assert.equalInt(none as int, 0);
+
+    bytes.free(line);
+}
+
+@test
+fn test_memcmp_and_memcpy(): void {
+    let a = bytes.alloc(8);
+    let b = bytes.alloc(8);
+    let i = 0;
+    while (i < 8) {
+        bytes.write_byte(a, i, (65 + i) as long);
+        bytes.write_byte(b, i, (65 + i) as long);
+        i = i + 1;
+    }
+    assert.equalInt(sys.memcmp(a, b, 8), 0);
+
+    bytes.write_byte(b, 3, 99);
+    assert.isTrue(sys.memcmp(a, b, 8) != 0);
+
+    let c = bytes.alloc(8);
+    let ret = sys.memcpy(c, a, 8);
+    assert.isTrue(ret == c);
+    assert.equalInt(sys.memcmp(a, c, 8), 0);
+
+    bytes.free(a);
+    bytes.free(b);
+    bytes.free(c);
+}

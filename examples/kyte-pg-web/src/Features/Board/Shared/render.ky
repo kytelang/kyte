@@ -1,0 +1,20 @@
+// Shared board rendering: fetch a phase's Available pool and the acting staff
+// member's claimed orders, and render the live board region (id="board-<phase>").
+// Used by the claim/release/advance handlers (immediate re-render after an action)
+// and by the SSE feed (periodic re-render as the queue changes), so all four
+// paths agree on exactly what the board region contains.
+import string;
+import Features.Orders.Shared.OrderRepository;
+import Features.Orders.Mappers.orderMappers;
+import Features.Board.views.board;
+
+pub async fn innerFor(orders: OrderRepository, phase: string, uid: string): string {
+    if (string.eql(phase, "kitchen")) {
+        let av = await orders.kitchenAvailable();
+        let mn = await orders.kitchenMine(uid);
+        return board.boardInner("kitchen", orderMappers.toOrderDtos(av.items), orderMappers.toOrderDtos(mn.items));
+    }
+    let av = await orders.deliveryAvailable();
+    let mn = await orders.deliveryMine(uid);
+    return board.boardInner("delivery", orderMappers.toOrderDtos(av.items), orderMappers.toOrderDtos(mn.items));
+}

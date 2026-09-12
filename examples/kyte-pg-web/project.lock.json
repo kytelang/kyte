@@ -1,0 +1,6 @@
+{
+  "lockfileVersion": 1,
+  "dependencies": [
+    { "url": "https://github.com/kamlesh-nb/nova-postgres", "ref": null, "resolved": null, "name": "nova-postgres" }
+  ]
+}

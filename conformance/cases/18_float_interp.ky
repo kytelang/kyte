@@ -1,0 +1,37 @@
+import assert;
+
+@test
+fn test_double_interp_whole(): void {
+    let x = 3.0;
+    assert.equalStr(`${x}`, "3");
+}
+
+@test
+fn test_double_interp_fraction(): void {
+    let x = 2.5;
+    assert.equalStr(`${x}`, "2.5");
+}
+
+@test
+fn test_double_interp_arith(): void {
+    let m = 10.0 / 4.0;
+    assert.equalStr(`val=${m}`, "val=2.5");
+}
+
+@test
+fn test_double_interp_negative(): void {
+    let x = 0.0 - 1.25;
+    assert.equalStr(`${x}`, "-1.25");
+}
+
+@test
+fn test_long_interp(): void {
+    let n: long = 5000000000;
+    assert.equalStr(`${n}`, "5000000000");
+}
+
+@test
+fn test_float_interp(): void {
+    let f: float = 1.5;
+    assert.equalStr(`${f}`, "1.5");
+}

@@ -1,0 +1,134 @@
+//! Server-side session support for the web framework: in-memory session
+//! storage with expiry, and a `RouteMiddleware` that binds each request to a
+//! session via a cookie.
+//!
+//! `SessionStore` owns the session table and is the single source of truth
+//! for creating, fetching, and expiring sessions. `SessionMiddleware` wires
+//! that store into the request pipeline: it reads (or mints) a session
+//! cookie on every request, refreshes the session's expiry, and stamps a
+//! CSRF token onto the request headers for downstream handlers to check.
+//! Sessions live only in process memory, so they do not survive a restart
+//! and are not shared across multiple server instances.
+
+import map;
+import string;
+import datetime;
+import web.routing;
+import web.response;
+
+/// A single server-side session: an opaque id, an arbitrary string-keyed
+/// data bag, and an absolute expiry timestamp.
+pub struct Session {
+    /// Unique session identifier, also used as the session cookie value.
+    pub id: string,
+    /// Arbitrary session-scoped key/value data (for example the CSRF token).
+    pub data: Map<string, string>,
+    /// Unix timestamp (seconds) after which the session is considered expired.
+    pub expiresAt: int,
+}
+
+/// In-memory table of active sessions, keyed by session id.
+pub struct SessionStore {
+    /// Live sessions, keyed by `Session.id`.
+    pub sessions: Map<string, Session>,
+    /// Seconds a session stays valid after it was created or last touched.
+    pub defaultTtl: int,
+    /// Monotonically increasing counter used to make generated session ids unique.
+    pub counter: int,
+
+    init() {
+        self.sessions = Map<string, Session>(16, string.hash);
+        self.defaultTtl = 604800;
+        self.counter = 0;
+    }
+
+    /// Creates a new session with a freshly generated id and inserts it into
+    /// the store. The id is built from the current timestamp plus an
+    /// incrementing counter, so ids stay unique even for sessions created in
+    /// the same second. Expiry is set to now plus `defaultTtl`.
+    pub fn createSession(self: SessionStore): Session {
+        self.counter = self.counter + 1;
+        let ts = datetime.now();
+        let id = `sess-${ts}-${self.counter}`;
+
+        let sess = Session{
+            id: id,
+            data: Map<string, string>(16, string.hash),
+            expiresAt: ts + self.defaultTtl,
+        };
+        self.sessions.set(id, sess);
+        return sess;
+    }
+
+    /// Looks up a session by id and, if it is still valid, slides its
+    /// expiry forward by another `defaultTtl` (a "touch on access" policy).
+    /// Returns `undefined` if the id is not known, and also returns
+    /// `undefined` (after deleting the entry) if the session has expired.
+    pub fn getSession(self: SessionStore, id: string): Session {
+        let ts = datetime.now();
+        let sess = self.sessions.get(id);
+        if (sess != undefined) {
+            if (ts > sess.expiresAt) {
+                self.sessions.delete_key(id);
+                return undefined;
+            }
+
+            sess.expiresAt = ts + self.defaultTtl;
+            return sess;
+        }
+        return undefined;
+    }
+
+    /// Removes a session from the store immediately (for example on logout).
+    /// A no-op if the id does not exist.
+    pub fn destroySession(self: SessionStore, id: string): void {
+        self.sessions.delete_key(id);
+    }
+}
+
+/// Middleware that attaches a `Session` to every request via a cookie,
+/// creating one on first visit, and stamps a per-session CSRF token onto the
+/// request headers for handlers or later middleware to validate.
+pub struct SessionMiddleware impl RouteMiddleware {
+    /// Backing session store this middleware reads and writes.
+    pub store: SessionStore,
+    /// Name of the cookie used to carry the session id (defaults to `session_id`).
+    pub cookieName: string,
+
+    init(store: SessionStore) {
+        self.store = store;
+        self.cookieName = "session_id";
+    }
+
+    /// Resolves the session for this request: reads the session cookie, and if
+    /// it is missing or invalid, mints a new session. The session id and its
+    /// CSRF token are stamped onto the request headers (`X-Session-ID`,
+    /// `X-Session-CSRF`) BEFORE the handler runs, so downstream code does not
+    /// need to know about the session store. On the way out, a freshly created
+    /// session's cookie is set on the response. Always continues the chain.
+    async fn handle(self: SessionMiddleware, ctx: routing.Context, next: routing.Chain): Response {
+        let sid = ctx.request.getCookie(self.cookieName) ?? "";
+
+        let sess = self.store.getSession(sid);
+        let isNew = false;
+        if (sess == undefined) {
+            sess = self.store.createSession();
+            isNew = true;
+        }
+
+        ctx.request.headers.set("X-Session-ID", sess.id);
+
+        let csrfToken = sess.data.get("csrf_token") ?? "";
+        if (csrfToken == "") {
+            sess.data.set("csrf_token", "csrf-" + sess.id);
+            csrfToken = "csrf-" + sess.id;
+        }
+        ctx.request.headers.set("X-Session-CSRF", csrfToken);
+
+        let res = await next.proceed(ctx);
+        if (isNew) {
+            res.setCookie(self.cookieName, sess.id);
+        }
+        return res;
+    }
+}

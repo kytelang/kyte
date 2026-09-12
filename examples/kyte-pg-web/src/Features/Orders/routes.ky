@@ -1,0 +1,23 @@
+// Orders routes: checkout, order history, status changes, and the live stream.
+import Shared.AppContext;
+import Features.Orders.Shared.OrderRepository;
+import Features.Cart.Shared.CartRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Orders.GetCheckout.handler;
+import Features.Orders.PlaceOrder.handler;
+import Features.Orders.GetOrderHistory.handler;
+import Features.Orders.GetOrder.handler;
+import Features.Orders.AdvanceStatus.handler;
+import Features.Orders.OrderEvents.sse;
+
+pub fn registerOrders(ctx: AppContext): void {
+    let orders = OrderRepository(ctx.db);
+    let cart = CartRepository(ctx.db);
+    let auth = AuthRepository(ctx.db);
+    ctx.app.get("/checkout", GetCheckoutHandler(cart));
+    ctx.app.post("/checkout", PlaceOrderHandler(orders));
+    ctx.app.get("/orders", GetOrderHistoryHandler(orders));
+    ctx.app.get("/orders/{id}", GetOrderHandler(orders));
+    ctx.app.post("/orders/advance", AdvanceStatusHandler(orders, auth));
+    ctx.app.sse("/orders/{id}/events", OrderEventsSse(orders));
+}

@@ -1,0 +1,91 @@
+//! Cross-Site Request Forgery protection middleware for the web framework.
+//!
+//! `CsrfMiddleware` implements the "double submit" pattern: the session layer
+//! is expected to place a per-session token in the `X-Session-CSRF` request
+//! header (set up elsewhere, typically from a signed session cookie), and this
+//! middleware checks that the same token is echoed back by the client on any
+//! state-changing request, either as a custom header or as a form field. Safe
+//! methods (GET, HEAD, OPTIONS) are never blocked; they only get the token
+//! mirrored onto the response so a page can pick it up for later use.
+//!
+//! Register it via `app.use` (after the session middleware). This file also
+//! carries the small `application/x-www-form-urlencoded` field reader it needs
+//! to support the form-field fallback.
+
+import web.routing;
+import web.response;
+import web.status;
+import string;
+
+/// Middleware that enforces the double-submit CSRF token pattern.
+///
+/// Requires a session layer upstream to have already put the expected token
+/// into the `X-Session-CSRF` request header; if that header is absent, this
+/// middleware treats the request as unprotected (no session to defend) and
+/// lets it through unchanged.
+pub struct CsrfMiddleware impl RouteMiddleware {
+    /// Name of the response/request header used to carry the CSRF token to
+    /// and from the client (defaults to `"X-CSRF-Token"`).
+    pub headerName: string,
+    /// Name of the form field checked as a fallback when the header is not
+    /// present on a submitted request (defaults to `"_csrf"`).
+    pub formField: string,
+
+    init() {
+        self.headerName = "X-CSRF-Token";
+        self.formField = "_csrf";
+    }
+
+    /// Validates or issues the CSRF token depending on the request method.
+    ///
+    /// For GET/HEAD/OPTIONS, runs the chain and mirrors the session's token onto
+    /// the response header so the client can read it. For other methods, compares
+    /// the session token against the client's token (from the header, or the form
+    /// field as fallback); a mismatch or missing client token short-circuits with
+    /// a `403 Forbidden` JSON error, otherwise the chain runs and the token is
+    /// echoed back on the response.
+    async fn handle(self: CsrfMiddleware, ctx: routing.Context, next: routing.Chain): Response {
+        let method = ctx.request.method;
+        if (method == "GET" || method == "HEAD" || method == "OPTIONS") {
+            let token = ctx.request.headers.get("X-Session-CSRF") ?? "";
+            let res = await next.proceed(ctx);
+            if (token != "") {
+                res.setHeader(self.headerName, token);
+            }
+            return res;
+        }
+
+        let expected = ctx.request.headers.get("X-Session-CSRF") ?? "";
+        if (expected == "") {
+            return await next.proceed(ctx);
+        }
+
+        let clientToken = ctx.request.headers.get(self.headerName) ?? getFormField(ctx.request.body, self.formField);
+        if (clientToken == "" || clientToken != expected) {
+            return response.Response(Status.Forbidden, "{\"error\":\"CSRF token validation failed\"}");
+        }
+
+        let res = await next.proceed(ctx);
+        res.setHeader(self.headerName, expected);
+        return res;
+    }
+}
+
+// Scans an `application/x-www-form-urlencoded` body for `name` and returns its value, or "" if absent or the body is empty.
+fn getFormField(body: string, name: string): string {
+    if (body.length == 0) return "";
+    let pairs = string.split(body, "&");
+    let i = 0;
+    while (i < pairs.size()) {
+        let pair = pairs.at(i);
+        let eq = string.indexOf(pair, "=");
+        if (eq != -1) {
+            let key = string.slice(pair, 0, eq);
+            if (key == name) {
+                return string.slice(pair, eq + 1, pair.length);
+            }
+        }
+        i = i + 1;
+    }
+    return "";
+}

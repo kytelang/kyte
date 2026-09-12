@@ -1,0 +1,33 @@
+import serde.bson;
+import list;
+import assert;
+
+fn doc(): bson.BsonDocument {
+    return bson.BsonDocument{ entries: list.List<bson.BsonEntry>() };
+}
+
+@test
+fn test_bson_binary_roundtrip(): void {
+    let d = doc();
+    d.entries.push(bson.entryString("mechanism", "SCRAM-SHA-256"));
+    d.entries.push(bson.entryBinary("payload", "n,,n=user,r=abc"));
+    let wire: string = bson.serialize(d) as string;
+    let back = bson.deserialize(wire as ptr);
+    assert.equalStr(bson.docGetString(back, bson.docFind(back, "mechanism")), "SCRAM-SHA-256");
+    assert.equalStr(bson.docGetBinary(back, bson.docFind(back, "payload")), "n,,n=user,r=abc");
+}
+
+@test
+fn test_bson_embedded_doc(): void {
+    let filter = doc();
+    filter.entries.push(bson.entryString("name", "ada"));
+    let cmd = doc();
+    cmd.entries.push(bson.entryString("find", "users"));
+    cmd.entries.push(bson.entryDoc("filter", bson.serialize(filter)));
+
+    let wire: string = bson.serialize(cmd) as string;
+    let back = bson.deserialize(wire as ptr);
+    assert.equalStr(bson.docGetString(back, bson.docFind(back, "find")), "users");
+    let inner = bson.deserialize(bson.docGetDoc(back, bson.docFind(back, "filter")) as ptr);
+    assert.equalStr(bson.docGetString(inner, bson.docFind(inner, "name")), "ada");
+}

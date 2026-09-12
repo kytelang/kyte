@@ -1,0 +1,470 @@
+//! Schema migrations and a fluent DDL builder for the `data` package.
+//!
+//! This module gives a Kyte application a small, explicit way to evolve a
+//! database schema over time. A migration is an ordered pair of SQL scripts: an
+//! `up` that moves the schema forward (create a table, add a column) and a
+//! `down` that undoes exactly that step. The set of migrations that have already
+//! run is remembered in a dedicated tracking table inside the SAME database, so
+//! the record of "how far this database has been migrated" travels with the data
+//! itself rather than living in a separate file or in application memory.
+//!
+//! ## How the version bookkeeping works
+//!
+//! Every migration carries a `version`, a caller-chosen monotonic number
+//! (conventionally a timestamp or a simple counter). The tracking table
+//! [`TRACKING_TABLE`] stores one row per applied migration, keyed by that
+//! version. [`currentVersion`] reads the highest recorded version, and that
+//! single number is the whole state of the world: [`migrate`] applies every
+//! migration whose version is strictly greater than it, and [`rollbackTo`]
+//! reverses every migration whose version is above a target. There is no
+//! checksum and no name comparison, so versions must be assigned once and never
+//! renumbered, and a version must map to the same `up`/`down` for the life of
+//! the database.
+//!
+//! ## Ordering and direction
+//!
+//! Both runners sort the supplied migrations by version first ([`sortByVersion`])
+//! so the caller may pass them in any order. [`migrate`] walks the sorted list
+//! low to high and applies pending steps forward; [`rollbackTo`] walks it high to
+//! low and applies `down` scripts in reverse, which is the only correct order
+//! when later steps depend on earlier ones. Each applied or reversed step is
+//! recorded or forgotten in the tracking table in the same transaction-less
+//! sequence of `exec` calls the migration issues.
+//!
+//! ## The DDL builder
+//!
+//! Writing `CREATE TABLE` SQL by hand is where migration scripts pick up typos
+//! and dialect drift, so [`Table`] offers a chainable builder that assembles a
+//! column and constraint list and renders it to a single statement. It is a
+//! convenience for authoring the `up` string of a migration; it does not run
+//! anything itself.
+//!
+//! The SQL emitted here is written to be portable across the drivers the `data`
+//! package speaks to (`BIGINT`, `TEXT`, standard `PRIMARY KEY`/`FOREIGN KEY`/
+//! `UNIQUE` clauses) and uses positional `$1`, `$2` placeholders for the
+//! tracking-table writes, matching the binding convention of the [`db`] interface.
+
+import string;
+import list;
+import data.db;
+
+/// One reversible schema change: a version, a human label, and its two SQL
+/// scripts.
+///
+/// A `Migration` is a plain value record. `up` is the SQL that moves the schema
+/// forward and `down` is the SQL that exactly undoes it; the framework never
+/// generates one from the other, so a wrong or empty `down` will silently fail
+/// to reverse the step. `version` is the ordering and identity key used
+/// throughout this module (see [`currentVersion`], [`migrate`], [`rollbackTo`]);
+/// `name` is stored only for readability in the tracking table.
+pub struct Migration {
+    /// Monotonic ordering and identity key. Steps run in ascending order and a
+    /// version is applied only if it exceeds the recorded [`currentVersion`].
+    pub version: long,
+    /// Human-readable label, stored in the tracking table for diagnostics. It
+    /// plays no part in ordering or in deciding whether a step has run.
+    pub name: string,
+    /// SQL that moves the schema forward, executed by [`migrate`].
+    pub up: string,
+    /// SQL that reverses this exact step, executed by [`rollbackTo`]. The author
+    /// is responsible for making it the true inverse of `up`.
+    pub down: string,
+    /// Builds a migration from its four fields verbatim.
+    init(version: long, name: string, up: string, down: string) {
+        self.version = version; self.name = name; self.up = up; self.down = down;
+    }
+}
+/// Convenience constructor for a [`Migration`], for callers who prefer a
+/// free function over the initialiser.
+pub fn migration(version: long, name: string, up: string, down: string): Migration {
+    return Migration(version, name, up, down);
+}
+
+/// The outcome of a [`run`] (or [`applyPending`]) call: how many steps were
+/// applied this time and, if a step failed, why.
+///
+/// `applied` counts the migrations whose `up` and ledger write both committed on
+/// this call, so a clean re-run of an up-to-date database yields `applied == 0`
+/// and an empty `err`. `err` is empty on success and otherwise carries the
+/// failing migration's version, name, and the driver's message. This is the
+/// value a `--migrate` app mode inspects to choose its process exit code, which
+/// is in turn what the orchestrator gates the rollout on.
+pub struct MigrateReport {
+    /// Number of migrations applied on this call (0 when already up to date).
+    pub applied: int,
+    /// Empty on success; the failure reason otherwise.
+    pub err: string,
+    init(applied: int, err: string) { self.applied = applied; self.err = err; }
+    /// True when the run applied every pending step without error.
+    pub fn ok(self: MigrateReport): bool { return self.err.length == 0; }
+}
+
+/// Name of the single-row table used to serialise concurrent migration runners.
+///
+/// See [`tryLock`]. It lives in the application's own database alongside
+/// [`TRACKING_TABLE`]. A crashed migrator can leave its row behind (there is no
+/// automatic lease expiry); clearing it is a manual `DELETE FROM
+/// schema_migrations_lock` or a call to [`unlock`].
+pub const LOCK_TABLE: string = "schema_migrations_lock";
+/// SQL that creates the lock table if absent. The `id` primary key is what makes
+/// a second concurrent [`tryLock`] insert fail, which is the whole mechanism.
+fn createLockTableSql(): string { return "CREATE TABLE IF NOT EXISTS " + LOCK_TABLE + " (id INT PRIMARY KEY)"; }
+
+/// Attempts to claim the exclusive migration lock; returns whether this caller
+/// now holds it.
+///
+/// The lock is a single fixed row (`id = 1`) in [`LOCK_TABLE`]. Claiming it is a
+/// plain `INSERT`, and the table's PRIMARY KEY means that when two runners race,
+/// exactly one insert succeeds and the other comes back as a unique-key
+/// violation. That makes the mechanism portable across every driver the `data`
+/// package speaks to, with no dialect-specific advisory-lock call
+/// (`pg_advisory_lock`, `GET_LOCK`, `sp_getapplock`) required. A non-violation
+/// error (for example a lost connection) is also reported as "not acquired" so
+/// the caller never proceeds to migrate on a broken connection. Release with
+/// [`unlock`].
+pub async fn tryLock(conn: db.Connection): bool {
+    let c = await conn.exec(createLockTableSql(), list.List<db.DbValue>());
+    let claim = list.List<db.DbValue>();
+    claim.push(db.dbLong(1));
+    let r = await conn.exec("INSERT INTO " + LOCK_TABLE + " (id) VALUES ($1)", claim);
+    return r.ok();
+}
+
+/// Releases the migration lock claimed by [`tryLock`] by deleting its row. Safe
+/// to call when the lock is not held (the delete simply affects no rows).
+pub async fn unlock(conn: db.Connection): void {
+    let r = await conn.exec("DELETE FROM " + LOCK_TABLE + " WHERE id = 1", list.List<db.DbValue>());
+}
+
+/// Name of the table that records which migrations have been applied.
+///
+/// It lives inside the application's own database. Every SQL statement in this
+/// module that touches migration state ([`createTrackingTableSql`],
+/// [`recordSql`], [`forgetSql`], [`currentVersion`]) references this one name,
+/// so changing it would orphan an existing history.
+pub const TRACKING_TABLE: string = "schema_migrations";
+
+/// SQL that creates the tracking table if it is not already present.
+///
+/// [`migrate`] runs this first so a brand-new database can be migrated without a
+/// separate setup step. `IF NOT EXISTS` makes it safe to run on every migrate.
+/// The schema is deliberately minimal: `version` as the `BIGINT` primary key and
+/// a non-null `name`.
+pub fn createTrackingTableSql(): string {
+    return "CREATE TABLE IF NOT EXISTS " + TRACKING_TABLE + " (version BIGINT PRIMARY KEY, name TEXT NOT NULL)";
+}
+/// SQL that records an applied migration, with `$1`, `$2` bound to version and
+/// name. Used by [`migrate`] immediately after a successful `up`.
+fn recordSql(): string { return "INSERT INTO " + TRACKING_TABLE + " (version, name) VALUES ($1, $2)"; }
+/// SQL that removes a migration's record, with `$1` bound to its version. Used by
+/// [`rollbackTo`] after a successful `down` so the step counts as unapplied.
+fn forgetSql(): string { return "DELETE FROM " + TRACKING_TABLE + " WHERE version = $1"; }
+
+/// Returns a new list holding the migrations sorted by ascending version.
+///
+/// This lets callers pass migrations in any order while both runners still see a
+/// deterministic sequence. It copies the input into a fresh list and does an
+/// in-place selection sort on the copy, so the caller's list is left untouched.
+/// Selection sort is chosen for simplicity: migration sets are small, so its
+/// quadratic cost never matters. The comparison is on `version` alone, so two
+/// migrations sharing a version keep their relative input order arbitrarily,
+/// which is why versions are expected to be unique.
+fn sortByVersion(ms: list.List<Migration>): list.List<Migration> {
+    let out = list.List<Migration>();
+    let i = 0;
+    while (i < ms.size()) { out.push(ms.at(i)); i = i + 1; }
+    let a = 0;
+    while (a < out.size()) {
+        let min = a;
+        let b = a + 1;
+        while (b < out.size()) {
+            if (out.at(b).version < out.at(min).version) { min = b; }
+            b = b + 1;
+        }
+        if (min != a) {
+            let tmp = out.at(a);
+            out.set(a, out.at(min));
+            out.set(min, tmp);
+        }
+        a = a + 1;
+    }
+    return out;
+}
+
+/// Reads the highest applied migration version from the tracking table.
+///
+/// Returns `0` when no migration has been recorded, which is also the sentinel
+/// for a database whose tracking table does not yet exist or holds no rows. Note
+/// that `0` therefore doubles as "nothing applied", so a real migration must use
+/// a version greater than `0` to be treated as pending by [`migrate`]. The
+/// `?? db.Row()` guard defends against a missing first row: if the result set
+/// reports a row but `get(0)` yields nothing, an empty [`db.Row`] is used and its
+/// first column read back as a long.
+pub async fn currentVersion(conn: db.Connection): long {
+    let rs = await conn.query("SELECT version FROM " + TRACKING_TABLE + " ORDER BY version DESC LIMIT 1", list.List<db.DbValue>());
+    if (rs.rows.size() == 0) { return 0; }
+    let row = rs.rows.get(0) ?? db.Row();
+    return row.get(0).asLong();
+}
+
+/// Applies every pending migration in order, each step in its own transaction,
+/// and reports the outcome.
+///
+/// The flow is: ensure the tracking table exists, read the current version, sort
+/// the supplied migrations, then walk them low to high applying each one whose
+/// `version` exceeds the recorded version. Applying a step runs `begin`, then the
+/// migration's `up`, then the `(version, name)` ledger insert via [`recordSql`],
+/// then `commit`, so the schema change and its bookkeeping land together: a crash
+/// or error between them rolls back and the step is neither applied nor recorded.
+/// On the first failing step it rolls that step back, stops, and returns a
+/// [`MigrateReport`] naming the failure; earlier committed steps stay applied.
+///
+/// A caveat remains on engines whose DDL is not transactional (for example MySQL
+/// auto-commits `CREATE TABLE`): there `rollback` cannot undo the `up`, so a
+/// failure between `up` and the ledger insert can leave that one step applied but
+/// unrecorded. On engines with transactional DDL (PostgreSQL, and the ledger
+/// write on all of them) each step is atomic.
+///
+/// This does NOT take the [`tryLock`] guard: it assumes the caller has already
+/// serialised runners (the orchestrator runs it once) or does not need to. Use
+/// [`run`] for the guarded, single-call entry point.
+pub async fn applyPending(conn: db.Connection, migrations: list.List<Migration>): MigrateReport {
+    let e0 = await conn.exec(createTrackingTableSql(), list.List<db.DbValue>());
+    let applied = await currentVersion(conn);
+    let ordered = sortByVersion(migrations);
+    let n = 0;
+    let i = 0;
+    while (i < ordered.size()) {
+        let m = ordered.at(i);
+        if (m.version > applied) {
+            let b = await conn.begin();
+            if (b.hasError()) { return MigrateReport(n, `migration ${m.version} (${m.name}): begin failed: ${b.err.message}`); }
+            let up = await conn.exec(m.up, list.List<db.DbValue>());
+            if (up.hasError()) {
+                let rb = await conn.rollback();
+                return MigrateReport(n, `migration ${m.version} (${m.name}) failed: ${up.err.message}`);
+            }
+            let rec = list.List<db.DbValue>();
+            rec.push(db.dbLong(m.version));
+            rec.push(db.dbText(m.name));
+            let r = await conn.exec(recordSql(), rec);
+            if (r.hasError()) {
+                let rb = await conn.rollback();
+                return MigrateReport(n, `migration ${m.version} (${m.name}) recorded failed: ${r.err.message}`);
+            }
+            let cm = await conn.commit();
+            if (cm.hasError()) { return MigrateReport(n, `migration ${m.version} (${m.name}) commit failed: ${cm.err.message}`); }
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    return MigrateReport(n, "");
+}
+
+/// Applies every pending migration in order and returns how many ran.
+///
+/// A thin back-compatible wrapper over [`applyPending`] that returns only the
+/// applied count (discarding any error detail), so calling it twice in a row
+/// yields the pending count and then `0`. New callers that need the failure
+/// reason or the run-once guard should prefer [`run`].
+pub async fn migrate(conn: db.Connection, migrations: list.List<Migration>): int {
+    let rep = await applyPending(conn, migrations);
+    return rep.applied;
+}
+
+/// The guarded, single-call entry point: claim the run-once lock, apply all
+/// pending migrations, release the lock, and report.
+///
+/// This is what a `--migrate` app mode calls. It takes [`tryLock`] so that when
+/// several processes start together (N app replicas self-migrating on boot)
+/// exactly one proceeds; the losers return immediately with a non-empty `err`
+/// noting the lock is held, which the caller surfaces as a non-zero exit. In the
+/// orchestrator's gated model the lock is always free because the migrate step
+/// runs once, on its own, before any replica starts. The lock is released
+/// whether the apply succeeded or failed, so a later retry can proceed; only a
+/// hard crash mid-run leaves the lock row behind (clear it with [`unlock`]).
+pub async fn run(conn: db.Connection, migrations: list.List<Migration>): MigrateReport {
+    let got = await tryLock(conn);
+    if (!got) { return MigrateReport(0, "migration lock is held by another process"); }
+    let rep = await applyPending(conn, migrations);
+    await unlock(conn);
+    return rep;
+}
+
+/// Read-only: how many migrations are pending (would be applied by [`run`]).
+///
+/// Ensures the tracking table exists, reads the current version, and counts the
+/// supplied migrations whose `version` exceeds it. Applies nothing, so it is the
+/// query a readiness check or a `--migrate --status` flag uses to report drift
+/// without touching the schema.
+pub async fn pending(conn: db.Connection, migrations: list.List<Migration>): int {
+    let e0 = await conn.exec(createTrackingTableSql(), list.List<db.DbValue>());
+    let applied = await currentVersion(conn);
+    let n = 0;
+    let i = 0;
+    while (i < migrations.size()) {
+        if (migrations.at(i).version > applied) { n = n + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+/// Reverses every applied migration above `target` and returns how many ran.
+///
+/// It sorts the migrations, reads the current version, then walks them high to
+/// low, and for each step whose version is both greater than `target` and less
+/// than or equal to the applied version, it runs the `down` script and then
+/// deletes that step's tracking row via [`forgetSql`]. Reversing top-down is the
+/// only safe order when later steps were built on earlier ones. Passing
+/// `target = 0` rolls the schema all the way back to empty.
+///
+/// The `version <= applied` guard means only migrations that were actually
+/// applied are reversed, so passing steps that were never run is harmless. As
+/// with [`migrate`], there is no enclosing transaction, so a failing `down`
+/// leaves the schema partway reverted.
+pub async fn rollbackTo(conn: db.Connection, migrations: list.List<Migration>, target: long): int {
+    let ordered = sortByVersion(migrations);
+    let applied = await currentVersion(conn);
+    let n = 0;
+    let i = ordered.size() - 1;
+    while (i >= 0) {
+        let m = ordered.at(i);
+        if (m.version > target && m.version <= applied) {
+            let dn = await conn.exec(m.down, list.List<db.DbValue>());
+            let rec = list.List<db.DbValue>();
+            rec.push(db.dbLong(m.version));
+            let r = await conn.exec(forgetSql(), rec);
+            n = n + 1;
+        }
+        i = i - 1;
+    }
+    return n;
+}
+
+
+/// A fluent builder for a single `CREATE TABLE` statement.
+///
+/// `Table` accumulates two lists, one of column definitions and one of
+/// table-level constraints, and renders them into one statement with [`toSql`] or
+/// [`toSqlIfNotExists`]. It is a `class` (reference type) so that each chained
+/// method can mutate the same instance and return `self`, letting calls read as a
+/// pipeline: `table("users").id().column(...).unique(...)`. The builder only
+/// produces a string; it never talks to a database. Feed its output into a
+/// [`Migration`]'s `up`.
+pub class Table {
+    /// Table name, interpolated directly into the emitted DDL.
+    pub name: string,
+    /// Column definitions in insertion order, each a ready-made SQL fragment
+    /// such as `"email TEXT NOT NULL"`. Rendered before the constraints.
+    pub cols: list.List<string>,
+    /// Table-level constraint clauses (primary key, foreign key, unique),
+    /// appended after all columns in the emitted statement.
+    pub constraints: list.List<string>,
+    /// Starts an empty builder for the named table with no columns or
+    /// constraints.
+    init(name: string) {
+        self.name = name;
+        self.cols = list.List<string>();
+        self.constraints = list.List<string>();
+    }
+    /// Adds a column and returns `self` for chaining.
+    ///
+    /// Builds the fragment as `name sqlType`, and appends `opts` when it is
+    /// non-empty, so callers pass modifiers like `"NOT NULL"` or `"DEFAULT 0"`
+    /// through `opts`. The strings are used verbatim; no quoting or validation is
+    /// applied, so the caller controls the exact SQL.
+    pub fn column(self: Table, name: string, sqlType: string, opts: string): Table {
+        let c = name + " " + sqlType;
+        if (opts.length > 0) { c = c + " " + opts; }
+        self.cols.push(c);
+        return self;
+    }
+    /// Adds the conventional surrogate primary key column `id BIGINT PRIMARY KEY`
+    /// and returns `self`. A shorthand for the near-universal auto-id column.
+    pub fn id(self: Table): Table { self.cols.push("id BIGINT PRIMARY KEY"); return self; }
+    /// Adds a table-level `PRIMARY KEY (...)` constraint over `cols` (a raw
+    /// comma-separated column list) and returns `self`. Use this for composite
+    /// keys; for a single surrogate key prefer [`Table.id`].
+    pub fn primaryKey(self: Table, cols: string): Table { self.constraints.push("PRIMARY KEY (" + cols + ")"); return self; }
+    /// Adds a `FOREIGN KEY (col) REFERENCES refTable (refCol)` constraint and
+    /// returns `self`. All three names are inserted verbatim.
+    pub fn foreignKey(self: Table, col: string, refTable: string, refCol: string): Table {
+        self.constraints.push("FOREIGN KEY (" + col + ") REFERENCES " + refTable + " (" + refCol + ")");
+        return self;
+    }
+    /// Adds a `UNIQUE (...)` constraint over `cols` (a raw comma-separated column
+    /// list) and returns `self`.
+    pub fn unique(self: Table, cols: string): Table { self.constraints.push("UNIQUE (" + cols + ")"); return self; }
+
+    /// Renders the inside of the parentheses: all columns, then all constraints,
+    /// joined with commas.
+    ///
+    /// Columns come first, comma-separated, then each constraint is appended with
+    /// a leading `", "`. Shared by [`toSql`] and [`toSqlIfNotExists`] so the two
+    /// differ only in their `CREATE TABLE` prefix.
+    fn body(self: Table): string {
+        let parts = "";
+        let i = 0;
+        while (i < self.cols.size()) {
+            if (i > 0) { parts = parts + ", "; }
+            parts = parts + self.cols.at(i);
+            i = i + 1;
+        }
+        let j = 0;
+        while (j < self.constraints.size()) {
+            parts = parts + ", " + self.constraints.at(j);
+            j = j + 1;
+        }
+        return parts;
+    }
+    /// Renders the full `CREATE TABLE name (...)` statement.
+    pub fn toSql(self: Table): string { return "CREATE TABLE " + self.name + " (" + self.body() + ")"; }
+    /// Renders the statement with `IF NOT EXISTS`, so it is a no-op when the
+    /// table already exists. Handy for a migration meant to be safe to re-run.
+    pub fn toSqlIfNotExists(self: Table): string { return "CREATE TABLE IF NOT EXISTS " + self.name + " (" + self.body() + ")"; }
+}
+/// Convenience constructor for a [`Table`] builder, the usual entry point to the
+/// fluent chain.
+pub fn table(name: string): Table { return Table(name); }
+/// Returns `DROP TABLE IF EXISTS name`, the natural `down` counterpart to a
+/// `CREATE TABLE` built with [`Table.toSql`]. `IF NOT EXISTS` makes it safe when
+/// the table is already gone.
+pub fn dropTableSql(name: string): string { return "DROP TABLE IF EXISTS " + name; }
+
+/// Flags a migration whose `up` is NOT expand-only, returning a warning string
+/// (empty when the migration is safe to apply during a rolling deploy).
+///
+/// During a rolling update both the old and the new version of an app run
+/// against the same schema for a window. A migration is safe in that window only
+/// if it is *additive*: creating a table, adding a nullable column, adding an
+/// index. Destructive or tightening changes (`DROP`, `RENAME`, `ALTER ... TYPE`,
+/// `SET NOT NULL`) break the still-running old version and must ship as a
+/// *separate, later* release, after every replica already speaks the new schema.
+/// This is a lexical guard, not a parser: it upper-cases the `up` SQL and looks
+/// for the risky fragments, so it can over-warn on a keyword inside a string
+/// literal. It is meant to surface a review question, not to block, so callers
+/// (a `--migrate` mode, a CI check) typically print it as a warning.
+pub fn lintExpandOnly(m: Migration): string {
+    let up = string.toUpperCase(m.up);
+    let hits = "";
+    if (string.contains(up, "DROP TABLE") || string.contains(up, "DROP COLUMN")) { hits = hits + " DROP"; }
+    if (string.contains(up, "RENAME")) { hits = hits + " RENAME"; }
+    if (string.contains(up, "ALTER COLUMN") && string.contains(up, "TYPE")) { hits = hits + " ALTER-TYPE"; }
+    if (string.contains(up, "SET NOT NULL")) { hits = hits + " SET-NOT-NULL"; }
+    if (hits.length == 0) { return ""; }
+    return `migration ${m.version} (${m.name}) is not expand-only (${hits} ): apply it as a separate release AFTER all replicas run the new code, or the still-running old version may break during the rollout`;
+}
+
+/// Runs [`lintExpandOnly`] over a whole migration list and returns one warning
+/// per non-expand-only step (empty list when every step is additive). Handy for a
+/// pre-deploy CI check that wants to report all offenders at once.
+pub fn lintAll(migrations: list.List<Migration>): list.List<string> {
+    let out = list.List<string>();
+    let i = 0;
+    while (i < migrations.size()) {
+        let w = lintExpandOnly(migrations.at(i));
+        if (w.length > 0) { out.push(w); }
+        i = i + 1;
+    }
+    return out;
+}

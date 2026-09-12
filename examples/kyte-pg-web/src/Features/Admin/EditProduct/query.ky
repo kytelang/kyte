@@ -1,0 +1,7 @@
+
+// GET /admin/products/edit?id=... : load one product into the edit form.
+@serializable
+pub struct GetEditProduct {
+    pub id: string,
+    init() { self.id = ""; }
+}

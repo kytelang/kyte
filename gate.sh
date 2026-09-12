@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Host gate for the Kyte language (compiler + runtime + stdlib). Builds and runs the full gate suite on
+# THIS host OS, exiting non-zero on any failure. Kyte's native toolchain (LLVM + the C++/Boost runtime)
+# cannot build on hosted GitHub Actions, so every host runs its own gate -- see CI-POLICY.md. Nothing
+# merges red.
+set -uo pipefail
+cd "$(cd "$(dirname "$0")" && pwd)"
+export PATH="$HOME/.kyte/bin:$PATH"
+OS="$(uname -s)-$(uname -m)"
+fail=0
+step() { echo; echo ">>> $* [$OS]"; }
+
+step "zig build (compiler + runtime + stdlib, installs kyte) -- ReleaseFast"
+# ReleaseFast is mandatory: a Debug-mode kyte is ~100x slower (every corpus case hits the
+# per-case timeout) and its DebugAllocator prints leak traces to stderr, which the harness
+# classifies as a compiler crash -> "HARNESS INTEGRITY BROKEN" -> spurious GATE FAIL.
+zig build -Doptimize=ReleaseFast || fail=1
+
+if [ $fail -eq 0 ] && [ -x scripts/check-version-sync.sh ]; then
+  step "version sync"
+  scripts/check-version-sync.sh || fail=1
+fi
+
+if [ $fail -eq 0 ]; then
+  step "conformance corpus (parallel)"
+  # -j runs the positive corpus across cores-1 workers; the harness self-test + expect_fail gates run after.
+  conformance/run.sh -j || fail=1
+fi
+
+if [ $fail -eq 0 ]; then
+  step "dogfood suite (realistic feature-combination whole programs; must compile + exit 0)"
+  # Inherits KYTE_ASAN: plain here catches crashes; run `KYTE_ASAN=1 conformance/run.sh --dogfood`
+  # separately (after a sanitized build) for use-after-free coverage.
+  conformance/run.sh --dogfood || fail=1
+fi
+
+if [ $fail -eq 0 ]; then
+  step "compiler fuzz (fixed-seed regression smoke; scale via KYTE_FUZZ_N/SEED for exploration)"
+  KYTE_FUZZ_N="${KYTE_FUZZ_N:-40}" conformance/fuzz.sh || fail=1
+fi
+
+if [ $fail -eq 0 ]; then
+  step "string->TypeId shadow gate (0 disagreements: TypeId engine == string engine)"
+  bash conformance/shadow-gate.sh || fail=1
+fi
+
+if [ $fail -eq 0 ]; then
+  step "string type-decision lint (no NEW codegen string type-decisions; ratchet toward 0)"
+  bash conformance/string-typedecision-lint.sh || fail=1
+fi
+
+if [ $fail -eq 0 ]; then
+  step "package manager acceptance (pkg-manager.md §10: local repos, no network)"
+  bash conformance/pkg-acceptance.sh || fail=1
+fi
+
+if [ $fail -eq 0 ]; then
+  step "OSSA ownership gate, CORPUS-WIDE (release-balance verifier: 0 proven leaks/double-frees)"
+  # Enforcement-B (remaining-gaps-design.md, Gap 3): compile EVERY positive case under KYTE_OSSA=hard, not
+  # the 6-case spot-check in ossa-gate.sh. The verifier runs during sema (cheap), so this only adds a
+  # compile pass; -j runs it across cores-1 workers. Verified 381/381 clean when wired.
+  conformance/run.sh --ossa -j || fail=1
+fi
+
+if [ $fail -eq 0 ]; then
+  step "demand-mono reachability gate, CORPUS-WIDE (KYTE_REACH_ON: no reachable method pruned)"
+  # The reachability gate (Gap 8 / demand-driven-mono.md) is default-ON for `kyte build` but the plain
+  # corpus above runs `kyte test` with it OFF, so a gate soundness gap is INVISIBLE to the normal run.
+  # That is exactly how 307/364 (generic-struct trait dispatch pruned -> vtable-slot crash) slipped past.
+  # Re-run the whole corpus with the gate FORCED ON so any over-pruning surfaces as a failing case.
+  KYTE_REACH_ON=1 conformance/run.sh -j || fail=1
+fi
+
+echo
+if [ $fail -eq 0 ]; then echo "GATE PASS  kyte (lang)  [$OS]"; else echo "GATE FAIL  kyte (lang)  [$OS]"; fi
+exit $fail

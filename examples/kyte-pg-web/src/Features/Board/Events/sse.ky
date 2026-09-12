@@ -1,0 +1,42 @@
+import web.app;
+import web.request;
+import net.aio;
+import datastar;
+import string;
+import Features.Orders.Shared.OrderRepository;
+import Features.Board.Shared.render;
+
+// The live queue feed for a board (app.sse("/kitchen/events") and
+// "/delivery/events")). It re-renders the board region on a short interval and
+// patches it into the viewer's page, so a new paid order pops into the kitchen
+// board, an order reaching "ready" pops into the delivery board, and a claim by
+// one operator disappears from every other operator's Available column, all with
+// no manual refresh. It only sends a patch when the rendered region actually
+// changed (a cheap string compare), so an idle board costs nothing on the wire.
+// Being a plain re-query it is database-neutral and works across replicas, the
+// same portability the per-order order_events feed has.
+pub class BoardEventsSse impl SseHandler {
+    repo: OrderRepository,
+    phase: string,
+    init(repo: OrderRepository, phase: string) { self.repo = repo; self.phase = phase; }
+
+    async fn stream(self: BoardEventsSse, req: request.Request, io: aio.AsyncIO): void {
+        let ds = datastar.Sse.overStreamIO(io);
+        let _h = await ds.writeHeaders();
+        // The acting staff member, from the session cookie: their "My orders" column
+        // is per-user, while the "Available" pool is shared.
+        let uid = req.getCookie("uid") ?? "";
+
+        let last = "";
+        let alive = true;
+        while (alive) {
+            let inner = await render.innerFor(self.repo, self.phase, uid);
+            if (!string.eql(inner, last)) {
+                last = inner;
+                let w = await ds.patchElementsSimple(inner);
+                if (w < 0) { alive = false; }
+            }
+            if (alive) { await aio.delay(2000); }
+        }
+    }
+}

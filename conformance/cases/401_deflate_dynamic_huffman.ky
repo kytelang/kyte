@@ -1,0 +1,20 @@
+import compress.deflate;
+import string;
+import assert;
+@test
+fn roundtrip_byte_exact(): void {
+    let src = "";
+    let i = 0;
+    while (i < 200) { src = src + "the quick brown fox jumps over the lazy dog 12345 "; i = i + 1; }
+    let comp = deflate.deflateRaw(src).toString();
+    let back = deflate.inflate(comp).toString();
+    assert.isTrue(string.eql(back, src));
+    assert.isTrue(comp.length * 20 < src.length);
+}
+@test
+fn tiny_and_incompressible_roundtrip(): void {
+    let a = deflate.deflateRaw("hi").toString();
+    assert.isTrue(string.eql(deflate.inflate(a).toString(), "hi"));
+    let b = deflate.deflateRaw("").toString();
+    assert.isTrue(string.eql(deflate.inflate(b).toString(), ""));
+}

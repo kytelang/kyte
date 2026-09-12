@@ -1,0 +1,14 @@
+// Admin routes: dashboard and product editing.
+import Shared.AppContext;
+import Features.Admin.Shared.AdminRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Admin.GetDashboard.handler;
+import Features.Admin.EditProduct.handler;
+
+pub fn registerAdmin(ctx: AppContext): void {
+    let admin = AdminRepository(ctx.db);
+    let auth = AuthRepository(ctx.db);
+    ctx.app.get("/admin", GetDashboardHandler(admin));
+    ctx.app.get("/admin/products/edit", GetEditProductHandler(admin));
+    ctx.app.post("/admin/products/edit", EditProductHandler(admin, auth));
+}

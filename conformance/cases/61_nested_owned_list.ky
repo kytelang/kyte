@@ -1,0 +1,40 @@
+import assert;
+import list;
+
+struct Inner { pub t: string, init(t: string) { self.t = t; } }
+struct Outer {
+    pub id: int,
+    pub items: List<Inner>,
+    init(id: int, items: List<Inner>) { self.id = id; self.items = items; }
+}
+
+fn buildInner(a: string, b: string): List<Inner> {
+    let xs = List<Inner>();
+    xs.push(Inner(a));
+    xs.push(Inner(b));
+    return xs;
+}
+
+@test
+fn test_nested_owned_list_teardown(): void {
+    let l = List<Outer>();
+    l.push(Outer(1, buildInner("a", "b")));
+    l.push(Outer(2, buildInner("c", "d")));
+    assert.equalInt(l.size(), 2);
+    let first = l.get(0) ?? Outer(0, List<Inner>());
+    assert.equalInt(first.items.size(), 2);
+    let inner0 = first.items.get(0) ?? Inner("");
+    assert.equalStr(inner0.t, "a");
+}
+
+struct Seg { pub name: string, pub kids: List<Inner>, init(name: string, kids: List<Inner>) { self.name = name; self.kids = kids; } }
+
+@test
+fn test_string_before_list(): void {
+    let l = List<Seg>();
+    l.push(Seg("x", buildInner("p", "q")));
+    assert.equalInt(l.size(), 1);
+    let s = l.get(0) ?? Seg("", List<Inner>());
+    assert.equalStr(s.name, "x");
+    assert.equalInt(s.kids.size(), 2);
+}

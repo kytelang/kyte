@@ -1,0 +1,75 @@
+import assert;
+import list;
+import concurrency.actor;
+
+struct Summer impl Behavior<int> {
+    pub total: int,
+    pub count: int,
+    init() { self.total = 0; self.count = 0; }
+    async fn receive(self: Summer, msg: int): void {
+        self.total = self.total + msg;
+        self.count = self.count + 1;
+    }
+}
+struct Recorder impl Behavior<int> {
+    pub seen: List<int>,
+    init() { self.seen = List<int>(); }
+    async fn receive(self: Recorder, msg: int): void { self.seen.push(msg); }
+}
+
+async fn runSummer(a: int, b: int, c: int): int {
+    let s = Summer();
+    let mbox = actor.Mailbox<int>();
+    let cell = actor.ActorCell<int>(mbox, s);
+    let running = spawn cell.run();
+    mbox.send(a); mbox.send(b); mbox.send(c);
+    mbox.stop();
+    let processed = await running;
+    if (processed != 3) { return -1; }
+    return s.total * 1000 + s.count;
+}
+
+async fn runRecorder(): int {
+    let r = Recorder();
+    let mbox = actor.Mailbox<int>();
+    let cell = actor.ActorCell<int>(mbox, r);
+    let running = spawn cell.run();
+    mbox.send(1); mbox.send(2); mbox.send(3); mbox.send(4);
+    mbox.stop();
+    let p = await running;
+    let acc = 0;
+    let i = 0;
+    while (i < r.seen.size()) { acc = acc * 10 + (r.seen.at(i)); i = i + 1; }
+    return acc;
+}
+
+async fn runTwo(): int {
+    let s1 = Summer();
+    let s2 = Summer();
+    let m1 = actor.Mailbox<int>();
+    let m2 = actor.Mailbox<int>();
+    let c1 = actor.ActorCell<int>(m1, s1);
+    let c2 = actor.ActorCell<int>(m2, s2);
+    let r1 = spawn c1.run();
+    let r2 = spawn c2.run();
+    m1.send(10); m1.send(20); m1.stop();
+    m2.send(3); m2.send(4); m2.send(5); m2.stop();
+    let p1 = await r1;
+    let p2 = await r2;
+    return s1.total * 1000 + s2.total;
+}
+
+@test
+fn test_actor_processes_all_sequentially(): void {
+    assert.equalInt(runSummer(5, 3, 2), 10 * 1000 + 3);
+}
+
+@test
+fn test_actor_fifo_order(): void {
+    assert.equalInt(runRecorder(), 1234);
+}
+
+@test
+fn test_independent_actors(): void {
+    assert.equalInt(runTwo(), 30012);
+}

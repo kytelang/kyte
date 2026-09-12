@@ -1,0 +1,15 @@
+// Cart routes: add, view, update, and remove items.
+import Shared.AppContext;
+import Features.Cart.Shared.CartRepository;
+import Features.Cart.AddToCart.handler;
+import Features.Cart.GetCart.handler;
+import Features.Cart.UpdateCartItem.handler;
+import Features.Cart.RemoveCartItem.handler;
+
+pub fn registerCart(ctx: AppContext): void {
+    let repo = CartRepository(ctx.db);
+    ctx.app.post("/cart/add", AddToCartHandler(repo));
+    ctx.app.get("/cart", GetCartHandler(repo));
+    ctx.app.post("/cart/update", UpdateCartItemHandler(repo));
+    ctx.app.post("/cart/remove", RemoveCartItemHandler(repo));
+}

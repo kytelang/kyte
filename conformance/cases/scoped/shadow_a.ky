@@ -1,0 +1,8 @@
+import list;
+pub struct Item { pub v: int, init(x: int) { self.v = x; } }
+pub struct Holder {
+    pub a: int,
+    pub xs: list.List<Item>,
+    init() { self.a = 0; self.xs = list.List<Item>(); }
+    pub fn kind(self: Holder): int { return 111; }
+}

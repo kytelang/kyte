@@ -1,0 +1,34 @@
+import web.routing;
+import string;
+import Features.Board.AdvanceOrder.command;
+import Features.Orders.Shared.OrderRepository;
+import Features.Auth.Shared.AuthRepository;
+import Features.Orders.Mappers.orderMappers;
+import Features.Orders.views.orders;
+import Features.Board.Shared.render;
+import ds_response;
+import web.response;
+
+// Advance one of the actor's own claimed orders to its next stage. `advanceOwned`
+// only moves an order the actor actually holds (assigned_to = uid), and clears the
+// claim at the kitchen->delivery handoff so the order drops into the delivery
+// pool for a courier. We also publish the new status to the shared order feed so
+// the customer's live view updates, then re-render the board region.
+pub struct AdvanceOrderHandler impl RouteHandler {
+    orders: OrderRepository,
+    auth: AuthRepository,
+    phase: string,
+    init(orders: OrderRepository, auth: AuthRepository, phase: string) {
+        self.orders = orders; self.auth = auth; self.phase = phase;
+    }
+    async fn serve(self: AdvanceOrderHandler, ctx: routing.Context): Response { let c = ctx.bind<AdvanceOrder>();
+        let status = await self.orders.advanceOwned(c.order, c.uid);
+        if (!string.eql(status, "")) {
+            let ord = await self.orders.order(c.order);
+            let o = orderMappers.toOrderDto(ord.items.get(0) ?? orderMappers.emptyOrder());
+            let frag = orders.statusView(c.order, o.orderNumber, status);
+            await self.orders.publishStatus(c.order, frag);
+        }
+        return await ds_response.patch(await render.innerFor(self.orders, self.phase, c.uid));
+    }
+}

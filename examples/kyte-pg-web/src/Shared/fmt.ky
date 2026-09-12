@@ -1,0 +1,15 @@
+// Small display formatters. Money is stored and computed as exact DECIMAL in the
+// database and read into a double for display; this rounds it to two decimal
+// places for presentation so floating-point noise never reaches the page.
+import string;
+
+pub fn money(d: double): string {
+    let neg = d < 0.0;
+    let x = if (neg) (0.0 - d) else d;
+    let cents = ((x * 100.0) + 0.5) as long;
+    let whole = cents / 100;
+    let frac = cents % 100;
+    let fs = if (frac < 10) "0" + `${frac}` else `${frac}`;
+    let s = `${whole}` + "." + fs;
+    return if (neg) "-" + s else s;
+}

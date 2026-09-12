@@ -1,0 +1,8 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+@test
+fn t(): void {
+    let x = no_such_function_xyz(3);
+    assert.equalInt(x, 3);
+}

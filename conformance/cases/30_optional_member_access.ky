@@ -1,0 +1,34 @@
+import list;
+import assert;
+
+struct Seg { pub kids: List<int>, init() { self.kids = List<int>(); } }
+struct Item { pub segs: List<Seg>, init() { self.segs = List<Seg>(); } }
+
+@test
+fn test_get_then_field_method(): void {
+    let items = List<Item>();
+    let item = Item();
+    item.segs.push(Seg());
+    items.push(item);
+
+    let it = items.at(0);
+    assert.equalInt(it.segs.size(), 1);
+
+    let seg = it.segs.at(0);
+    assert.equalInt(seg.kids.size(), 0);
+}
+
+@test
+fn test_optional_in_loop(): void {
+    let items = List<Item>();
+    items.push(Item());
+    items.push(Item());
+    let total = 0;
+    let i = 0;
+    while (i < items.size()) {
+        let it = items.at(i);
+        total = total + it.segs.size();
+        i = i + 1;
+    }
+    assert.equalInt(total, 0);
+}

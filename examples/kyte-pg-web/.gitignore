@@ -1,0 +1,8 @@
+build/
+*.o
+.DS_Store
+node_modules/
+# Tailwind build output (generated from styles/app.css by `npm run css`)
+wwwroot/app.css
+# local package resolution symlink (points outside the repo)
+packages

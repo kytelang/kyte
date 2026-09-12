@@ -1,0 +1,26 @@
+import assert;
+import list;
+
+@test
+fn test_map_to_strings(): void {
+    let xs = List<int>();
+    xs.push(1);
+    xs.push(2);
+    xs.push(3);
+    let ys = xs.map((x) => `val${x}`);
+    assert.equalInt(ys.size(), 3);
+    assert.equalStr(ys.get(0) ?? "", "val1");
+    assert.equalStr(ys.get(2) ?? "", "val3");
+}
+
+@test
+fn test_map_to_strings_loop(): void {
+    let i = 0;
+    while (i < 50) {
+        let xs = List<int>();
+        xs.push(i);
+        let ys = xs.map((x) => `n${x}`);
+        assert.equalInt(ys.size(), 1);
+        i = i + 1;
+    }
+}

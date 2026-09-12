@@ -1,0 +1,33 @@
+import web.routing;
+import string;
+import Features.Ops.GetOps.query;
+import Features.Orders.Shared.OrderRepository;
+import Features.Orders.Mappers.orderMappers;
+import Features.Auth.Shared.AuthRepository;
+import Features.Ops.views.ops;
+import ds_response;
+import web.response;
+
+// The role-aware operations console. A kitchen operator sees orders at kitchen
+// stages, a delivery partner sees orders at delivery stages, an admin is pointed
+// at the full dashboard, and everyone else is asked to sign in as staff.
+pub struct GetOpsHandler impl RouteHandler {
+    orders: OrderRepository,
+    auth: AuthRepository,
+    init(orders: OrderRepository, auth: AuthRepository) { self.orders = orders; self.auth = auth; }
+    async fn serve(self: GetOpsHandler, ctx: routing.Context): Response { let q = ctx.bind<GetOps>();
+        let role = await self.auth.roleOf(q.uid);
+        if (string.eql(role, "kitchen")) {
+            let rows = await self.orders.kitchenQueue();
+            return await ds_response.patch(ops.console("kitchen", orderMappers.toOrderDtos(rows.items)));
+        }
+        if (string.eql(role, "delivery")) {
+            let rows = await self.orders.deliveryQueue();
+            return await ds_response.patch(ops.console("delivery", orderMappers.toOrderDtos(rows.items)));
+        }
+        if (string.eql(role, "admin")) {
+            return await ds_response.patch(ops.adminHint());
+        }
+        return await ds_response.patch(ops.notStaff());
+    }
+}

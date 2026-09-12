@@ -1,0 +1,39 @@
+
+import assert;
+import data.orm;
+import data.db;
+import string;
+import list;
+
+@serializable
+struct User {
+    pub name: string,
+    pub age: int | undefined,
+    pub score: decimal | undefined,
+    init() { self.name = ""; self.age = undefined; self.score = undefined; }
+}
+
+@test
+fn test_present_written_including_zero(): void {
+    let u = User();
+    u.name = "amy"; u.age = 30; u.score = decimal.fromString("9.5");
+    let ps = orm.toParams<User>(u);
+    assert.equalInt(ps.cols.size(), 3);
+    assert.isTrue(string.eql(ps.cols.at(1), "age"));
+    assert.equalInt(ps.vals.at(1).asInt(), 30);
+
+    let z = User();
+    z.name = "z"; z.age = 0;
+    let pz = orm.toParams<User>(z);
+    assert.equalInt(pz.cols.size(), 2);
+    assert.equalInt(pz.vals.at(1).asInt(), 0);
+}
+
+@test
+fn test_absent_omitted(): void {
+    let u = User();
+    u.name = "no";
+    let ps = orm.toParams<User>(u);
+    assert.equalInt(ps.cols.size(), 1);
+    assert.isTrue(string.eql(ps.cols.at(0), "name"));
+}

@@ -1,0 +1,10 @@
+// EXPECT-FAIL: typecheck
+struct Box {
+    n: int,
+    pub fn take(self: Box, a: int): int { return a; }
+}
+@test
+fn t(): void {
+    let b = Box{ n: 1 };
+    let r = b.take(1, 2, 3);
+}

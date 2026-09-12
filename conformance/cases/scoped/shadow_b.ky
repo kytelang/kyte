@@ -1,0 +1,18 @@
+import list;
+import string;
+import shadow_a;
+pub struct Doc { pub s: string, init(t: string) { self.s = t; } }
+pub struct Holder {
+    pub p: int,
+    pub q: int,
+    pub ys: list.List<Doc>,
+    init() { self.p = 7; self.q = 9; self.ys = list.List<Doc>(); }
+    pub fn kind(self: Holder): int { return 222; }
+    pub fn count(self: Holder): int { return self.ys.size(); }
+}
+pub fn make(): Holder {
+    let h = Holder();
+    h.ys.push(Doc("x"));
+    h.ys.push(Doc("y"));
+    return h;
+}

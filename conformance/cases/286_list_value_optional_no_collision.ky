@@ -1,0 +1,32 @@
+
+import assert;
+import list;
+
+@test
+fn test_value_optional_and_plain_int_coexist(): void {
+    let ns = List<int>();
+    ns.push(1);
+    ns.push(2);
+    ns.push(3);
+
+    let xs = List<int | undefined>();
+    xs.push(700);
+    xs.push(undefined);
+    xs.push(900);
+
+    assert.equalInt(xs.at(0) ?? -1, 700);
+    assert.equalInt(xs.at(1) ?? -1, -1);
+    assert.equalInt(xs.at(2) ?? -1, 900);
+
+    assert.equalInt(ns.at(0), 1);
+    assert.equalInt(ns.at(2), 3);
+}
+
+@test
+fn test_value_optional_growth_then_read(): void {
+    let xs = List<int | undefined>();
+    let i = 0;
+    while (i < 6) { xs.push(i * 100); i = i + 1; }
+    assert.equalInt(xs.at(5) ?? -1, 500);
+    assert.equalInt(xs.at(0) ?? -1, 0);
+}

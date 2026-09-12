@@ -1,0 +1,12 @@
+import string_builder;
+import assert;
+
+@test
+fn test_module_qualified_constructor_and_methods(): void {
+    let sb = string_builder.StringBuilder();
+    sb.append("hello");
+    sb.appendChar(32);
+    sb.append("world");
+    assert.equalStr(sb.toString(), "hello world");
+    sb.delete();
+}

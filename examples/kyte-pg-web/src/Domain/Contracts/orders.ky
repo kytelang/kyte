@@ -1,0 +1,41 @@
+// Order read DTOs plus small helper rows for RETURNING/single-value reads.
+import str;
+
+// The order summary rendered by the confirmation, history, and console views.
+// DERIVED from the Order entity by the Orders mappers (order_number->orderNumber,
+// total_amount->total, dropping the columns a summary does not need), so it uses
+// owned `string`: an independent projection that outlives the entity.
+@serializable
+pub struct OrderDto {
+    pub id: string,
+    pub orderNumber: string,
+    pub status: string,
+    pub subtotal: double,
+    pub tax: double,
+    // total_amount -> total: a @from rename. `paid` is a @derive: a whole-source
+    // computation (orderPaid(order)) rather than a column copy, so a summary can
+    // show paid/unpaid without the view re-deriving it. The derive function is
+    // resolved at the mapper (the spread call site), see orderMappers.orderPaid.
+    @from("total_amount") pub total: double,
+    @derive(orderPaid) pub paid: bool,
+}
+
+// Internal helper rows for RETURNING / single-value reads inside OrderRepository.
+// These never leave the repository (their one field is read with .toOwned()
+// immediately), so they stay zero-copy str.Str rather than becoming DTOs.
+@serializable
+pub struct IdDto {
+    pub id: str.Str,
+}
+
+@serializable
+pub struct StatusDto {
+    pub status: str.Str,
+}
+
+// High-water mark of an order's event feed, used to seed a stream so it forwards
+// only events newer than the connection.
+@serializable
+pub struct EventIdDto {
+    pub eid: long,
+}

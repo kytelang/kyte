@@ -1,0 +1,19 @@
+// Auth routes: login, register, logout.
+import Shared.AppContext;
+import Features.Auth.Shared.AuthRepository;
+import Features.Auth.Register.validator;
+import Features.Auth.GetLogin.handler;
+import Features.Auth.Login.handler;
+import Features.Auth.GetRegister.handler;
+import Features.Auth.Register.handler;
+import Features.Auth.Logout.handler;
+
+pub fn registerAuth(ctx: AppContext): void {
+    let auth = AuthRepository(ctx.db);
+    let rules = RegisterValidator();
+    ctx.app.get("/login", GetLoginHandler());
+    ctx.app.post("/login", LoginHandler(auth));
+    ctx.app.get("/register", GetRegisterHandler());
+    ctx.app.post("/register", RegisterHandler(auth, rules));
+    ctx.app.post("/logout", LogoutHandler());
+}

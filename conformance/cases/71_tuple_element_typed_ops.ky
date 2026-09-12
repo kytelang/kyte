@@ -1,0 +1,27 @@
+import assert;
+import string;
+
+fn pair(): (int, string) { return (5, "x"); }
+fn labeled(n: int, s: string): (string, int) { return (s, n); }
+
+@test
+fn test_destructured_string_concat(): void {
+    let (v, e) = pair();
+    assert.equalStr(v + e, "5x");
+    assert.equalStr(e + v, "x5");
+}
+
+@test
+fn test_destructured_string_compare(): void {
+    let (s, n) = labeled(7, "hi");
+    assert.isTrue(s == "hi");
+    assert.isFalse(s == "bye");
+    assert.equalInt(n, 7);
+}
+
+@test
+fn test_destructured_member_access(): void {
+    let (v, e) = pair();
+    assert.equalInt(e.length, 1);
+    assert.equalInt(v, 5);
+}

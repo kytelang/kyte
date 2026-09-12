@@ -1,0 +1,41 @@
+
+import assert;
+
+fn find(n: int): int | undefined {
+    if (n < 3) { return n; }
+    return undefined;
+}
+
+@test
+fn test_counts_up(): void {
+    let i = 0;
+    let sum = 0;
+    while (let x = find(i)) {
+        sum = sum + x;
+        i = i + 1;
+    }
+    assert.equalInt(sum, 3);
+    assert.equalInt(i, 3);
+}
+
+@test
+fn test_empty_immediately(): void {
+    let iters = 0;
+    while (let x = find(99)) { iters = iters + 1; }
+    assert.equalInt(iters, 0);
+}
+
+fn word(n: int): string | undefined {
+    if (n == 0) { return "hi"; }
+    return undefined;
+}
+
+@test
+fn test_string_binding(): void {
+    let got = "";
+    while (let w = word(0)) {
+        got = w;
+        break;
+    }
+    assert.equalStr(got, "hi");
+}

@@ -1,0 +1,6 @@
+// EXPECT-FAIL: typecheck
+@test
+fn t(): void {
+    const x = 5;
+    x = 6;
+}

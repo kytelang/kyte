@@ -1,0 +1,49 @@
+import assert;
+
+@test
+fn test_add_exact(): void {
+    assert.equalStr(`${0.1m + 0.2m}`, "0.3");
+    assert.equalStr(`${100m + 0.001m}`, "100.001");
+    assert.equalStr(`${5m + -8m}`, "-3");
+}
+
+@test
+fn test_sub(): void {
+    assert.equalStr(`${10.5m - 3.25m}`, "7.25");
+    assert.equalStr(`${3m - 10m}`, "-7");
+}
+
+@test
+fn test_mul(): void {
+    assert.equalStr(`${1.5m * 2m}`, "3.0");
+    assert.equalStr(`${-2.5m * 4m}`, "-10.0");
+    assert.equalStr(`${123456789.123m * 1000m}`, "123456789123.000");
+}
+
+@test
+fn test_div(): void {
+    assert.equalStr(`${1m / 4m}`, "0.25");
+    assert.equalStr(`${-1m / 8m}`, "-0.125");
+    assert.equalStr(`${10m / 3m}`, "3.333333333333333333333333333333333");
+}
+
+@test
+fn test_mod(): void {
+    assert.equalStr(`${10m % 3m}`, "1");
+    assert.equalStr(`${10.5m % 2m}`, "0.5");
+}
+
+@test
+fn test_compare(): void {
+    let a: decimal = 0.1m;
+    let b: decimal = 0.2m;
+    assert.isTrue(a < b);
+    assert.isFalse(a > b);
+    assert.isTrue(a == a);
+    assert.isTrue(a != b);
+    assert.isTrue(a <= a);
+    assert.isTrue(b >= a);
+    assert.isTrue(a + b == 0.3m);
+    assert.isTrue(-5m < -3m);
+    assert.isTrue(-0m == 0m);
+}

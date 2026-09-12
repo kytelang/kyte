@@ -1,0 +1,46 @@
+
+import assert;
+
+fn shiftHigh(x: long): long { return x << 31; }
+fn takesLong(x: long): long { return x; }
+fn retHigh(): long { return 0x80000000; }
+
+@test
+fn hex_high_bit_compare(): void {
+    let r = shiftHigh(1);
+    assert.isTrue(r == 0x80000000);
+    assert.isTrue(r == 2147483648);
+}
+
+@test
+fn hex_in_long_assignment(): void {
+    let a: long = 0x80000000;
+    assert.isTrue(a == 2147483648);
+    let c: long = 0xFFFFFFFF;
+    assert.isTrue(c == 4294967295);
+    let d: long = 0x100000000;
+    assert.isTrue(d == 4294967296);
+    let e: long = 0xFFFFFFFFFF;
+    assert.isTrue(e == 1099511627775);
+}
+
+@test
+fn hex_within_int_range_unchanged(): void {
+    assert.equalInt(0x7FFFFFFF, 2147483647);
+    let f: long = 0x7FFFFFFF;
+    assert.isTrue(f == 2147483647);
+}
+
+@test
+fn hex_high_bit_in_arg_and_return(): void {
+    assert.isTrue(takesLong(0x80000000) == 2147483648);
+    assert.isTrue(retHigh() == 2147483648);
+}
+
+@test
+fn hex_high_bit_in_arithmetic(): void {
+    let a: long = 0x80000000 + 1;
+    assert.isTrue(a == 2147483649);
+    let b: long = 0x80000000 * 2;
+    assert.isTrue(b == 4294967296);
+}

@@ -1,0 +1,15 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+struct P {
+    pub x: int,
+    init() { self.x = 0; }
+    pub fn get(self: P): int { return 1; }
+    pub fn get(self: P): int { return 2; }
+}
+
+@test
+fn run(): void {
+    let p = P();
+    assert.equalInt(p.get(), 1);
+}

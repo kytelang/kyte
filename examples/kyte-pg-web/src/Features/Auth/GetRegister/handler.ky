@@ -1,0 +1,9 @@
+import web.routing;
+import Features.Auth.GetRegister.query;
+import Features.Auth.views.auth;
+import ds_response;
+import web.response;
+pub struct GetRegisterHandler impl RouteHandler {
+    init() { }
+    async fn serve(self: GetRegisterHandler, ctx: routing.Context): Response { let q = ctx.bind<GetRegister>(); return await ds_response.patch(auth.registerForm()); }
+}

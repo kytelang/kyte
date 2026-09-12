@@ -1,0 +1,105 @@
+// SSE streaming path: the in-process EventBus delivers a published event to a
+// subscriber, and the SSE wire writers produce a well-formed event-stream frame.
+// Proves the architecture-neutral core of web.sse without a live socket.
+import web.sse;
+import net.aio;
+import assert;
+import string;
+
+// A capturing AsyncIO: records everything written so the SSE wire format can be
+// asserted without a real connection.
+class CaptureIO impl AsyncIO {
+    pub captured: string,
+    init() { self.captured = ""; }
+    async fn recvInto(self: CaptureIO, buf: long, max: int): int { return 0; }
+    async fn sendStr(self: CaptureIO, data: string): int {
+        self.captured = self.captured + data;
+        return data.length;
+    }
+    fn close(self: CaptureIO): void { }
+    fn setTimeout(self: CaptureIO, ms: int): int { return 0; }
+}
+
+fn flag(b: bool): int { return if (b) 1 else 0; }
+
+// Publish on a topic, receive on its subscription. Returns the event id (1).
+async fn busRoundtrip(): int {
+    let bus = sse.InProcessBus(64);
+    let sub = bus.subscribe("orders");
+    await bus.publish("orders", "message", "hello");
+    let ev = await sub.next();
+    assert.equalInt(flag(string.eql(ev.data, "hello")), 1);
+    assert.equalInt(flag(string.eql(ev.kind, "message")), 1);
+    return ev.id as int;
+}
+
+// A second subscriber on the same topic also receives the event (fan-out).
+async fn busFanout(): int {
+    let bus = sse.InProcessBus(64);
+    let a = bus.subscribe("kitchen");
+    let b = bus.subscribe("kitchen");
+    await bus.publish("kitchen", "message", "ready");
+    let ea = await a.next();
+    let eb = await b.next();
+    return flag(string.eql(ea.data, "ready")) + flag(string.eql(eb.data, "ready"));
+}
+
+// The wire writers produce a valid SSE frame.
+async fn wireCheck(): int {
+    let io = CaptureIO();
+    let _h = await sse.writeHeaders(io);
+    let _e = await sse.writeEvent(io, sse.Event(7, "datastar-patch-elements", "<div id=x>hi</div>"));
+    let _b = await sse.writeHeartbeat(io);
+    let cap = io.captured;
+    assert.equalInt(flag(string.contains(cap, "text/event-stream")), 1);
+    assert.equalInt(flag(string.contains(cap, "id: 7")), 1);
+    assert.equalInt(flag(string.contains(cap, "event: datastar-patch-elements")), 1);
+    assert.equalInt(flag(string.contains(cap, "data: <div id=x>hi</div>")), 1);
+    return flag(cap.length > 0);
+}
+
+// A slow subscriber whose bounded buffer is full does NOT block publish or the
+// other subscribers (no head-of-line blocking): the full one drops events while
+// a healthy peer keeps receiving. capacity 1 fills after one un-drained publish.
+async fn busNoHeadOfLine(): int {
+    let bus = sse.InProcessBus(1);
+    let slow = bus.subscribe("t");      // never drained -> its 1-slot buffer fills
+    let fast = bus.subscribe("t");
+    await bus.publish("t", "m", "e1");  // slow buffer now full
+    await bus.publish("t", "m", "e2");  // must NOT block; slow drops e2
+    await bus.publish("t", "m", "e3");  // still must not block
+    let f = await fast.next();          // fast still gets e1 promptly
+    return flag(string.eql(f.data, "e1"));
+}
+
+// A closed subscription is reaped from its topic bucket on the next publish, so
+// an abnormal disconnect cannot leak a registration.
+async fn busReapsClosed(): int {
+    let bus = sse.InProcessBus(64);
+    let a = bus.subscribe("r");
+    let b = bus.subscribe("r");
+    a.close();                          // simulate the SSE edge detecting a dead peer
+    await bus.publish("r", "m", "x");   // reaps `a`, delivers to `b`
+    let eb = await b.next();
+    // Pin the reap itself, not just delivery: the bucket must shrink from 2 to 1.
+    // Without bucket.remove(i) in publish, `b` would STILL receive "x" (delivery is
+    // independent of reaping), so asserting only delivery does not catch a lost reap.
+    let shrank = flag(bus.subscriberCount("r") == 1);
+    let delivered = flag(string.eql(eb.data, "x"));
+    return flag(shrank == 1 && delivered == 1);
+}
+
+@test
+fn sse_no_head_of_line_blocking(): void { assert.equalInt(busNoHeadOfLine(), 1); }
+
+@test
+fn sse_reaps_closed_subscription(): void { assert.equalInt(busReapsClosed(), 1); }
+
+@test
+fn sse_bus_delivers(): void { assert.equalInt(busRoundtrip(), 1); }
+
+@test
+fn sse_bus_fanout(): void { assert.equalInt(busFanout(), 2); }
+
+@test
+fn sse_wire_format(): void { assert.equalInt(wireCheck(), 1); }

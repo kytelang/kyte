@@ -1,0 +1,6 @@
+import greeter_a;
+pub trait Greeter { fn greet(self: Greeter): int; }
+pub struct HelloB impl Greeter { pub v: int, init() { self.v = 2; }
+    pub fn greet(self: HelloB): int { return 222; }
+}
+pub fn mkB(): Greeter { return HelloB(); }

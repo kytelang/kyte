@@ -1,0 +1,77 @@
+//! MIME type mapping for the web framework.
+//!
+//! Provides a small closed set of `MimeType` values covering the content
+//! types the web stack actually serves (text, JSON, JavaScript, XML, and a
+//! handful of image formats), plus the glue to turn a file extension into a
+//! `Content-Type` header value. Response writers use `contentType` when
+//! serving static files so the extension on disk decides the header without
+//! callers having to hand-roll a lookup table.
+
+import bytes;
+import string;
+
+/// A fixed set of content types recognised by the web framework's static
+/// file and response handling.
+///
+/// Anything not covered by an explicit variant is treated as
+/// `ApplicationOctetStream` (generic binary data), both when converting to
+/// string and when mapping from an unrecognised extension.
+pub enum MimeType {
+    TextPlain,
+    TextHtml,
+    TextCss,
+    ApplicationJson,
+    ApplicationJavascript,
+    ApplicationXml,
+    ApplicationOctetStream,
+    ImagePng,
+    ImageJpeg,
+    ImageGif,
+    ImageSvgXml,
+
+    /// Renders the variant as its IANA MIME type string, e.g. `"text/html"`.
+    /// Any variant not explicitly matched falls back to
+    /// `"application/octet-stream"`.
+    pub fn toString(self: MimeType): string {
+        switch (self) {
+            case MimeType.TextPlain: { return "text/plain"; }
+            case MimeType.TextHtml: { return "text/html"; }
+            case MimeType.TextCss: { return "text/css"; }
+            case MimeType.ApplicationJson: { return "application/json"; }
+            case MimeType.ApplicationJavascript: { return "application/javascript"; }
+            case MimeType.ApplicationXml: { return "application/xml"; }
+            case MimeType.ApplicationOctetStream: { return "application/octet-stream"; }
+            case MimeType.ImagePng: { return "image/png"; }
+            case MimeType.ImageJpeg: { return "image/jpeg"; }
+            case MimeType.ImageGif: { return "image/gif"; }
+            case MimeType.ImageSvgXml: { return "image/svg+xml"; }
+            default: { return "application/octet-stream"; }
+        }
+    }
+
+    /// Maps a file extension (with or without a leading dot is not
+    /// stripped; pass the bare extension, e.g. `"html"`) to its `MimeType`,
+    /// case-insensitively. Unrecognised extensions return
+    /// `ApplicationOctetStream`.
+    pub fn fromExtension(ext: string): MimeType {
+        let lower = string.toLowerCase(ext);
+        if (lower == "txt") return MimeType.TextPlain;
+        if (lower == "html" || lower == "htm") return MimeType.TextHtml;
+        if (lower == "css") return MimeType.TextCss;
+        if (lower == "json") return MimeType.ApplicationJson;
+        if (lower == "js") return MimeType.ApplicationJavascript;
+        if (lower == "xml") return MimeType.ApplicationXml;
+        if (lower == "png") return MimeType.ImagePng;
+        if (lower == "jpg" || lower == "jpeg") return MimeType.ImageJpeg;
+        if (lower == "gif") return MimeType.ImageGif;
+        if (lower == "svg") return MimeType.ImageSvgXml;
+        return MimeType.ApplicationOctetStream;
+    }
+}
+
+/// Convenience wrapper that resolves an extension straight to its
+/// `Content-Type` header string, combining `MimeType.fromExtension` and
+/// `MimeType.toString` in one call.
+pub fn contentType(ext: string): string {
+    return MimeType.fromExtension(ext).toString();
+}

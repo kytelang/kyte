@@ -1,0 +1,6 @@
+@serializable
+pub struct AddToCart {
+    pub product: string,
+    pub cartid: string,
+    init() { self.product = ""; self.cartid = ""; }
+}

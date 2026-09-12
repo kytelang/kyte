@@ -1,0 +1,21 @@
+import geometry;
+import collections.list;
+import platform;
+
+fn main(): void {
+    let a = geometry.Point(0, 0);
+    let b = geometry.Point(3, 4);
+    console.log(`manhattan((0,0),(3,4)) = ${geometry.manhattan(a, b)}`);
+    console.log(`perimeter             = ${geometry.perimeter(a, b)}`);
+
+    let xs = list.List<int>();
+    xs.push(10);
+    xs.push(20);
+    xs.push(30);
+    console.log(`list size = ${xs.size()}, first = ${xs.at(0)}`);
+
+    console.log(`os        = ${platform.os}`);
+    console.log(`arch      = ${platform.arch}`);
+    console.log(`isPosix   = ${platform.isPosix}`);
+    console.log(`isWindows = ${platform.isWindows}`);
+}

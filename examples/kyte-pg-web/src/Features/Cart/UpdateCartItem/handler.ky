@@ -1,0 +1,24 @@
+import web.routing;
+import Features.Cart.UpdateCartItem.command;
+import Features.Cart.Shared.CartRepository;
+import Features.Cart.views.cart;
+import Domain.Contracts.cart;
+import ds_response;
+import web.response;
+
+pub struct UpdateCartItemHandler impl RouteHandler {
+    repo: CartRepository,
+
+    init(repo: CartRepository) {
+        self.repo = repo;
+    }
+
+    async fn serve(self: UpdateCartItemHandler, ctx: Context): Response {
+        let c = ctx.bind<UpdateCartItem>();
+        await self.repo.setQty(c.cartid, c.item, c.qty);
+        let lines = await self.repo.lines(c.cartid);
+        let summ = await self.repo.summary(c.cartid);
+        let s = summ.items.get(0) ?? CartSummaryDto {itemCount: 0, subtotal: 0.0, tax: 0.0, total: 0.0};
+        return await ds_response.patch(cart.cartView(lines.items, s));
+    }
+}

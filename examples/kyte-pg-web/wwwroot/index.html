@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kyte Sandwich Shop</title>
+  <link rel="stylesheet" href="/app.css">
+  <!-- Datastar client, loaded from the jsDelivr CDN at the pinned v1.0.0 tag. -->
+  <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0/bundles/datastar.js"></script>
+</head>
+<body class="h-screen flex flex-col bg-slate-50 text-slate-800 font-sans" data-signals="{q: ''}">
+  <header class="h-14 shrink-0 bg-white border-b border-slate-200 flex items-center px-5 gap-3">
+    <span class="text-lg font-bold text-emerald-700">Kyte Sandwiches</span>
+    <span class="text-xs text-slate-400">built on the Kyte platform</span>
+    <!-- Live menu search: the input is two-way bound to the `q` signal, and each
+         keystroke (debounced) issues @get('/products'), which datastar sends with
+         the current signals. The server binds `q` off the request and streams the
+         filtered grid back into #content. This is the shop's hello-world moment:
+         a bound input + an action + a server that reads the signal. -->
+    <input data-bind="q" data-on:input__debounce.300ms="@get('/products')"
+           type="search" placeholder="Search the menu…"
+           class="ml-6 w-64 px-3 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-emerald-500" />
+    <nav class="ml-auto flex items-center gap-2 text-sm">
+      <button class="px-3 py-1.5 rounded-lg hover:bg-slate-100" data-on:click="$q = ''; @get('/products')">Menu</button>
+      <button class="px-3 py-1.5 rounded-lg hover:bg-slate-100" data-on:click="@get('/login')">Log in</button>
+      <button class="px-3 py-1.5 rounded-lg hover:bg-slate-100" data-on:click="@get('/orders')">My orders</button>
+      <button class="px-3 py-1.5 rounded-lg hover:bg-slate-100" data-on:click="@get('/kitchen')">Kitchen</button>
+      <button class="px-3 py-1.5 rounded-lg hover:bg-slate-100" data-on:click="@get('/delivery')">Delivery</button>
+      <button class="px-3 py-1.5 rounded-lg hover:bg-slate-100" data-on:click="@get('/admin')">Admin</button>
+      <button id="cart-badge" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200"
+              data-on:click="@get('/cart')">Cart</button>
+    </nav>
+  </header>
+  <div class="flex-1 flex overflow-hidden">
+    <!-- Sidebar and content load their fragments on first paint. -->
+    <aside id="category-list" data-on-intersect="@get('/categories')" class="w-56 shrink-0"></aside>
+    <main id="content" data-on-intersect="@get('/products')" class="flex-1 overflow-y-auto"></main>
+  </div>
+</body>
+</html>

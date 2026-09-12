@@ -1,0 +1,6 @@
+@serializable
+pub struct AdvanceStatus {
+    pub order: string,
+    pub uid: string,     // bound from the session cookie; identifies the acting staff member
+    init() { self.order = ""; self.uid = ""; }
+}

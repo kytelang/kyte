@@ -1,0 +1,48 @@
+
+import assert;
+
+trait Greeter {
+    fn name(self: Self): string;
+    fn greet(self: Self): string { return `hi, ${self.name()}`; }
+}
+
+struct Dog impl Greeter {
+    fn name(self: Dog): string { return "dog"; }
+}
+
+struct Cat impl Greeter {
+    fn name(self: Cat): string { return "cat"; }
+    fn greet(self: Cat): string { return "meow"; }
+}
+
+@test
+fn test_default_inherited(): void {
+    assert.equalStr(Dog{}.greet(), "hi, dog");
+}
+
+@test
+fn test_override_wins(): void {
+    assert.equalStr(Cat{}.greet(), "meow");
+}
+
+@test
+fn test_default_through_trait_object(): void {
+    let g: Greeter = Dog{};
+    assert.equalStr(g.greet(), "hi, dog");
+    assert.equalStr(g.name(), "dog");
+}
+
+trait Counter {
+    fn base(self: Self): int;
+    fn plus(self: Self): int { return self.base() + 1; }
+}
+
+struct C impl Counter {
+    v: int,
+    fn base(self: C): int { return self.v; }
+}
+
+@test
+fn test_int_returning_default(): void {
+    assert.equalInt(C{ v: 41 }.plus(), 42);
+}

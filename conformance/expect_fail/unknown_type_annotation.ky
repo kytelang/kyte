@@ -1,0 +1,7 @@
+// EXPECT-FAIL: typecheck
+import assert;
+fn takesFrob(a: Frob): int { return 1; }
+@test
+fn run() {
+    assert.equalInt(takesFrob(0), 1);
+}

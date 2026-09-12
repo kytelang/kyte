@@ -1,0 +1,44 @@
+import assert;
+import list;
+
+trait Speaker {
+    fn say(self): int;
+    fn tag(self): int;
+}
+
+struct Cat impl Speaker {
+    pub vals: List<int>,
+    init(seed: int) { self.vals = List<int>(); self.vals.push(seed); }
+    pub fn say(self: Cat): int { return self.vals.get(0) ?? -1; }
+    pub fn tag(self: Cat): int { return 42; }
+}
+
+@test
+fn test_borrow_widen_no_double_free(): void {
+    let c = Cat(9);
+    let s: Speaker = c;
+    assert.equalInt(s.say(), 9);
+    assert.equalInt(s.tag(), 42);
+    assert.equalInt(s.say(), 9);
+}
+
+@test
+fn test_fresh_temp_widen_no_leak(): void {
+    let s: Speaker = Cat(5);
+    assert.equalInt(s.say(), 5);
+}
+
+@test
+fn test_trait_objects_in_list(): void {
+    let xs = List<Speaker>();
+    xs.push(Cat(1));
+    xs.push(Cat(2));
+    let sum = 0;
+    let i = 0;
+    while (i < xs.size()) {
+        let e = xs.get(i) ?? Cat(0);
+        sum = sum + e.say();
+        i = i + 1;
+    }
+    assert.equalInt(sum, 3);
+}

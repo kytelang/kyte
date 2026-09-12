@@ -1,0 +1,19 @@
+// Cart read DTOs. Money is read as double for display; totals computed in SQL.
+import str;
+
+@serializable
+pub struct CartLineDto {
+    pub id: str.Str,
+    pub productName: str.Str,
+    pub unitPrice: double,
+    pub quantity: int,
+    pub lineTotal: double,
+}
+
+@serializable
+pub struct CartSummaryDto {
+    pub itemCount: int,
+    pub subtotal: double,
+    pub tax: double,
+    pub total: double,
+}

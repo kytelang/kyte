@@ -1,0 +1,39 @@
+import assert;
+
+@test
+fn test_multiarg_closure_inline_interp(): void {
+    let add = (a, b) => a + b;
+    assert.equalStr(`${add(3, 8)}`, "11");
+}
+
+@test
+fn test_multiarg_closure_bound_result(): void {
+    let add = (a, b) => a + b;
+    let r = add(3, 8);
+    assert.equalStr(`sum=${r}`, "sum=11");
+}
+
+@test
+fn test_threearg_closure_interp(): void {
+    let mul = (a, b, c) => a * b * c;
+    assert.equalStr(`${mul(2, 3, 4)}`, "24");
+}
+
+@test
+fn test_multiarg_string_closure(): void {
+    let cat = (a, b) => a + b;
+    assert.equalStr(cat("foo", "bar"), "foobar");
+}
+
+@test
+fn test_multiarg_result_arithmetic(): void {
+    let sub = (a, b) => a - b;
+    let x = sub(10, 3) + 100;
+    assert.equalInt(x, 107);
+}
+
+@test
+fn test_singlearg_still_works(): void {
+    let inc = (x) => x + 1;
+    assert.equalStr(`${inc(41)}`, "42");
+}

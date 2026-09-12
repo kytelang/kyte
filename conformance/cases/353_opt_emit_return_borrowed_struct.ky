@@ -1,0 +1,29 @@
+import assert;
+
+pub class User {
+    name: string,
+    age: int,
+    init(name: string, age: int) { self.name = name; self.age = age; }
+}
+
+fn pick(a: User, b: User, f: int): User {
+    if (f > 0) { return a; }
+    return b;
+}
+fn firstU(a: User, b: User): User { return a; }
+
+@test
+fn test_return_borrowed_struct(): void {
+    let sum = 0;
+    let i = 0;
+    while (i < 1000) {
+        let a = User("alice", 30);
+        let b = User("bob", 40);
+        let c = pick(a, b, i % 2);
+        sum = sum + c.age;
+        let d = firstU(a, b);
+        sum = sum + d.age;
+        i = i + 1;
+    }
+    assert.equalInt(sum > 0, true);
+}
