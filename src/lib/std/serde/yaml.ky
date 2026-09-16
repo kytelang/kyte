@@ -335,14 +335,14 @@ fn unescapeSingle(s: string): string {
     return out as string;
 }
 
-fn hexNibble(c: int): int {
+fn yamlHexNibble(c: int): int {
     if (c >= '0' && c <= '9') { return c - '0'; }
     if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
     if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
     return 0;
 }
-fn hex2(a: int, b: int): int { return hexNibble(a) * 16 + hexNibble(b); }
-fn hex4(a: int, b: int, c: int, d: int): int { return hex2(a, b) * 256 + hex2(c, d); }
+fn yamlHex2(a: int, b: int): int { let hi: int = yamlHexNibble(a); let lo: int = yamlHexNibble(b); return hi * 16 + lo; }
+fn yamlHex4(a: int, b: int, c: int, d: int): int { let hi: int = yamlHex2(a, b); let lo: int = yamlHex2(c, d); return hi * 256 + lo; }
 
 fn encodeUtf8(out: ptr, o: int, cp: int): int {
     if (cp < 0x80) { bytes.write_byte(out, o, cp); return o + 1; }
@@ -374,11 +374,11 @@ fn unescapeDouble(s: string): string {
             else if (n == '\\') { bytes.write_byte(out, o, '\\'); o = o + 1; i = i + 2; continue; }
             else if (n == '/') { bytes.write_byte(out, o, '/'); o = o + 1; i = i + 2; continue; }
             else if (n == 'x' && i + 3 < s.length) {
-                let cp = hex2(s[i + 2], s[i + 3]);
+                let cp = yamlHex2(s[i + 2], s[i + 3]);
                 bytes.write_byte(out, o, cp); o = o + 1; i = i + 4; continue;
             }
             else if (n == 'u' && i + 5 < s.length) {
-                let cp = hex4(s[i + 2], s[i + 3], s[i + 4], s[i + 5]);
+                let cp = yamlHex4(s[i + 2], s[i + 3], s[i + 4], s[i + 5]);
                 o = encodeUtf8(out, o, cp); i = i + 6; continue;
             }
             else { bytes.write_byte(out, o, n); o = o + 1; i = i + 2; continue; }
