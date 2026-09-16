@@ -6848,6 +6848,20 @@ pub fn desugarQuerySql(self: *LlvmCompiler, gc: anytype) !?ast.Expression {
     } } };
 }
 
+/// The HTML void elements: the only tags that legitimately have no end tag and so
+/// may be written self-closing (`<br/>`). Every other tag, even when empty, needs an
+/// explicit `</tag>`. Case-insensitive match, since KyX preserves the source casing.
+fn isVoidHtmlTag(tag: []const u8) bool {
+    const void_tags = [_][]const u8{
+        "area", "base",  "br",   "col",   "embed",  "hr",    "img", "input",
+        "link", "meta",  "param", "source", "track", "wbr",
+    };
+    for (void_tags) |vt| {
+        if (std.ascii.eqlIgnoreCase(tag, vt)) return true;
+    }
+    return false;
+}
+
 /// Recursively serialises a JSX element tree into a `StringBuilder`, emitting
 /// tags, attributes, children, and embedded expressions/statements.
 ///
@@ -6892,7 +6906,20 @@ pub fn emitJsxInto(self: *LlvmCompiler, sb_val: types.LLVMValueRef, jsx: ast.Jsx
     }
 
     if (jsx.children.len == 0) {
-        try self.jsxAppendLiteral(sb_val, "/>");
+        // A childless element self-closes ONLY if it is an HTML void element
+        // (`<br/>`, `<img/>`, ...). Every other element must be written with an
+        // explicit end tag: for the raw-text elements (`<script>`, `<style>`,
+        // `<textarea>`) a self-closing `/>` is fatal in a real browser (the HTML
+        // parser ignores the slash and swallows the rest of the document as the
+        // element's text content), and for ordinary elements like `<div>` an
+        // empty `<div></div>` is the correct, unambiguous form.
+        if (isVoidHtmlTag(jsx.tag)) {
+            try self.jsxAppendLiteral(sb_val, "/>");
+        } else {
+            const empty_close = try std.fmt.allocPrint(self.allocator, "></{s}>", .{jsx.tag});
+            defer self.allocator.free(empty_close);
+            try self.jsxAppendLiteral(sb_val, empty_close);
+        }
         if (self.debug_enabled) try self.jsxFlushLiteral(sb_val);
         return;
     }
