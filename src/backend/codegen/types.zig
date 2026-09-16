@@ -1926,6 +1926,17 @@ pub fn cachedTypeName(self: *LlvmCompiler, st: *const typesys.TypeStore, tid: ty
 /// by expression kind (`census_*` counters); it does not affect the returned
 /// value. Caller owns the returned string.
 pub fn resolveExpressionTypeName(self: *LlvmCompiler, expr_ptr: *const ast.Expression) anyerror!?[]const u8 {
+    // `await e` yields the same type as `e` (awaiting a T-returning coroutine produces
+    // T). The typed IR does not always record a type for the await node itself when the
+    // awaited operand is a METHOD call (free-function and sync-method results are typed,
+    // but `await recv.method()` was not), so a local bound to `let x = await recv.m()`
+    // ended up with no known type. That in turn meant a later `await x.n()` could not be
+    // resolved to an async method and was mis-compiled as a synchronous (block-driving)
+    // call, deadlocking inside the reactor. Resolve through the await to its operand so
+    // the operand's structural type resolution (see the `.call` branch below) applies.
+    if (expr_ptr.kind == .await_expr) {
+        return try self.resolveExpressionTypeName(expr_ptr.kind.await_expr.operand);
+    }
     const ir = self.typed_ir orelse return null;
     const st = self.type_store orelse return null;
     const t_opt = ir.typeOf(expr_ptr);

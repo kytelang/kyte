@@ -1304,6 +1304,25 @@ pub fn awaitedCallHandle(self: *LlvmCompiler, operand: ast.Expression, is_spawn:
                             recv_expr = fa.object;
                         } else {
                             self.allocator.free(cand);
+                            // Fallback: the async-fn key can be the MANGLED FULLY-QUALIFIED owner
+                            // rather than the bare struct name. This happens when the struct name
+                            // COLLIDES across modules (e.g. both `data.db` and the mongodb driver
+                            // declare a `Cursor`), so codegen keys each one by its module-scoped
+                            // owner (`packages_kyte_damongodb_src_mongodb_Cursor_toList`). The
+                            // receiver type resolves to the same qualified name, so mangling it via
+                            // `methodSymbol` reproduces the exact key. Without this an `await
+                            // recv.method()` on such a type was mis-lowered as a blocking call and
+                            // deadlocked the reactor. The bare-name path above still wins first, so
+                            // non-colliding types are unaffected.
+                            const qual = self.methodSymbol(obj_ty_raw, fa.field) catch null;
+                            if (qual) |q| {
+                                if (self.async_fns.contains(q)) {
+                                    method_sym = q;
+                                    recv_expr = fa.object;
+                                } else {
+                                    self.allocator.free(q);
+                                }
+                            }
                         }
                     }
                     if (fa.object.kind == .ident) obj_name = fa.object.kind.ident;
