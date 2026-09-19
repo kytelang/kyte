@@ -77,3 +77,37 @@ fn test_tojson_roundtrip(): void {
     let a = Address__bind(source.fromJson("{\"street\":\"Main\",\"city\":\"Pune\"}"));
     assert.equalStr(Address__toJson(a), "{\"street\":\"Main\",\"city\":\"Pune\"}");
 }
+
+// Compiler-injected `to(fmt)` / `from(fmt, data)` convenience methods (see
+// serializable.md). `to` supports Format.json; `from` supports Format.json and
+// Format.yaml. Both are additive sugar over the free-function binders above.
+@test
+fn test_injected_to_from(): void {
+    let it = Item.from(Format.json, "{\"sku\":\"A\",\"qty\":2}");
+    assert.equalStr(it.sku, "A");
+    assert.equalInt(it.qty, 2);
+    assert.equalStr(it.to(Format.json), "{\"sku\":\"A\",\"qty\":2}");
+
+    let iy = Item.from(Format.yaml, "sku: B\nqty: 5\n");
+    assert.equalStr(iy.sku, "B");
+    assert.equalInt(iy.qty, 5);
+
+    let a = Address.from(Format.json, "{\"street\":\"Main\",\"city\":\"Pune\"}");
+    assert.equalStr(a.to(Format.json), "{\"street\":\"Main\",\"city\":\"Pune\"}");
+}
+
+// A user-defined method wins: injection skips `to` on Widget (its own `to`
+// stays), but still adds the static `from`.
+@serializable
+struct Widget {
+    pub label: string,
+    init() { self.label = ""; }
+    pub fn to(self: Widget): string { return "custom"; }
+}
+
+@test
+fn test_injected_method_collision(): void {
+    let w = Widget.from(Format.json, "{\"label\":\"x\"}");
+    assert.equalStr(w.label, "x");
+    assert.equalStr(w.to(), "custom");
+}

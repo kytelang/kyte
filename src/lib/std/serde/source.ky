@@ -16,6 +16,19 @@ import str;
 import list;
 import map;
 
+/// The wire formats a `@serializable` type can serialise to and parse from.
+///
+/// Used by the compiler-injected `to(fmt)` and `from(fmt, data)` methods on every
+/// `@serializable` struct. Not every combination is wired yet: today `to` supports
+/// `json` (returns a JSON string) and `from` supports `json` and `yaml`. `to(yaml)`,
+/// `to(bson)`, and `from(bson)` are placeholders until the YAML sink and the from-BSON
+/// source land; calling those returns an empty result rather than failing.
+pub enum Format {
+    json,
+    yaml,
+    bson,
+}
+
 /// Read-only, format-agnostic access to a document's fields by key, including nested
 /// objects and arrays.
 ///

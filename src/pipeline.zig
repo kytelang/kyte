@@ -135,6 +135,24 @@ pub fn collectFfiLibs(allocator: std.mem.Allocator, program: ast.Program) ![]con
 /// root; `io` is used only for the webview existence check.
 pub fn appendFfiLib(args: *std.ArrayList([]const u8), allocator: std.mem.Allocator, shared_kyte: []const u8, io: std.Io, lib: []const u8) !void {
     if (std.mem.eql(u8, lib, "webview")) {
+        // Windows uses the WebView2 backend: a COFF `.lib` plus the vendored WebView2
+        // loader import lib. The Win32 system libraries webview.h needs (ole32, shell32,
+        // ...) are pulled in by its own `#pragma comment(lib, ...)` via link.exe.
+        if (builtin.target.os.tag == .windows) {
+            const lib_path = try std.fmt.allocPrint(allocator, "{s}/deps/webview/build/libwebview.lib", .{shared_kyte});
+            Io.Dir.access(.cwd(), io, lib_path, .{}) catch {
+                std.debug.print("webview requested but {s} is not built\n", .{lib_path});
+                return error.LinkFailed;
+            };
+            try args.append(allocator, lib_path);
+            const arch_dir: []const u8 = if (builtin.target.cpu.arch == .aarch64) "arm64" else "x64";
+            const loader = try std.fmt.allocPrint(allocator, "{s}/deps/webview/win/{s}/WebView2Loader.dll.lib", .{ shared_kyte, arch_dir });
+            try args.append(allocator, loader);
+            return;
+        }
+        // macOS and Linux use a static `.a`. macOS links the WebKit/Cocoa frameworks;
+        // Linux links GTK/WebKit2GTK, whose exact flags the install discovered with
+        // pkg-config and wrote to `webview.linklibs`.
         const lib_path = try std.fmt.allocPrint(allocator, "{s}/deps/webview/build/libwebview.a", .{shared_kyte});
         Io.Dir.access(.cwd(), io, lib_path, .{}) catch {
             std.debug.print("webview requested but {s} is not built\n", .{lib_path});
@@ -143,6 +161,16 @@ pub fn appendFfiLib(args: *std.ArrayList([]const u8), allocator: std.mem.Allocat
         try args.append(allocator, lib_path);
         if (builtin.target.os.tag == .macos) {
             try args.appendSlice(allocator, &.{ "-framework", "WebKit", "-framework", "Cocoa" });
+        } else if (builtin.target.os.tag == .linux) {
+            const flags_path = try std.fmt.allocPrint(allocator, "{s}/deps/webview/build/webview.linklibs", .{shared_kyte});
+            if (Io.Dir.readFileAlloc(.cwd(), io, flags_path, allocator, .unlimited)) |content| {
+                var it = std.mem.tokenizeAny(u8, content, " \t\r\n");
+                while (it.next()) |tok| try args.append(allocator, try allocator.dupe(u8, tok));
+            } else |_| {
+                // The discovery file is absent (webview not built for GTK); fall back to
+                // the conventional library names so the intent is still visible.
+                try args.appendSlice(allocator, &.{ "-lgtk-3", "-lwebkit2gtk-4.1", "-lgio-2.0", "-lgobject-2.0", "-lglib-2.0" });
+            }
         }
         return;
     }
@@ -1538,6 +1566,73 @@ pub fn generateSerdeBinders(allocator: std.mem.Allocator, declarations: *std.Arr
     };
     for (prog.declarations) |d| {
         try declarations.append(allocator, d);
+    }
+
+    // Inject ergonomic `to(fmt)` / `from(fmt, data)` methods onto every @serializable
+    // struct. These are additive sugar over the free-function binders emitted above:
+    // `x.to(Format.json)` calls `T__toJson`; `T.from(Format.json|yaml, data)` builds the
+    // matching ValueSource and calls `T__bind`. Only the read/write cells that exist today
+    // are wired; `to(yaml)` / `to(bson)` / `from(bson)` are intentionally empty until the
+    // YAML sink and from-BSON source land (see serializable.md). A user-defined method of
+    // the same name always wins: injection skips that name. `Format`, `source.fromJson`,
+    // and `source.fromYaml` all resolve because a @serializable module always loads
+    // serde.source (its `ValueSource` type is used by the unconditionally-generated binder).
+    for (declarations.items, 0..) |decl, di| {
+        if (decl != .struct_decl) continue;
+        const s = decl.struct_decl;
+        if (!serializable.contains(s.name)) continue;
+        // Generic structs mangle binders per instantiation; the bare `T__bind`/`T__toJson`
+        // names used here would not resolve, so leave generics to the free-function path.
+        if (s.type_params.len != 0) continue;
+
+        var have_to = false;
+        var have_from = false;
+        for (s.methods) |m| {
+            if (std.mem.eql(u8, m.decl.name, "to")) have_to = true;
+            if (std.mem.eql(u8, m.decl.name, "from")) have_from = true;
+        }
+        if (have_to and have_from) continue;
+
+        var msrc = std.ArrayList(u8).empty;
+        if (!have_to) {
+            try serdeAppendf(&msrc, allocator, "fn to(self: {s}, fmt: Format): string {{\n" ++
+                "    switch (fmt) {{\n" ++
+                "        case Format.json: {{ return {s}__toJson(self); }}\n" ++
+                "        default: {{ return \"\"; }}\n" ++
+                "    }}\n" ++
+                "}}\n", .{ s.name, s.name });
+        }
+        if (!have_from) {
+            try serdeAppendf(&msrc, allocator, "fn from(fmt: Format, data: string): {s} {{\n" ++
+                "    switch (fmt) {{\n" ++
+                "        case Format.json: {{ return {s}__bind(source.fromJson(data)); }}\n" ++
+                "        case Format.yaml: {{ return {s}__bind(source.fromYaml(data)); }}\n" ++
+                "        default: {{ return {s}(); }}\n" ++
+                "    }}\n" ++
+                "}}\n", .{ s.name, s.name, s.name, s.name });
+        }
+        if (msrc.items.len == 0) continue;
+
+        var mp = try parser.Parser.init(allocator, msrc.items, "<serde-methods>", is_wasm);
+        const mprog = mp.parseProgram() catch |err| {
+            std.debug.print("serde method injection failed to parse:\n{s}\n", .{msrc.items});
+            return err;
+        };
+
+        var methods = std.ArrayList(ast.MethodDecl).empty;
+        try methods.appendSlice(allocator, s.methods);
+        for (mprog.declarations) |d| {
+            if (d != .fn_decl) continue;
+            const fd = d.fn_decl;
+            // A `self`-receiving first parameter marks an instance method; `from` has none.
+            const is_static = fd.params.len == 0 or !std.mem.eql(u8, fd.params[0].name, "self");
+            try methods.append(allocator, .{
+                .is_public = true,
+                .is_static = is_static,
+                .decl = fd,
+            });
+        }
+        declarations.items[di].struct_decl.methods = try methods.toOwnedSlice(allocator);
     }
 }
 
