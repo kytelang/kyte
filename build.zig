@@ -362,6 +362,19 @@ fn addKyteInstall(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
             \\Copy-Item -Force zig-out/bin/kyte.exe "{[bin]s}/kyte.exe"
             \\Copy-Item -Recurse -Force src/lib/std/* "{[std]s}/"
             \\Copy-Item -Recurse -Force src/runtime/* "{[home]s}/.kyte/src/runtime/"
+            \\# webview static lib (WebView2 backend). Built BEFORE the deps copy so the fresh .lib is
+            \\# synced to ~/.kyte/deps this same run. Uses the vendored WebView2 SDK headers under
+            \\# deps/webview/win; the loader import lib is linked per-app by appendFfiLib, and the app
+            \\# ships WebView2Loader.dll from deps/webview/win/<arch>/ next to the exe.
+            \\$WvLib = "deps/webview/build/libwebview.lib"
+            \\if ((-not (Test-Path $WvLib)) -and (Test-Path "deps/webview/webview_impl.cc")) {{
+            \\  Write-Host "webview: building static lib (WebView2) ..."
+            \\  New-Item -ItemType Directory -Force -Path "deps/webview/build" | Out-Null
+            \\  {[cxx]s} -std=c++17 -O2 "-Ideps/webview/win" -c deps/webview/webview_impl.cc -o deps/webview/build/webview_impl.obj
+            \\  {[cxx]s} -std=c++17 -O2 "-Ideps/webview/win" -c deps/webview/webview_kyte.cc -o deps/webview/build/webview_kyte.obj
+            \\  llvm-lib "-out:$WvLib" deps/webview/build/webview_impl.obj deps/webview/build/webview_kyte.obj
+            \\  Write-Host "webview: built $WvLib"
+            \\}}
             \\Copy-Item -Recurse -Force deps/* "{[home]s}/.kyte/deps/"
             \\Write-Host "Building kytecore.lib (Windows; reactor runtime + Win32 syscall shims) ..."
             \\{[asm_cmd]s}
@@ -422,12 +435,29 @@ fn addKyteInstall(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
         \\if [ "$WV_NEED" = "1" ] && [ -f deps/webview/webview_impl.cc ]; then
         \\  echo "webview: building static lib ..."
         \\  mkdir -p deps/webview/build
-        \\  clang++ -std=c++17 -ObjC++ -O2 -c deps/webview/webview_impl.cc \
-        \\      -o deps/webview/build/webview_impl.o 2>/dev/null && \
-        \\  clang++ -std=c++17 -ObjC++ -O2 -c deps/webview/webview_kyte.cc \
-        \\      -o deps/webview/build/webview_kyte.o 2>/dev/null && \
-        \\  ar rcs "$WEBVIEW_LIB" deps/webview/build/webview_impl.o deps/webview/build/webview_kyte.o && \
-        \\  echo "webview: built ($WEBVIEW_LIB)" || echo "webview: build failed (GUI FFI unavailable)"
+        \\  case "$(uname -s)" in
+        \\    Darwin)
+        \\      # macOS: WKWebView (Objective-C++). WebKit/Cocoa are linked into the app, not the .a.
+        \\      clang++ -std=c++17 -ObjC++ -O2 -c deps/webview/webview_impl.cc -o deps/webview/build/webview_impl.o 2>/dev/null && \
+        \\      clang++ -std=c++17 -ObjC++ -O2 -c deps/webview/webview_kyte.cc -o deps/webview/build/webview_kyte.o 2>/dev/null && \
+        \\      ar rcs "$WEBVIEW_LIB" deps/webview/build/webview_impl.o deps/webview/build/webview_kyte.o && \
+        \\      echo "webview: built ($WEBVIEW_LIB)" || echo "webview: build failed (GUI FFI unavailable)" ;;
+        \\    Linux)
+        \\      # Linux: WebKit2GTK. Discover the exact cflags/libs with pkg-config (webkit2gtk-4.1,
+        \\      # falling back to 4.0) and record the link flags for appendFfiLib to read.
+        \\      WVPKG=""
+        \\      pkg-config --exists 'webkit2gtk-4.1 gtk+-3.0' 2>/dev/null && WVPKG='webkit2gtk-4.1 gtk+-3.0'
+        \\      [ -z "$WVPKG" ] && pkg-config --exists 'webkit2gtk-4.0 gtk+-3.0' 2>/dev/null && WVPKG='webkit2gtk-4.0 gtk+-3.0'
+        \\      if [ -n "$WVPKG" ]; then
+        \\        c++ -std=c++17 -O2 $(pkg-config --cflags $WVPKG) -c deps/webview/webview_impl.cc -o deps/webview/build/webview_impl.o 2>/dev/null && \
+        \\        c++ -std=c++17 -O2 $(pkg-config --cflags $WVPKG) -c deps/webview/webview_kyte.cc -o deps/webview/build/webview_kyte.o 2>/dev/null && \
+        \\        ar rcs "$WEBVIEW_LIB" deps/webview/build/webview_impl.o deps/webview/build/webview_kyte.o && \
+        \\        pkg-config --libs $WVPKG > deps/webview/build/webview.linklibs && \
+        \\        echo "webview: built ($WEBVIEW_LIB; $WVPKG)" || echo "webview: build failed (GUI FFI unavailable)"
+        \\      else
+        \\        echo "webview: skipped (install the gtk+-3.0 and webkit2gtk-4.1/4.0 dev packages, then re-run install)"
+        \\      fi ;;
+        \\  esac
         \\fi
         \\rsync -a --exclude=".git" deps/ "{[home]s}/.kyte/deps/"
         \\# Prebuild the C++ runtime ONCE into a static library. Boost.Asio has been retired (M4):
