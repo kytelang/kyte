@@ -102,6 +102,28 @@ const pipeline = @import("pipeline.zig");
 /// build starts ([`packages.ensureDependencies`]).
 const packages = @import("packages.zig");
 
+/// Best-effort: after linking a Windows executable that uses `import webview`, copy the
+/// vendored WebView2Loader.dll next to it. webview.h loads that loader dynamically at
+/// runtime, so a desktop app needs the DLL beside the exe. `arch_dir` is "x64" or
+/// "arm64". A silent no-op when the app does not use webview or the DLL is missing.
+fn copyWebviewLoaderDll(allocator: std.mem.Allocator, io: std.Io, shared_kyte: []const u8, output_path: []const u8, arch_dir: []const u8, ffi_libs: []const []const u8) void {
+    var uses_webview = false;
+    for (ffi_libs) |l| {
+        if (std.mem.eql(u8, l, "webview")) { uses_webview = true; break; }
+    }
+    if (!uses_webview) return;
+    const src = std.fmt.allocPrint(allocator, "{s}/deps/webview/win/{s}/WebView2Loader.dll", .{ shared_kyte, arch_dir }) catch return;
+    defer allocator.free(src);
+    const data = Io.Dir.readFileAlloc(.cwd(), io, src, allocator, .unlimited) catch return;
+    defer allocator.free(data);
+    const slash = std.mem.lastIndexOfAny(u8, output_path, "/\\");
+    const dir = if (slash) |i| output_path[0..i] else ".";
+    const dest = std.fmt.allocPrint(allocator, "{s}/WebView2Loader.dll", .{dir}) catch return;
+    defer allocator.free(dest);
+    _ = Io.Dir.writeFile(.cwd(), io, .{ .data = data, .sub_path = dest, .flags = .{} }) catch return;
+    std.debug.print("webview: copied WebView2Loader.dll next to {s}\n", .{output_path});
+}
+
 /// Process-global: emit an AddressSanitizer build (`-fsanitize=address`, links
 /// the `_asan` runtime). Set once from the `--asan` flag; ignored for WASM.
 var want_asan: bool = false;
@@ -413,6 +435,10 @@ fn compileProgram(
 
         if (target_triple_opt) |triple| {
             if (try pipeline.crossLinkViaZig(allocator, init.environ_map, init.io, triple, link_objs, output_path, shared_kyte, is_release)) {
+                if (std.mem.indexOf(u8, triple, "windows") != null) {
+                    const wv_arch: []const u8 = if (std.mem.indexOf(u8, triple, "aarch64") != null or std.mem.indexOf(u8, triple, "arm64") != null) "arm64" else "x64";
+                    copyWebviewLoaderDll(allocator, init.io, shared_kyte, output_path, wv_arch, ffi_libs);
+                }
                 if (!want_keep_obj and !build_mode)
                     Io.Dir.deleteFile(.cwd(), init.io, obj_path) catch {};
                 if (build_mode) {
@@ -469,6 +495,11 @@ fn compileProgram(
                 std.debug.print("Linking native binary failed abnormally\n", .{});
                 return error.LinkFailed;
             },
+        }
+
+        if (builtin.target.os.tag == .windows) {
+            const wv_arch: []const u8 = if (builtin.target.cpu.arch == .aarch64) "arm64" else "x64";
+            copyWebviewLoaderDll(allocator, init.io, shared_kyte, output_path, wv_arch, ffi_libs);
         }
 
         if (!want_keep_obj and !build_mode) {
