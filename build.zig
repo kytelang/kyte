@@ -571,10 +571,11 @@ fn addKyteArchive(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
             \\if ($env:KYTE_LLVM_PREFIX) {{ Copy-Item -Force "$env:KYTE_LLVM_PREFIX/bin/LLVM-C.dll" "$stage/bin/" -ErrorAction SilentlyContinue }}
             \\Copy-Item -Force "{[home]s}/.kyte/lib/kytecore.lib" "$stage/lib/"
             \\Copy-Item -Recurse -Force "{[home]s}/.kyte/std" "$stage/std"
-            \\# NOTE: src/runtime + deps are NOT bundled -- the prebuilt kytecore.lib covers
-            \\# host-target compilation. They are only needed to cross-compile the runtime to OTHER
-            \\# targets (kyte build --target) or to build webview FFI apps; add them back if the
-            \\# shipped toolchain must do that.
+            \\# Bundle the webview FFI backing (libwebview.lib + the vendored WebView2 loader DLL/import
+            \\# lib) so `kyte init desktop` apps link out of the box. Only deps/webview is shipped; the
+            \\# self-installer's Copy-Item ./* below carries it into the user's ~/.kyte/deps. src/runtime
+            \\# and the build-time deps are omitted -- the prebuilt kytecore.lib covers host compilation.
+            \\if (Test-Path "{[home]s}/.kyte/deps/webview") {{ New-Item -ItemType Directory -Force -Path "$stage/deps" | Out-Null; Copy-Item -Recurse -Force "{[home]s}/.kyte/deps/webview" "$stage/deps/webview" }}
             \\Set-Content "$stage/VERSION" "{[version]s}"
             \\# self-installer: copy the tree into the user's ~/.kyte
             \\Set-Content "$stage/install.ps1" '$d="$env:USERPROFILE/.kyte"; New-Item -ItemType Directory -Force -Path "$d/bin","$d/lib" | Out-Null; Copy-Item -Recurse -Force ./* "$d/"; Write-Host "Installed Kyte to $d"'
@@ -615,9 +616,11 @@ fn addKyteArchive(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
         \\fi
         \\cp "{[home]s}/.kyte/lib/libkytecore.a" "$STAGE/lib/"
         \\rsync -a "{[home]s}/.kyte/std/" "$STAGE/std/"
-        \\# NOTE: src/runtime + deps are NOT bundled -- the prebuilt libkytecore.a covers host-target
-        \\# compilation. They are only needed to cross-compile the runtime to OTHER targets
-        \\# (kyte build --target) or to build webview FFI apps; add them back if that is required.
+        \\# Bundle the webview FFI backing (the built libwebview.a and, on Linux, its pkg-config link
+        \\# flags in webview.linklibs) so `kyte init desktop` apps link out of the box. Only deps/webview
+        \\# is shipped; the build-time deps (llvm-zig, zstd, ...) are not needed at runtime, and
+        \\# src/runtime is omitted since the prebuilt libkytecore.a covers host-target compilation.
+        \\if [ -d "{[home]s}/.kyte/deps/webview" ]; then mkdir -p "$STAGE/deps"; rsync -a "{[home]s}/.kyte/deps/webview/" "$STAGE/deps/webview/"; fi
         \\printf '%s\n' "{[version]s}" > "$STAGE/VERSION"
         \\# self-installer: copy the tree into the user's ~/.kyte
         \\cat > "$STAGE/install.sh" <<'INSTALL'
@@ -628,6 +631,7 @@ fn addKyteArchive(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
         \\cp -R ./bin/* "$D/bin/"
         \\cp -R ./lib/* "$D/lib/"
         \\cp -R ./std "$D/"
+        \\[ -d ./deps ] && cp -R ./deps "$D/" || true
         \\echo "Installed Kyte to $D (add $D/bin to PATH)"
         \\INSTALL
         \\chmod +x "$STAGE/install.sh"

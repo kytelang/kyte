@@ -111,7 +111,10 @@ jobs:
       - name: Install LLVM 21 (apt.llvm.org) + static-link deps, point the build at it
         run: |
           wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 21
-          sudo apt-get install -y llvm-21-dev libzstd-dev zlib1g-dev libxml2-dev liblzma-dev
+          sudo apt-get install -y llvm-21-dev libzstd-dev zlib1g-dev libxml2-dev liblzma-dev libgtk-3-dev
+          # webview desktop backing (WebKit2GTK): the install step builds libwebview.a against these.
+          # 4.1 on Ubuntu 24.04, falling back to 4.0 on older images.
+          sudo apt-get install -y libwebkit2gtk-4.1-dev || sudo apt-get install -y libwebkit2gtk-4.0-dev
           echo "KYTE_LLVM_PREFIX=/usr/lib/llvm-21" >> "$GITHUB_ENV"
           /usr/lib/llvm-21/bin/llvm-config --version
           # apt's LLVM does not bundle libstdc++.so/libgcc_s.so (system libs); expose them under the
