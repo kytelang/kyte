@@ -1470,6 +1470,28 @@ pub const TypeChecker = struct {
                 try self.checkExpr(b.left.*);
                 try self.checkExpr(b.right.*);
 
+                // Operand-type check for the value operators. `int + string`, `int - bool`,
+                // `5 == "x"` and the like used to compile and run on reinterpreted bit patterns
+                // (a string pointer added to an int, a struct field read as garbage). Fire only
+                // when BOTH operands resolve to a concrete numeric/text/boolean ident through a
+                // reliable path (the resolver is best-effort; an `.other` type such as a struct or
+                // a mis-resolvable bare-call return is left alone to avoid false positives).
+                if (b.op != .assign) {
+                    if (self.resolveExprType(b.left.*)) |lt| {
+                        if (self.resolveExprType(b.right.*)) |rt| {
+                            if (lt == .ident and rt == .ident and
+                                leftTypeIsReliableForNc(b.left.*) and leftTypeIsReliableForNc(b.right.*))
+                            {
+                                const lc = binOperandCat(lt.ident);
+                                const rc = binOperandCat(rt.ident);
+                                if (lc != .other and rc != .other and !binOpCatsCompatible(b.op, lc, rc)) {
+                                    self.addError(b.span, "operator '{s}' cannot combine '{s}' and '{s}'; both operands must share a compatible type (numeric with numeric, string with string, bool with bool)", .{ binOpSymbol(b.op), typeRefName(lt), typeRefName(rt) });
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (b.op == .assign and intLiteralValue(b.right.*) == null) {
                     if (self.resolveExprType(b.right.*)) |rt| {
                         if (self.resolveExprType(b.left.*)) |lt| {
@@ -2650,6 +2672,48 @@ fn primCategory(name: []const u8) PrimCat {
     if (std.mem.eql(u8, c, "bool")) return .boolean;
     if (std.mem.eql(u8, c, "string") or std.mem.eql(u8, c, "Html")) return .text;
     return .other;
+}
+
+/// Operand category for the binary-operator type check. Like `primCategory`, but
+/// `char`, `decimal`, and `ptr` count as numeric so decimal arithmetic, character
+/// maths, and pointer arithmetic/comparisons are not falsely rejected. Anything the
+/// resolver leaves as a struct/trait/enum/unknown ident is `.other`, for which the
+/// check does nothing (too risky to judge on the best-effort resolver).
+const OpCat = enum { num, text, boolean, other };
+fn binOperandCat(name: []const u8) OpCat {
+    if (isNumericTypeName(name)) return .num;
+    const c = canonicalizeTypeName(name);
+    if (std.mem.eql(u8, c, "decimal") or std.mem.eql(u8, c, "char") or std.mem.eql(u8, c, "ptr")) return .num;
+    if (std.mem.eql(u8, c, "string") or std.mem.eql(u8, c, "Html")) return .text;
+    if (std.mem.eql(u8, c, "bool")) return .boolean;
+    return .other;
+}
+
+/// The source spelling of a binary operator, for diagnostics.
+fn binOpSymbol(op: ast.BinaryOp) []const u8 {
+    return switch (op) {
+        .add => "+",     .sub => "-",   .mul => "*",   .div => "/",     .mod => "%",
+        .eq => "==",     .ne => "!=",   .lt => "<",    .gt => ">",      .le => "<=", .ge => ">=",
+        .bit_and => "&", .bit_or => "|", .bit_xor => "^",
+        .And => "&&",    .Or => "||",   .shl => "<<",  .shr => ">>",    .assign => "=",
+    };
+}
+
+/// Whether a binary operator's two operand categories are compatible. Only called
+/// when both operands are concrete `num`/`text`/`boolean` (an `.other` on either side
+/// short-circuits to "compatible" at the call site). This is where `int + string`,
+/// `int - bool`, `5 == "x"` and friends are caught. `+` stays permissive because a
+/// string operand means concatenation (`"n=" + 5` is valid), so it only rejects a
+/// numeric-vs-boolean pair when neither side is text.
+fn binOpCatsCompatible(op: ast.BinaryOp, l: OpCat, r: OpCat) bool {
+    return switch (op) {
+        .add => (l == .text or r == .text) or (l == .num and r == .num),
+        .sub, .mul, .div, .mod, .bit_and, .bit_or, .bit_xor, .shl, .shr => l == .num and r == .num,
+        .lt, .gt, .le, .ge => (l == .num and r == .num) or (l == .text and r == .text),
+        .And, .Or => l == .boolean and r == .boolean,
+        .eq, .ne => l == r,
+        .assign => true,
+    };
 }
 
 fn isTypeCompatible(from: ast.TypeRef, to: ast.TypeRef) bool {

@@ -62,21 +62,22 @@ no `.optional` arm in the field-access path, so none of these is caught today. T
 makes the member-deref case memory-safe; these assignment/pass/return cases are not yet even
 runtime-guarded (they do not deref), and are the remaining static-soundness work.
 
-## Tuples are invisible to the type checker (plan P2-18)
+## ✅ Tuple element typing + binary-operand type check - LANDED
 
-No `.tuple` case in `resolveExprType`; **`ls.names` - the destructuring field - is never read in
-`type_checker.zig`**, so destructured bindings are never registered and have no type.
+Tuple destructuring now registers each binding with its element type: `let (v, e) = divide(10, 2)`
+gives `v: int` and `e: string`, so `let x: int = e` and `let s: string = v` are both rejected.
 
-```kyte
-fn divide(a: int, b: int): (int, string) { return (a / b, "err"); }
-@test
-fn t(): void {
-    let (v, e) = divide(10, 2);
-    let n = v + e;                 // ERROR: int + string. Compiles → 4304536869 (a raw pointer)
-    let (a, b, c) = divide(1, 1);  // ERROR: 3 names from a 2-tuple. Compiles, reads out of bounds
-}
-fn bad(): (int, string) { return (1, "x", 42); }  // ERROR: 3-tuple from a 2-tuple signature
-```
+The remaining half - a binary operator on incompatible operands, which the tuple case surfaced
+(`v * e` where `v` is int and `e` is string) - is now caught by the operand-type check in
+`checkExpr`'s `.binary` arm (`binOpCatsCompatible`), gated to `expect_fail/binary_operand_type_mismatch.ky`.
+`int - string`, `int * bool`, `5 == "x"`, `int && bool` and the like are type errors. `+` with a string
+operand stays valid because it is concatenation (`"n=" + 5`), and the resolver's `.other` types (structs,
+traits, enums, bare-call returns it cannot trust) are left alone to avoid false positives. Full corpus
+stayed green.
+
+Tuple arity is also enforced now: `let (a, b, c) = divide(1, 1)` (3 names from a 2-tuple) and
+`fn bad(): (int, string) { return (1, "x", 42); }` (3-tuple from a 2-tuple signature) are both rejected.
+The whole tuple section here is resolved.
 
 Also **not** a type-checker issue but recorded here because it is the same feature: every tuple
 leaks its box and elements (`28_tuple_return_heap` = 68 live, `29_http_request_parse` = 46 - see
