@@ -2345,10 +2345,28 @@ pub const TypeChecker = struct {
                 // The value of `a ?? b` is `a` unwrapped when present, so its type
                 // is the element type when the left is statically an optional, and
                 // the left's own type otherwise.
-                const result: ?ast.TypeRef = if (lt) |t|
+                const unwrapped: ?ast.TypeRef = if (lt) |t|
                     (if (t == .optional) t.optional.* else t)
                 else
                     null;
+
+                // But when the fallback is ITSELF optional, `a ?? b` can still be
+                // absent (left absent AND right absent), so the whole expression stays
+                // optional: `int? ?? int?` is `int?`, not `int`. Typing it as the bare
+                // element made codegen unbox the left while leaving the right boxed, so
+                // the merged value was read back as a wild pointer (a present right
+                // operand came out as garbage). Only the RESULT is re-wrapped; the
+                // soundness guard below still compares against the unwrapped present type.
+                const result: ?ast.TypeRef = if (unwrapped) |u| blk: {
+                    if (rt) |r| {
+                        if (r == .optional) {
+                            const p = self.allocator.create(ast.TypeRef) catch break :blk u;
+                            p.* = u;
+                            break :blk ast.TypeRef{ .optional = p };
+                        }
+                    }
+                    break :blk u;
+                } else null;
 
                 // Soundness guard: the fallback must be assignable to the unwrapped
                 // present type. If it is not, codegen currently returns the present
@@ -2361,13 +2379,17 @@ pub const TypeChecker = struct {
                 // so no legitimate `??` is rejected. The usual cause is the accessor
                 // binding to the fallback -- `opt ?? fb().field` parses as
                 // `opt ?? (fb().field)`; parenthesise as `(opt ?? fb()).field`.
-                if (result) |unwrapped| {
+                if (unwrapped) |u| {
                     if (rt) |r| {
+                        // Compare the fallback against its own unwrapped element too, so an
+                        // optional fallback (`int? ?? int?`) is judged as int-vs-int, not
+                        // int-vs-optional, and does not trip the scalar-reinterpret guard.
+                        const r_elem = if (r == .optional) r.optional.* else r;
                         if (leftTypeIsReliableForNc(nc.left.*) and
-                            !isTypeCompatible(r, unwrapped) and !isTypeCompatible(unwrapped, r) and
-                            self.isScalarReinterpretMismatch(unwrapped, r))
+                            !isTypeCompatible(r_elem, u) and !isTypeCompatible(u, r_elem) and
+                            self.isScalarReinterpretMismatch(u, r_elem))
                         {
-                            self.addError(nc.span, "the `??` fallback has type '{s}' but the value on the left unwraps to '{s}'; both sides of `??` must share a type. If you meant to read a member of the unwrapped value, parenthesise the unwrap: `(x ?? fallback).member`", .{ typeRefName(r), typeRefName(unwrapped) });
+                            self.addError(nc.span, "the `??` fallback has type '{s}' but the value on the left unwraps to '{s}'; both sides of `??` must share a type. If you meant to read a member of the unwrapped value, parenthesise the unwrap: `(x ?? fallback).member`", .{ typeRefName(r), typeRefName(u) });
                         }
                     }
                 }

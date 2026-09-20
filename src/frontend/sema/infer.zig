@@ -1269,7 +1269,15 @@ pub const Inferer = struct {
                     return if (self.store.get(rt) == .unresolved) self.unresolved("nullish") else self.ok(rt);
 
                 const l = self.store.get(lt);
-                if (l == .optional) return self.ok(l.optional);
+                if (l == .optional) {
+                    // `a ?? b` is `a` unwrapped when present. But if the fallback `b` is ITSELF
+                    // optional, the result can still be absent (left absent AND right absent), so
+                    // the whole expression stays optional: `int? ?? int?` is `int?`, not `int`.
+                    // Typing it as the bare element split the codegen representation (left unboxed,
+                    // right boxed) and read a present result back as a wild pointer.
+                    if (self.store.get(rt) == .optional) return self.ok(lt);
+                    return self.ok(l.optional);
+                }
                 return self.ok(lt);
             },
 

@@ -5275,10 +5275,36 @@ fn compileExpressionInner(self: *LlvmCompiler, expr: ast.Expression) anyerror!ty
         .nullish_coalesce => |nc| {
             const current_fn = core.LLVMGetBasicBlockParent(core.LLVMGetInsertBlock(self.builder));
 
-            const left_val = self.coerceToSlotType(try self.compileExpression(nc.left.*), self.val_type);
-
             const nc_is_valopt = self.exprYieldsValoptBox(nc.left);
-            const left_present = if (nc_is_valopt) try self.buildValoptUnbox(left_val) else left_val;
+
+            // When the RHS is itself a value-optional box, the whole `??` yields an OPTIONAL
+            // (`int? ?? int?` has type `int?`), not the unwrapped payload. In that case the merge
+            // must run on BOXES: both operands are read with unboxing suppressed so a present-zero
+            // stays distinguishable from absence, the present branch keeps the left box, and the phi
+            // hands back a box for the consumer to unbox later. Without this, both operands read back
+            // as bare payload words (`a` auto-unboxes to its int), so a present result was stored
+            // where a box pointer was expected and the outer read dereferenced a wild address. The
+            // double-optional peel (`nested_valopt_peel`, `int?? ?? int?`) keeps its own dance below.
+            const nested_valopt_peel = nc_is_valopt and blk: {
+                const lt = self.typeOfExprConcrete(nc.left) orelse break :blk false;
+                const inner_tid = self.valueOptionalInner(lt) orelse break :blk false;
+                break :blk self.valueOptionalInner(inner_tid) != null;
+            };
+            // Key off the coalesce's OWN result type, not the RHS use-site type: sema types
+            // `a ?? c` as `int?` even though the `c` occurrence reads back unwrapped, so asking the
+            // RHS expression alone would miss it.
+            const opt_result = blk: {
+                if (nested_valopt_peel) break :blk false;
+                const t = self.typeOfExprConcrete(&expr) orelse break :blk false;
+                break :blk self.valueOptionalInner(t) != null;
+            };
+
+            const saved_suppress = self.suppress_valopt_unbox;
+            if (opt_result) self.suppress_valopt_unbox = true;
+            const left_val = self.coerceToSlotType(try self.compileExpression(nc.left.*), self.val_type);
+            if (opt_result) self.suppress_valopt_unbox = saved_suppress;
+
+            const left_present = if (nc_is_valopt and !opt_result) try self.buildValoptUnbox(left_val) else left_val;
 
             // Fast path: the optional was narrowed to present by an enclosing `if (x != undefined)`,
             // so the RHS branch is dead and the whole phi can collapse to the payload.
@@ -5312,12 +5338,6 @@ fn compileExpressionInner(self: *LlvmCompiler, expr: ast.Expression) anyerror!ty
 
             const left_bb_end = core.LLVMGetInsertBlock(self.builder);
 
-            const nested_valopt_peel = nc_is_valopt and blk: {
-                const lt = self.typeOfExprConcrete(nc.left) orelse break :blk false;
-                const inner_tid = self.valueOptionalInner(lt) orelse break :blk false;
-                break :blk self.valueOptionalInner(inner_tid) != null;
-            };
-
             const rhs_bb = core.LLVMAppendBasicBlock(current_fn, "nc_rhs");
             const merge_bb = core.LLVMAppendBasicBlock(current_fn, "nc_merge");
             const present_bb = if (nested_valopt_peel) core.LLVMAppendBasicBlock(current_fn, "nc_present") else null;
@@ -5334,7 +5354,11 @@ fn compileExpressionInner(self: *LlvmCompiler, expr: ast.Expression) anyerror!ty
             }
 
             core.LLVMPositionBuilderAtEnd(self.builder, rhs_bb);
+            // For an optional-typed result the RHS must stay boxed too (see the `opt_result` note
+            // above), so a present-zero survives and the phi merges box against box.
+            if (opt_result) self.suppress_valopt_unbox = true;
             var rhs_val = self.coerceToSlotType(try self.compileExpression(nc.right.*), self.val_type);
+            if (opt_result) self.suppress_valopt_unbox = saved_suppress;
 
             if (try self.resolveExpressionTypeName(nc.left)) |lt| {
                 if (self.traits.contains(lt)) {

@@ -1,0 +1,55 @@
+import assert;
+
+// Regression: `a ?? b` where the fallback `b` is ITSELF optional makes the whole
+// expression optional (`int? ?? int?` is `int?`, not `int`), since the result can
+// still be absent when both sides are. Typing it as the bare element used to split
+// the codegen representation (left unboxed, right boxed), so a present right operand
+// read back as a wild pointer. See infer.zig / type_checker.zig nullish_coalesce.
+
+struct Cfg { pub name: string, pub n: int, }
+fn mk(): Cfg { return Cfg { name: "fb", n: 99 }; }
+
+@test
+fn opt_coalesce_opt_present_right(): void {
+    let a: int? = undefined;
+    let c: int? = 3;
+    let r: int? = a ?? c;              // a absent -> r is c (present 3)
+    assert.isTrue(r != undefined);
+    assert.equalInt(r ?? 0, 3);
+}
+
+@test
+fn opt_coalesce_opt_present_left(): void {
+    let a: int? = 5;
+    let c: int? = 3;
+    let r: int? = a ?? c;              // a present -> r is a (5)
+    assert.equalInt(r ?? 0, 5);
+}
+
+@test
+fn opt_coalesce_opt_both_absent(): void {
+    let a: int? = undefined;
+    let c: int? = undefined;
+    let r: int? = a ?? c;              // both absent -> r absent
+    assert.isTrue(r == undefined);
+    assert.equalInt(r ?? 7, 7);
+}
+
+@test
+fn opt_coalesce_chained(): void {
+    let a: int? = undefined;
+    let c: int? = 3;
+    assert.equalInt(a ?? c ?? 7, 3);   // chained: middle operand optional
+    let x: int? = undefined;
+    let y: int? = undefined;
+    assert.equalInt(x ?? y ?? 7, 7);
+}
+
+@test
+fn opt_coalesce_unwrapped_still_works(): void {
+    // The ordinary `T? ?? T` form (fallback NOT optional) still unwraps to a bare value.
+    let a: int? = undefined;
+    assert.equalInt(a ?? 42, 42);
+    let b: int? = 8;
+    assert.equalInt(b ?? 42, 8);
+}
