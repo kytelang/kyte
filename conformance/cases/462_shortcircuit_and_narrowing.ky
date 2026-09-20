@@ -1,0 +1,70 @@
+import assert;
+
+// `&&` and `||` short-circuit: the right operand is not evaluated when the left
+// already decides the result. This also makes optional narrowing across a guard
+// SOUND: `x != undefined && x.length` never touches `x.length` when `x` is absent.
+// See infer.zig (&&/|| narrowing) and expressions.zig (short-circuit codegen).
+
+// A counter proves the RHS was skipped: bumped only if the RHS is evaluated.
+class Counter { pub n: int, init() { self.n = 0; } }
+
+fn bump(c: Counter): bool { c.n = c.n + 1; return true; }
+
+@test
+fn and_short_circuits(): void {
+    let c = Counter();
+    let r = false && bump(c);     // RHS skipped
+    assert.isTrue(!r);
+    assert.equalInt(c.n, 0);
+    let r2 = true && bump(c);     // RHS runs
+    assert.isTrue(r2);
+    assert.equalInt(c.n, 1);
+}
+
+@test
+fn or_short_circuits(): void {
+    let c = Counter();
+    let r = true || bump(c);      // RHS skipped
+    assert.isTrue(r);
+    assert.equalInt(c.n, 0);
+    let r2 = false || bump(c);    // RHS runs
+    assert.isTrue(r2);
+    assert.equalInt(c.n, 1);
+}
+
+// ---- Narrowing across a guard, made safe by short-circuit ----
+
+fn andGuard(x: string | undefined): int {
+    // `x` narrowed to a present string in the RHS of `&&`; not touched when absent.
+    if (x != undefined && x.length > 0) { return x.length; }
+    return -1;
+}
+
+fn orGuard(x: string | undefined): int {
+    // Dual: `x` is present in the RHS of `||` (the `== undefined` guard was false).
+    let empty = x == undefined || x.length == 0;
+    if (empty) { return 0; }
+    return 1;
+}
+
+fn twoGuards(a: string | undefined, b: string | undefined): int {
+    if (a != undefined && b != undefined) { return a.length + b.length; }
+    return -1;
+}
+
+fn elseGuard(x: string | undefined): int {
+    if (x == undefined) { return -1; } else { return x.length; }
+}
+
+@test
+fn narrowing_shapes(): void {
+    assert.equalInt(andGuard("hi"), 2);
+    assert.equalInt(andGuard(undefined), -1);
+    assert.equalInt(orGuard("hi"), 1);
+    assert.equalInt(orGuard(""), 0);
+    assert.equalInt(orGuard(undefined), 0);
+    assert.equalInt(twoGuards("ab", "cde"), 5);
+    assert.equalInt(twoGuards("ab", undefined), -1);
+    assert.equalInt(elseGuard("abcd"), 4);
+    assert.equalInt(elseGuard(undefined), -1);
+}

@@ -400,6 +400,39 @@ fn narrowedBinding(cond: ast.BinaryExpr) ?Narrowing {
     return .{ .name = other.kind.ident, .when_true = when_true };
 }
 
+/// Collects every present-narrowing (`x != undefined`) reachable through an `&&`
+/// chain in `e`, appending each to `out`. `x != undefined && x.length > 0` and
+/// `a != undefined && b != undefined && ...` both narrow every guarded name for
+/// the rest of the `&&` (short-circuit: once a left conjunct is being evaluated,
+/// it is known true) and for the then-branch of an `if` on that condition. Only
+/// the `!=` (present-when-true) direction is collected; a bare guard that is not
+/// part of an `&&` still comes through (the recursion bottoms out on it).
+fn collectTrueNarrowings(e: *const ast.Expression, out: *std.ArrayListUnmanaged(Narrowing), alloc: std.mem.Allocator) void {
+    if (e.kind != .binary) return;
+    const b = e.kind.binary;
+    if (b.op == .And) {
+        collectTrueNarrowings(b.left, out, alloc);
+        collectTrueNarrowings(b.right, out, alloc);
+    } else if (narrowedBinding(b)) |n| {
+        if (n.when_true) out.append(alloc, n) catch {};
+    }
+}
+
+/// The `||` dual of [`collectTrueNarrowings`]: collects every `x == undefined`
+/// guard through an `||` chain. In `a == undefined || a.length > 0` the right
+/// operand runs only when the left is FALSE, i.e. when `a` is present, so `a` is
+/// narrowed there. Also used to narrow the ELSE branch of an `if` on such a chain.
+fn collectFalseNarrowings(e: *const ast.Expression, out: *std.ArrayListUnmanaged(Narrowing), alloc: std.mem.Allocator) void {
+    if (e.kind != .binary) return;
+    const b = e.kind.binary;
+    if (b.op == .Or) {
+        collectFalseNarrowings(b.left, out, alloc);
+        collectFalseNarrowings(b.right, out, alloc);
+    } else if (narrowedBinding(b)) |n| {
+        if (!n.when_true) out.append(alloc, n) catch {};
+    }
+}
+
 /// Whether a statement definitely transfers control out of the enclosing block
 /// (returns/breaks/continues), looking through a block to its last statement.
 ///
@@ -1007,8 +1040,46 @@ pub const Inferer = struct {
             .binary => |b| {
                 switch (b.op) {
 
-                    .eq, .ne, .lt, .gt, .le, .ge, .And, .Or => {
+                    .eq, .ne, .lt, .gt, .le, .ge => {
                         _ = try self.inferExpr(b.left);
+                        _ = try self.inferExpr(b.right);
+                        return self.ok(try self.store.boolT());
+                    },
+
+                    .Or => {
+                        // Dual of `&&`: while typing the RHS, every `x == undefined` guard on the
+                        // LHS is known FALSE, so `x` is present. `x == undefined || x.length > 0`.
+                        _ = try self.inferExpr(b.left);
+                        var narrs = std.ArrayListUnmanaged(Narrowing).empty;
+                        defer narrs.deinit(self.allocator);
+                        collectFalseNarrowings(b.left, &narrs, self.allocator);
+                        try self.push();
+                        defer self.pop();
+                        for (narrs.items) |n| {
+                            const cur = self.lookup(n.name) orelse continue;
+                            const t = self.store.get(cur);
+                            if (t == .optional) try self.bind(n.name, t.optional);
+                        }
+                        _ = try self.inferExpr(b.right);
+                        return self.ok(try self.store.boolT());
+                    },
+
+                    .And => {
+                        // Short-circuit narrowing: while typing the RHS, every `x != undefined`
+                        // guard on the LHS (or an `&&` chain of them) is known true, so the
+                        // guarded names are narrowed to their present type. This is what makes
+                        // `x != undefined && x.length > 0` type-check without nesting the guard.
+                        _ = try self.inferExpr(b.left);
+                        var narrs = std.ArrayListUnmanaged(Narrowing).empty;
+                        defer narrs.deinit(self.allocator);
+                        collectTrueNarrowings(b.left, &narrs, self.allocator);
+                        try self.push();
+                        defer self.pop();
+                        for (narrs.items) |n| {
+                            const cur = self.lookup(n.name) orelse continue;
+                            const t = self.store.get(cur);
+                            if (t == .optional) try self.bind(n.name, t.optional);
+                        }
                         _ = try self.inferExpr(b.right);
                         return self.ok(try self.store.boolT());
                     },
@@ -2343,6 +2414,22 @@ pub const Inferer = struct {
         try self.inferStmt(branch);
     }
 
+    /// Like [`Inferer.narrowedBranch`] but for a set of present-narrowings, so the
+    /// then-branch of `if (a != undefined && b != undefined) { ... }` sees BOTH
+    /// `a` and `b` narrowed. Each still-optional name is bound to its unwrapped
+    /// type in one pushed scope; an empty set just infers the branch as-is.
+    fn narrowedBranchMulti(self: *Inferer, narrs: []const Narrowing, branch: *const ast.Statement) anyerror!void {
+        if (narrs.len == 0) return self.inferStmt(branch);
+        try self.push();
+        defer self.pop();
+        for (narrs) |n| {
+            const cur = self.lookup(n.name) orelse continue;
+            const t = self.store.get(cur);
+            if (t == .optional) try self.bind(n.name, t.optional);
+        }
+        try self.inferStmt(branch);
+    }
+
     /// Computes the declared parameter types of a call's callee (a free function
     /// or a method), so arguments can be typed WITH an expected type. Returns an
     /// owned slice (caller frees) or null when the callee cannot be resolved.
@@ -2611,13 +2698,21 @@ pub const Inferer = struct {
             .if_stmt => |*i| {
                 try self.checkCond(&i.condition, "if");
 
-                const narrow: ?Narrowing = if (i.condition.kind == .binary)
-                    narrowedBinding(i.condition.kind.binary)
-                else
-                    null;
+                // The then-branch is narrowed by every `x != undefined` conjunct in the
+                // condition (a lone guard or an `&&` chain). The else-branch is narrowed by
+                // every `x == undefined` guard (a lone guard or an `||` chain), since reaching
+                // the else means each of those was false, i.e. the value is present.
+                var then_narrs = std.ArrayListUnmanaged(Narrowing).empty;
+                defer then_narrs.deinit(self.allocator);
+                collectTrueNarrowings(&i.condition, &then_narrs, self.allocator);
+                try self.narrowedBranchMulti(then_narrs.items, i.then_branch);
 
-                try self.narrowedBranch(narrow, true, i.then_branch);
-                if (i.else_branch) |e| try self.narrowedBranch(narrow, false, e);
+                if (i.else_branch) |e| {
+                    var else_narrs = std.ArrayListUnmanaged(Narrowing).empty;
+                    defer else_narrs.deinit(self.allocator);
+                    collectFalseNarrowings(&i.condition, &else_narrs, self.allocator);
+                    try self.narrowedBranchMulti(else_narrs.items, e);
+                }
             },
             .while_stmt => |*w| {
                 try self.checkCond(&w.condition, "while");

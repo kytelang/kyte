@@ -2799,6 +2799,43 @@ fn compileExpressionInner(self: *LlvmCompiler, expr: ast.Expression) anyerror!ty
                 }
             }
 
+            // Short-circuit `&&` / `||`. These must NOT evaluate the right operand when the
+            // left already decides the result: `false && f()` must not call `f()`, and
+            // `x != undefined && x.length > 0` must not touch `x.length` when `x` is absent.
+            // (Previously both operands were evaluated and bitwise-combined, so side effects
+            // fired and a guarded deref ran on the absent path.) The right operand is compiled
+            // in its own block reached only when the left does not decide the outcome.
+            if (bin.op == .And or bin.op == .Or) {
+                const is_and = bin.op == .And;
+                const current_fn = core.LLVMGetBasicBlockParent(core.LLVMGetInsertBlock(self.builder));
+                const lv = self.coerceToSlotType(try self.compileExpression(bin.left.*), self.val_type);
+                const l_true = core.LLVMBuildICmp(self.builder, types.LLVMIntPredicate.LLVMIntNE, lv, core.LLVMConstInt(self.val_type, 0, 0), "sc_l");
+                const lhs_end = core.LLVMGetInsertBlock(self.builder);
+                const rhs_bb = core.LLVMAppendBasicBlock(current_fn, "sc_rhs");
+                const merge_bb = core.LLVMAppendBasicBlock(current_fn, "sc_merge");
+                // `&&`: evaluate RHS only when the left is TRUE (else short-circuit to false).
+                // `||`: evaluate RHS only when the left is FALSE (else short-circuit to true).
+                if (is_and) {
+                    _ = core.LLVMBuildCondBr(self.builder, l_true, rhs_bb, merge_bb);
+                } else {
+                    _ = core.LLVMBuildCondBr(self.builder, l_true, merge_bb, rhs_bb);
+                }
+                core.LLVMPositionBuilderAtEnd(self.builder, rhs_bb);
+                const rv = self.coerceToSlotType(try self.compileExpression(bin.right.*), self.val_type);
+                const r_true = core.LLVMBuildICmp(self.builder, types.LLVMIntPredicate.LLVMIntNE, rv, core.LLVMConstInt(self.val_type, 0, 0), "sc_r");
+                const r_word = core.LLVMBuildZExt(self.builder, r_true, self.val_type, "sc_r64");
+                const rhs_end = core.LLVMGetInsertBlock(self.builder);
+                _ = core.LLVMBuildBr(self.builder, merge_bb);
+                core.LLVMPositionBuilderAtEnd(self.builder, merge_bb);
+                const phi = core.LLVMBuildPhi(self.builder, self.val_type, "sc_phi");
+                // Short-circuit value: `&&` yields false (0), `||` yields true (1).
+                const sc_const = core.LLVMConstInt(self.val_type, if (is_and) 0 else 1, 0);
+                var vals = [_]types.LLVMValueRef{ sc_const, r_word };
+                var bbs = [_]types.LLVMBasicBlockRef{ lhs_end, rhs_end };
+                core.LLVMAddIncoming(phi, &vals, &bbs, 2);
+                return phi;
+            }
+
             const left_type = try self.resolveExpressionTypeName(bin.left);
             const right_type = try self.resolveExpressionTypeName(bin.right);
 

@@ -45,22 +45,25 @@ object is optional-typed (specs §3.4, gated by `cases/38_optional_deref_guard.k
 ASAN-clean). See-through ergonomics (`xs.get(i).field`, commit 950495c) are kept; the guard is a
 no-op on present values.
 
-**Still PENDING: COMPILE-TIME rejection.** Catching unnarrowed optional use statically - the spec's
-original intent - is the soundness endgame, but it needs flow-narrowing better than today's
-branch-scoped rule (§3.4a: an early-exit `if (x==undefined) return;` does not narrow after it) or
-optionals become painful. These are the cases that should eventually be a compile error rather than
-a runtime trap:
+**✅ COMPILE-TIME rejection LANDED.** Using an optional where a `T` is required is now a type error,
+not a runtime trap: assigning it to a `T`, passing it as a `T` argument, and returning it from a `T`
+function are all rejected with a "make it present first" diagnostic.
 
 ```kyte
 let s: string | undefined = "hi";
-let x: string = s;                 // should ERROR: string | undefined is not string
-let n = takes(s);                  // should ERROR: passing optional where string expected
-fn f(): string { return s; }       // should ERROR: returning optional as T
+let x: string = s;                 // ERROR: possibly-undefined assigned to 'string'
+let n = takes(s);                  // ERROR: possibly-undefined passed as 'string'
+fn f(): string { return s; }       // ERROR: returning possibly-undefined as 'string'
 ```
-`type_checker.zig` has no narrowing machinery (every "narrow" hit is integer-width conversion) and
-no `.optional` arm in the field-access path, so none of these is caught today. The runtime guard
-makes the member-deref case memory-safe; these assignment/pass/return cases are not yet even
-runtime-guarded (they do not deref), and are the remaining static-soundness work.
+
+**✅ Flow-narrowing LANDED too** (`462_shortcircuit_and_narrowing.ky`). `x` is narrowed to present in:
+the then-branch of `if (x != undefined)`, the else-branch of `if (x == undefined)`, after an
+early-exit guard (`if (x == undefined) return;`), and across `&&` / `||` short-circuits
+(`x != undefined && x.length`, `x == undefined || x.length`, and their multi-guard chains). The last
+of these was made SOUND by implementing real short-circuit evaluation for `&&`/`||` in codegen (they
+used to evaluate BOTH operands and bitwise-combine, so `false && f()` called `f()` and a guarded
+deref ran on the absent path). See infer.zig (`collectTrueNarrowings`/`collectFalseNarrowings`) and
+expressions.zig (the `.And`/`.Or` short-circuit blocks).
 
 ## ✅ Tuple element typing + binary-operand type check - LANDED
 
