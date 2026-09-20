@@ -32,6 +32,7 @@ import web.response;
 import web.status;
 import web.static_content;
 import web.routing;
+import web.websocket;
 import web.http2.frame;
 import web.http2.hpack;
 import compress.gzip;
@@ -100,6 +101,13 @@ pub class App {
     pub sseRouter: routing.Router,
     pub sseHandlers: List<SseHandler>,
 
+    /// WebSocket routes, matched in the connection loop exactly like `sseRouter`.
+    /// A GET that matches AND carries `Upgrade: websocket` is handed to the
+    /// registered `WsHandler` after the handshake; it then owns the socket. See
+    /// `web.websocket`.
+    pub wsRouter: routing.Router,
+    pub wsHandlers: List<websocket.WsHandler>,
+
     /// Direct route handlers (the Go/axum/Flask-style path), stored homogeneously
     /// as `RouteHandler` trait objects exactly like `sseHandlers`. `routeRouter`
     /// maps a matched request to an index into `routeHandlers`; dispatch calls the
@@ -131,6 +139,8 @@ pub class App {
         self.serverPort = 0;
         self.sseRouter = routing.Router();
         self.sseHandlers = List<SseHandler>();
+        self.wsRouter = routing.Router();
+        self.wsHandlers = List<websocket.WsHandler>();
         self.routeRouter = routing.Router();
         self.routeHandlers = List<routing.RouteHandler>();
         self.middlewares = List<routing.RouteMiddleware>();
@@ -276,6 +286,18 @@ pub class App {
         let idx = self.sseHandlers.size();
         self.sseHandlers.push(handler);
         self.sseRouter.__addRoute("GET", path, `${idx}`);
+    }
+
+    /// Registers a WebSocket route at `path`. A GET matching `path` and carrying
+    /// `Upgrade: websocket` completes the handshake and hands the connection to
+    /// `handler`, which owns the socket for the life of the stream (it does not
+    /// return a `Response`). `path` may contain `{name}` parameters, merged into
+    /// the request query like `sse`. Matched in the connection loop. See
+    /// `web.websocket`.
+    pub fn ws(self: App, path: string, handler: websocket.WsHandler): void {
+        let idx = self.wsHandlers.size();
+        self.wsHandlers.push(handler);
+        self.wsRouter.__addRoute("GET", path, `${idx}`);
     }
 
     /// Resolves and serves one request: a matched direct route handler, an
@@ -573,6 +595,22 @@ async fn handleConn(app: App, io: AsyncIO): int {
                     // the handler reads them uniformly via req.query.
                     sm.params.forEach((k, v) => { sreq.query.set(k, v); });
                     await sho.stream(sreq, io);
+                    alive = false;
+                    break;
+                }
+            }
+
+            // WebSocket routes take over the connection the same way, but only on a
+            // real upgrade request (`Upgrade: websocket`). A matching GET without the
+            // header falls through to normal dispatch (so the path can also serve a
+            // plain page). The handler owns the socket after the 101 handshake.
+            let wm = app.wsRouter.resolve("GET", path);
+            if (wm.matched && request.bufFindCI(buf, 0, hdrEnd, "upgrade: websocket") != -1) {
+                let who = app.wsHandlers.get(string.parseI64(wm.key) as int);
+                if (who != undefined) {
+                    let wreq = request.Request.fromString(bytes.read_string(buf, reqEnd));
+                    wm.params.forEach((k, v) => { wreq.query.set(k, v); });
+                    let _ = await websocket.serveWs(who, wreq, io);
                     alive = false;
                     break;
                 }

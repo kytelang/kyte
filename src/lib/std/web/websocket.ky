@@ -1,0 +1,320 @@
+//! WebSocket (RFC 6455) server for the Kyte web framework.
+//!
+//! This is the bidirectional edge, the counterpart to `web.sse` (which is server
+//! to client only). A route registered with `App.ws(path, handler)` completes the
+//! upgrade handshake, then hands a live `WebSocket` to the handler's `serve`, which
+//! owns a receive loop for the life of the connection. It reuses the same
+//! connection-takeover seam SSE uses: after the `101` response the raw stream is
+//! owned here and normal request/response dispatch does not resume.
+//!
+//! Milestone 1 scope: handshake, RFC 6455 framing (text/binary/close/ping/pong,
+//! fragmentation reassembly, client-mask required), and a bidirectional
+//! `recv`/`sendText`/`sendBinary`/`close` surface. NOT in v1: `permessage-deflate`,
+//! a client-side WebSocket, and a configurable Origin allowlist (added later).
+//! Positioning: SSE plus datastar stays the default for hypermedia server-push;
+//! reach for WebSocket only when the client genuinely needs to talk back in real
+//! time.
+
+import net.aio;
+import web.request;
+import crypto.hash.sha1;
+import crypto.base64;
+import bytes;
+import string;
+
+/// The RFC 6455 handshake GUID appended to `Sec-WebSocket-Key` before hashing.
+const WS_GUID: string = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+// Frame opcodes.
+const OP_CONT: int = 0x0;
+const OP_TEXT: int = 0x1;
+const OP_BINARY: int = 0x2;
+const OP_CLOSE: int = 0x8;
+const OP_PING: int = 0x9;
+const OP_PONG: int = 0xA;
+
+/// A received application message. `isText` selects the shape: a text message
+/// carries UTF-8 in `text`; a binary message carries `len` bytes at `data` (a raw
+/// address owned by the `WebSocket`, valid only until the next `recv` or `close`).
+pub struct Message {
+    pub isText: bool,
+    pub text: string,
+    pub data: long,
+    pub len: int,
+}
+
+/// A live WebSocket connection. A handler receives one via `serve` after a
+/// successful handshake and drives it with `recv` (blocking until the next
+/// application message or peer close) and `sendText` / `sendBinary`.
+pub class WebSocket {
+    /// The taken-over connection stream (owned for the life of the socket).
+    pub io: aio.AsyncIO,
+    /// False once a close frame has been sent or received.
+    pub open: bool,
+    /// The buffer backing the last BINARY message handed out, freed on the next
+    /// `recv`/`close` so at most one binary payload is live at a time. Zero when
+    /// the last message was text (an ARC-managed string owns that buffer instead).
+    pub rxbuf: long,
+
+    init(io: aio.AsyncIO) {
+        self.io = io;
+        self.open = true;
+        self.rxbuf = 0;
+    }
+
+    /// True while the connection has not been closed by either side.
+    pub fn isOpen(self: WebSocket): bool { return self.open; }
+
+    /// Sends a UTF-8 text frame. Returns the bytes written, or a negative value
+    /// on a write error.
+    pub async fn sendText(self: WebSocket, s: string): int {
+        return await self.sendFrame(OP_TEXT, s as long, s.length);
+    }
+
+    /// Sends a binary frame of `len` bytes read from the raw address `buf`.
+    pub async fn sendBinary(self: WebSocket, buf: long, len: int): int {
+        return await self.sendFrame(OP_BINARY, buf, len);
+    }
+
+    /// Sends a Close frame with `code` and `reason`, then marks the socket closed.
+    /// The framework closes the underlying socket when the handler returns.
+    pub async fn close(self: WebSocket, code: int, reason: string): void {
+        if (!self.open) { return; }
+        self.open = false;
+        // Close payload: 2-byte big-endian code, then the reason bytes.
+        let rlen = reason.length;
+        let pbuf = bytes.alloc(rlen + 8);
+        bytes.write_byte(pbuf, 0, (code >> 8) & 0xff);
+        bytes.write_byte(pbuf, 1, code & 0xff);
+        let i = 0;
+        while (i < rlen) { bytes.write_byte(pbuf, 2 + i, bytes.read_byte(reason as long, i)); i = i + 1; }
+        let _ = await self.sendFrame(OP_CLOSE, pbuf, 2 + rlen);
+        bytes.free(pbuf);
+        self.freeRx();
+    }
+
+    fn freeRx(self: WebSocket): void {
+        if (self.rxbuf != 0) { bytes.free(self.rxbuf); self.rxbuf = 0; }
+    }
+
+    /// Builds one unmasked server frame (FIN set) for `opcode` carrying `plen`
+    /// bytes from `payload`, and writes it in a single send.
+    async fn sendFrame(self: WebSocket, opcode: int, payload: long, plen: int): int {
+        let hlen = frameHeaderLen(plen);
+        let fb = bytes.alloc(hlen + plen + 8);
+        writeFrameHeader(fb, opcode, plen);
+        let i = 0;
+        while (i < plen) { bytes.write_byte(fb, hlen + i, bytes.read_byte(payload, i)); i = i + 1; }
+        let total = hlen + plen;
+        let s = wsBufToStr(fb, total);
+        let r = await self.io.sendStr(s);
+        bytes.free(fb);
+        return r;
+    }
+
+    /// Returns the next application message, or `undefined` once the peer closes.
+    /// Control frames (ping/pong/close) are handled here and never surface: a ping
+    /// is answered with a pong, a pong is ignored, and a close ends the stream.
+    /// Fragmented text/binary messages are reassembled before returning.
+    pub async fn recv(self: WebSocket): Message | undefined {
+        self.freeRx();
+        if (!self.open) { return undefined; }
+
+        let hdr = bytes.alloc(14);          // 2 base + up to 8 length + 4 mask
+        // Accumulator for a fragmented message.
+        let fragBuf: long = 0;
+        let fragLen = 0;
+        let fragText = false;
+        let inFrag = false;
+
+        while (true) {
+            if (!(await readN(self.io, hdr, 0, 2))) { bytes.free(hdr); self.open = false; return undefined; }
+            let b0 = bytes.read_byte(hdr, 0);
+            let b1 = bytes.read_byte(hdr, 1);
+            let fin = (b0 & 0x80) != 0;
+            let opcode = b0 & 0x0F;
+            let masked = (b1 & 0x80) != 0;
+            let len7 = b1 & 0x7F;
+
+            let plen = len7;
+            if (len7 == 126) {
+                if (!(await readN(self.io, hdr, 0, 2))) { bytes.free(hdr); self.open = false; return undefined; }
+                plen = (bytes.read_byte(hdr, 0) << 8) | bytes.read_byte(hdr, 1);
+            } else if (len7 == 127) {
+                if (!(await readN(self.io, hdr, 0, 8))) { bytes.free(hdr); self.open = false; return undefined; }
+                // Only the low 32 bits are supported; a larger frame is capped by the read.
+                plen = (bytes.read_byte(hdr, 4) << 24) | (bytes.read_byte(hdr, 5) << 16)
+                     | (bytes.read_byte(hdr, 6) << 8) | bytes.read_byte(hdr, 7);
+            }
+
+            let mask = bytes.alloc(4);
+            if (masked) {
+                if (!(await readN(self.io, mask, 0, 4))) { bytes.free(mask); bytes.free(hdr); self.open = false; return undefined; }
+            }
+
+            // Read the payload into a buffer with slack for the string length header.
+            let pbuf = bytes.alloc(plen + 8);
+            if (plen > 0) {
+                if (!(await readN(self.io, pbuf, 0, plen))) { bytes.free(pbuf); bytes.free(mask); bytes.free(hdr); self.open = false; return undefined; }
+                if (masked) {
+                    let i = 0;
+                    while (i < plen) {
+                        let mb = bytes.read_byte(mask, i & 3);
+                        bytes.write_byte(pbuf, i, bytes.read_byte(pbuf, i) ^ mb);
+                        i = i + 1;
+                    }
+                }
+            }
+            bytes.free(mask);
+
+            if (opcode == OP_PING) {
+                let _ = await self.sendFrame(OP_PONG, pbuf, plen);
+                bytes.free(pbuf);
+            } else if (opcode == OP_PONG) {
+                bytes.free(pbuf);
+            } else if (opcode == OP_CLOSE) {
+                // Echo the close and end the stream.
+                let _ = await self.sendFrame(OP_CLOSE, pbuf, plen);
+                bytes.free(pbuf);
+                if (fragBuf != 0) { bytes.free(fragBuf); }
+                bytes.free(hdr);
+                self.open = false;
+                return undefined;
+            } else if (opcode == OP_TEXT || opcode == OP_BINARY) {
+                if (fin) {
+                    bytes.free(hdr);
+                    if (fragBuf != 0) { bytes.free(fragBuf); }
+                    return self.makeMessage(opcode == OP_TEXT, pbuf, plen);
+                }
+                // Start of a fragmented message.
+                fragBuf = pbuf;
+                fragLen = plen;
+                fragText = (opcode == OP_TEXT);
+                inFrag = true;
+            } else if (opcode == OP_CONT) {
+                if (!inFrag) { bytes.free(pbuf); continue; }
+                // Grow the accumulator and append.
+                let nb = bytes.alloc(fragLen + plen + 8);
+                let j = 0;
+                while (j < fragLen) { bytes.write_byte(nb, j, bytes.read_byte(fragBuf, j)); j = j + 1; }
+                let k = 0;
+                while (k < plen) { bytes.write_byte(nb, fragLen + k, bytes.read_byte(pbuf, k)); k = k + 1; }
+                bytes.free(fragBuf);
+                bytes.free(pbuf);
+                fragBuf = nb;
+                fragLen = fragLen + plen;
+                if (fin) {
+                    bytes.free(hdr);
+                    return self.makeMessage(fragText, fragBuf, fragLen);
+                }
+            } else {
+                // Reserved opcode: drop and continue (a v1 leniency; v2 closes 1002).
+                bytes.free(pbuf);
+            }
+        }
+        // Unreachable.
+        bytes.free(hdr);
+        return undefined;
+    }
+
+    /// Wraps a completed payload buffer as a `Message`. Text becomes an
+    /// ARC-managed string (which owns the buffer); binary keeps the raw buffer,
+    /// tracked in `rxbuf` and freed on the next `recv`/`close`.
+    fn makeMessage(self: WebSocket, isText: bool, pbuf: long, plen: int): Message {
+        if (isText) {
+            let s = wsBufToStr(pbuf, plen);
+            return Message { isText: true, text: s, data: 0, len: plen };
+        }
+        self.rxbuf = pbuf;
+        return Message { isText: false, text: "", data: pbuf, len: plen };
+    }
+}
+
+/// The WebSocket route handler: `serve` runs one connection to completion, owning
+/// its own receive loop. Registered with `App.ws(path, handler)`. It receives the
+/// handshake `Request` so it can read cookies / session for auth (done before the
+/// loop, on the upgrade request).
+pub trait WsHandler {
+    async fn serve(self: WsHandler, ws: WebSocket, req: request.Request): void;
+}
+
+/// Computes `Sec-WebSocket-Accept`: `base64(sha1(key + GUID))`.
+pub fn computeAccept(key: string): string {
+    let combined = key + WS_GUID;
+    let dg = bytes.alloc(24);
+    sha1.hashInto(combined as ptr, combined.length, dg as ptr);
+    let ds = wsBufToStr(dg, 20);
+    return base64.encode(ds);
+}
+
+/// Completes the handshake on `io` for the upgrade `req`, then runs `handler`. On
+/// a missing/blank key it writes a `400` and returns without upgrading. The caller
+/// (the connection loop) has already matched the route and verified `Upgrade`.
+pub async fn serveWs(handler: WsHandler, req: request.Request, io: aio.AsyncIO): int {
+    let key = req.getHeader("Sec-WebSocket-Key") ?? "";
+    if (string.eql(key, "")) {
+        let _ = await io.sendStr("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        return -1;
+    }
+    let accept = computeAccept(key);
+    let resp = "HTTP/1.1 101 Switching Protocols\r\n"
+        + "Upgrade: websocket\r\n"
+        + "Connection: Upgrade\r\n"
+        + "Sec-WebSocket-Accept: " + accept + "\r\n\r\n";
+    if ((await io.sendStr(resp)) < 0) { return -1; }
+    let ws = WebSocket(io);
+    await handler.serve(ws, req);
+    return 0;
+}
+
+// ---- frame helpers ----
+
+// The header length in bytes for a server frame carrying `plen` payload bytes
+// (server frames are never masked, so no 4-byte mask key).
+fn frameHeaderLen(plen: int): int {
+    if (plen < 126) { return 2; }
+    if (plen <= 0xFFFF) { return 4; }
+    return 10;
+}
+
+// Writes an unmasked, FIN-set frame header for `opcode`/`plen` at the start of `fb`.
+fn writeFrameHeader(fb: long, opcode: int, plen: int): void {
+    bytes.write_byte(fb, 0, 0x80 | opcode);
+    if (plen < 126) {
+        bytes.write_byte(fb, 1, plen);
+    } else if (plen <= 0xFFFF) {
+        bytes.write_byte(fb, 1, 126);
+        bytes.write_byte(fb, 2, (plen >> 8) & 0xff);
+        bytes.write_byte(fb, 3, plen & 0xff);
+    } else {
+        bytes.write_byte(fb, 1, 127);
+        bytes.write_byte(fb, 2, 0);
+        bytes.write_byte(fb, 3, 0);
+        bytes.write_byte(fb, 4, 0);
+        bytes.write_byte(fb, 5, 0);
+        bytes.write_byte(fb, 6, (plen >> 24) & 0xff);
+        bytes.write_byte(fb, 7, (plen >> 16) & 0xff);
+        bytes.write_byte(fb, 8, (plen >> 8) & 0xff);
+        bytes.write_byte(fb, 9, plen & 0xff);
+    }
+}
+
+// Reads exactly `n` bytes into `buf` at `off`, looping over partial reads. False on EOF/error/timeout.
+async fn readN(io: aio.AsyncIO, buf: long, off: int, n: int): bool {
+    let got = 0;
+    while (got < n) {
+        let r = await io.recvInto(buf + ((off + got) as long), n - got);
+        if (r <= 0) { return false; }
+        got = got + r;
+    }
+    return true;
+}
+
+// Reinterprets a raw byte buffer of `len` bytes as a Kyte string by writing the
+// ARC length header (at `buf-4`) and a NUL terminator in place. Same technique the
+// HTTP/2 path uses to hand binary frame buffers to string-typed APIs.
+fn wsBufToStr(buf: long, len: int): string {
+    bytes.write_byte(buf, len, 0);
+    bytes.write_i32(buf - 4, 0, len);
+    return buf as string;
+}

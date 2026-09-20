@@ -1,0 +1,26 @@
+import web.websocket;
+import assert;
+import string;
+
+// The security-critical half of the WebSocket handshake, testable without a socket:
+// `Sec-WebSocket-Accept` = base64(sha1(key + GUID)). The full echo round-trip (framing,
+// masking, ping/pong, fragmentation, close) is exercised by the integration script
+// conformance/integration/websocket_echo.sh, which needs a live server and so cannot run
+// inside a `kyte test` process (the server owns the reactor). See docs/websocket-design.md.
+
+@test
+fn rfc6455_accept_vector(): void {
+    // RFC 6455 section 1.3 worked example.
+    let got = websocket.computeAccept("dGhlIHNhbXBsZSBub25jZQ==");
+    assert.equalStr(got, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+}
+
+@test
+fn accept_is_deterministic(): void {
+    let a = websocket.computeAccept("x3JJHMbDL1EzLkh9GBhXDw==");
+    let b = websocket.computeAccept("x3JJHMbDL1EzLkh9GBhXDw==");
+    assert.equalStr(a, b);
+    // A different key yields a different accept.
+    let c = websocket.computeAccept("dGhlIHNhbXBsZSBub25jZQ==");
+    assert.isTrue(!string.eql(a, c));
+}
