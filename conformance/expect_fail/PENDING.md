@@ -114,8 +114,8 @@ fn t(): void {
 ```
 Enforcing it will break stdlib code - size that in F1 stage 4 (`F1-name-resolution.md` §6 Q3).
 
-## Four cases reject by CRASHING the compiler, not diagnosing (plan P0-5)
-`undefined_variable`, `undefined_function`, `method_shadowed_by_global_fn`, `ambiguous_bare_call`
-exit non-zero via an unhandled Zig error + stack trace rather than a user-facing diagnostic. They
-are marked `// EXPECT-FAIL: compiler-crash` so the debt is visible instead of passing as if it
-were a real error message. Each should become `typecheck`.
+## ✅ Four "crash instead of diagnose" cases - RESOLVED
+`undefined_variable`, `undefined_function`, `method_shadowed_by_global_fn`, `ambiguous_bare_call` now
+emit proper located diagnostics ("undefined identifier ...", "call to '...' is ambiguous ...", etc.)
+rather than an unhandled Zig error + stack trace. Their directives are `typecheck` (three) and
+`codegen` (method_shadowed_by_global_fn), and the harness verifies the rejection kind.
