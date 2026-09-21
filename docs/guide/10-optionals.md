@@ -1,9 +1,10 @@
 # 10. Optionals
 
-An **optional** is written `T | undefined`. The value `undefined` means **absence**: there is no value
-here, *not* an error (errors are Chapter 11). Two standard-library staples return optionals:
-`List<T>.get(i)` and `Map<K,V>.get(k)` both return `T | undefined`, because the index or key might not be
-there.
+An **optional** is written `T | undefined`, and there is a shorthand `T?` that means exactly the same
+thing. Use whichever reads better: `string?` and `string | undefined` are the same type. The value
+`undefined` means **absence**: there is no value here, *not* an error (errors are Chapter 11). Two
+standard-library staples return optionals: `List<T>.get(i)` and `Map<K,V>.get(k)` both return
+`T | undefined`, because the index or key might not be there.
 
 You get at the value four ways:
 
@@ -110,5 +111,125 @@ grace name = ?
 bounded the index). Reading a field of an *absent* optional is caught: as a compile error where the
 checker can see it, and otherwise as a located runtime abort, so an optional never becomes a silent
 null-dereference.
+
+## Narrowing across `&&` and `||`
+
+A guard narrows for the rest of the same boolean expression, not just inside an `if` body. Because `&&`
+and `||` short-circuit (Chapter 2), a guard on the left protects the right operand:
+
+```kyte
+fn f(x: string | undefined): int {
+    if (x != undefined && x.length > 0) { return x.length; }  // x is present in `x.length`
+    return -1;
+}
+
+fn g(x: string | undefined): bool {
+    return x == undefined || x.length == 0;   // x is present in `x.length` (the == guard was false)
+}
+```
+
+The same applies to the branches of an `if`. The then-branch is narrowed by every `!= undefined`
+conjunct, and the else-branch by every `== undefined` disjunct:
+
+```kyte
+fn both(a: string | undefined, b: string | undefined): int {
+    if (a != undefined && b != undefined) {
+        return a.length + b.length;    // both a and b are present here
+    }
+    return -1;
+}
+
+fn viaElse(x: string | undefined): int {
+    if (x == undefined) { return -1; } else { return x.length; }  // x is present in the else
+}
+```
+
+An early-exit guard narrows the rest of the function too: after `if (x == undefined) { return 0; }`,
+`x` is a plain `T` for everything that follows.
+
+## Optional fields in structs and classes
+
+A field is made optional by giving it an optional type, either `T?` or `T | undefined`. This is how you
+say "this value may be missing" on a record, for example a user who has not set an email yet. The field
+works exactly like any other optional: read it with `??`, narrow it with `if (x != undefined)`, or reach
+through it with `?.`.
+
+In a **struct**, list the field with its optional type and give it a value at construction. A missing
+value is written `undefined`; a present value is written directly.
+
+```kyte
+struct Box {
+    pub a: string?,            // shorthand for `string | undefined`
+    pub b: int | undefined,    // the same thing, written out
+}
+
+fn main(): void {
+    let present = Box { a: "hi", b: 7 };
+    let absent  = Box { a: undefined, b: undefined };
+
+    console.log(present.a ?? "?");     // "hi"
+    console.log(`${absent.b ?? -1}`);   // -1
+
+    // To narrow, bind the field to a local first: narrowing works on a plain
+    // variable, so `if (name != undefined)` makes `name` a present `string`.
+    let name = present.a;
+    if (name != undefined) {
+        console.log(`len = ${name.length}`);
+    }
+}
+```
+
+In a **class**, declare the field the same way and set it in `init`. Because a class is mutable, you can
+assign a present value later, and methods read it through `??` just like anywhere else. (Class methods
+take an explicit `self: ClassName` first parameter.)
+
+```kyte
+class User {
+    pub name: string,
+    pub email: string?,             // optional field: may be absent
+    init(n: string) {
+        self.name = n;
+        self.email = undefined;     // start with no email
+    }
+    pub fn label(self: User): string {
+        return self.email ?? "no email";
+    }
+}
+
+fn main(): void {
+    let u = User("Ada");
+    console.log(u.label());         // "no email"
+    u.email = "ada@x.io";           // set a present value later
+    console.log(u.label());         // "ada@x.io"
+    if (u.email != undefined) {
+        console.log("email is set");
+    }
+}
+```
+
+The same forms are what the serialization layer reads and writes: an `@serializable` struct with an
+optional field maps a missing JSON key (or a JSON `null`) to `undefined`, and a present key to the value.
+See [Serialization](16-serialization.md).
+
+## Coalescing an optional fallback
+
+`a ?? b` gives `a` when it is present, otherwise `b`. When the fallback `b` is itself optional, the whole
+expression stays optional, because it can still be absent when both sides are:
+
+```kyte
+let a: int? = undefined;
+let c: int? = 3;
+let r: int? = a ?? c;     // a is absent, so r is c (present 3)
+
+let x: int? = undefined;
+let y: int? = undefined;
+let z: int? = x ?? y;     // both absent, so z is undefined
+
+// Chained: the first present value wins, else the final default.
+let n = a ?? c ?? 7;      // 3
+```
+
+When the fallback is a plain (non-optional) value, `a ?? b` unwraps to that plain type, which is the
+common case: `list.get(i) ?? 0` is an `int`, not an `int?`.
 
 Next: [Error handling](11-error-handling.md)

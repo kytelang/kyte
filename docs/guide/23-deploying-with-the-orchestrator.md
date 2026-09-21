@@ -33,7 +33,7 @@ The Kyte release installs these into `~/.kyte/bin`; each is a separate daemon:
 | `kynatord`   | control plane: reconciles desired vs actual replicas, runs health probes, publishes service discovery, runs the HA leader lease, writes metrics. |
 | `kynatorctl` | operations: an offline CLI over a config-store dump. Inspect it, manage cluster membership, print a rolling-upgrade plan.                        |
 | `artifactd`  | the content-addressed artifact origin: a blob server that distributes deploy binaries by hash.                                                   |
-| `orchweb`    | an optional, best-effort control-plane web UI.                                                                                                    |
+| `orchweb`    | an optional, best-effort control-plane web UI.                                                                                                   |
 
 The core set is `service`, `kynatord`, `kynatorctl`, and `artifactd`; `orchweb` is an optional UI. Every
 example below invokes them by name, assuming `~/.kyte/bin` is on your `PATH`.
@@ -152,7 +152,12 @@ For the HA path, add a `store` block pointing at artifactd:
   "nodeId": "node-1",
   "reconcileMs": 2000,
   "servicePath": "/home/you/.kyte/bin/service",
-  "store": { "enabled": true, "addr": "127.0.0.1:8135", "token": "", "tls": false }
+  "store": {
+    "enabled": true,
+    "addr": "127.0.0.1:8135",
+    "token": "",
+    "tls": false
+  }
 }
 ```
 
@@ -164,7 +169,7 @@ kynatord kynatord.json               # run the reconcile loop
 **`servicePath`** is the path to the `service` binary, and it is what makes kynatord launch a companion
 gateway for every handoff workload: with it set, a `handoff: true` app named `web` also gets a `web-svc`
 job running `service` on that workload's rendezvous and `network.servicePort`. **Omit it and a handoff
-workload's replicas start but nothing binds the rendezvous, so the front port serves nothing**. This is
+workload's replicas start but nothing binds the rendezvous, so the front port serves nothing** - this is
 the most common "it deployed but `curl` returns `000`" mistake. It is not needed for the classic L7 mode,
 where you run `service` yourself.
 
@@ -201,10 +206,10 @@ replicas:
   min: 2
   max: 6
 autoscale:
-  enabled: true            # scale to hold the metric near `target`, like a k8s HPA
-  metric: inflight         # inflight (in-flight requests/replica) | cpu (percent of one core/replica, Linux)
-  target: 8                # inflight: ~8 in-flight requests per replica; cpu would be e.g. 70 (= 70%)
-  intervalMs: 2000         # optional control-loop period
+  enabled: true # scale to hold the metric near `target`, like a k8s HPA
+  metric: inflight # inflight (in-flight requests/replica) | cpu (percent of one core/replica, Linux)
+  target: 8 # inflight: ~8 in-flight requests per replica; cpu would be e.g. 70 (= 70%)
+  intervalMs: 2000 # optional control-loop period
 lb:
   strategy: roundrobin # roundrobin | weighted | leastconn | consistenthash
   handoff: true # fd-passing data path; app has no public TCP port
@@ -484,8 +489,8 @@ Two details that look like bugs if you get them wrong:
 On Windows the `socket.sendFd`/`socket.recvFd` stubs return -1: the handoff compiles but does not run
 there. The mechanism has no direct Windows equivalent (`SCM_RIGHTS` hands a descriptor to whoever holds
 the other end, whereas `WSADuplicateSocket` prepares a duplicate for a process named by PID), so a
-Windows port is explicitly not planned. Kynator's production target is Linux; macOS and Windows are
-development hosts (see [STABILITY](../STABILITY.md)).
+Windows port is explicitly not planned. Treat Kynator as a Linux and macOS production concern,
+with Windows as a development host.
 
 ## kynatorctl: operating the config store offline
 
@@ -510,99 +515,6 @@ such a dump: loading a file is a restore into an in-memory store, saving it is a
 store itself is durable without any of this: artifactd snapshots it to `<root>/config.snap` after every
 write and reloads it on start, so a restart keeps every key at its original revision.
 
-## Foreign workloads: supervising any binary
-
-Kynator is not limited to Kyte apps. It can supervise any self-contained native binary, a Go service, a
-Rust daemon, a C# AOT build, or anything that runs as a process, without you rewriting a line of it. This
-is the adoption path: point kynator at a binary you already ship. Set `workloadType: foreign` and the
-supervisor drops the Kyte conventions that a foreign binary cannot speak.
-
-```yaml
-apiVersion: kyte/v1
-kind: App
-metadata:
-  name: checkout-go
-workload:
-  workloadType: foreign        # kyte (default) | foreign
-  binary: ./bin/checkout       # a Go/Rust/C#-AOT binary; artifact: works too (see chapter 24)
-  args:
-    - serve
-  restartPolicy: always
-  portEnv: PORT                # the env var the binary reads its port from (default KYTE_PORT)
-  workdir: /var/lib/checkout   # working directory for the child ("" inherits kynatord's)
-  env:                         # extra environment, as KEY=VALUE entries
-    - LOG_LEVEL=info
-    - REGION=in
-replicas:
-  min: 2
-  max: 4
-network:
-  expose: gateway-only         # foreign workloads are always given a real listening port (see below)
-  portBase: 9100               # replica i binds 9100 + i; the gateway byte-forwards to it
-health:
-  probeType: tcp               # http (default) | tcp | exec
-  # for probeType: exec, give a command instead; exit 0 means healthy
-  # probeType: exec
-  # probeCmd: ["/usr/local/bin/healthcheck", "--fast"]
-```
-
-What changes for a foreign workload, and why:
-
-- **Port delivery is explicit.** A Kyte app reads `KYTE_PORT`; a foreign binary usually reads its own
-  variable, so `portEnv` names it (for example `PORT`). The supervisor sets that variable to the replica's
-  assigned port at spawn. Set `portEnv: ""` if the binary only takes a port on the command line, and use
-  `network.portFlag` for that.
-- **Environment and working directory.** `env` entries are applied on top of the inherited environment,
-  and `workdir` sets the child's directory. Both are applied per child at spawn, so co-located workloads
-  never collide on a shared process environment.
-- **No fd-handoff.** The zero-copy fd-passing data path is a Kyte-only protocol. A foreign workload is
-  always steered onto a real listening port (`portBase`), and the `service` gateway byte-forwards client
-  connections to it. You do not need to (and cannot) set `handoff` for a foreign workload.
-- **No Kyte-only steps.** The pre-rollout `migrate` step and the companion Kyte service are skipped for a
-  foreign workload, because they assume a Kyte binary.
-- **Health probes it can answer.** A foreign binary need not expose `/healthz`. Choose `probeType: tcp` (a
-  bare connect succeeds) or `probeType: exec` (kynatord runs your `probeCmd`; exit 0 is healthy) instead of
-  `http`.
-- **The exec bit is owned for you.** A binary copied onto the node, or fetched as a content-addressed
-  artifact, is made executable (`chmod 0o755`) before the first spawn, so it will not fail with a
-  permission error.
-
-A content-addressed `artifact:` may also be a tarball (`artifactKind: tarball`): kynator extracts it into
-the workload's `workdir` and runs the (relative) `binary:` from there. Note that pulling a
-content-addressed artifact by hash from a remote origin is the deploy integration described in chapter 24;
-today a foreign workload with a local `binary:` path runs through the whole supervision, scaling, health,
-and byte-forward path end to end.
-
-## Operator quick reference
-
-Everything above from the point of view of the person running a fleet. An operator works with three
-surfaces: the manifest (desired state), the live control plane (`kynatord` plus the artifactd-hosted config
-store), and `kynatorctl` (offline repair).
-
-Day-to-day tasks:
-
-- **Deploy or change a workload.** Edit the manifest and apply it (drop it in the watch directory, or write
-  it to the config store). Kynatord reconciles: it starts missing replicas, replaces changed ones with a
-  rolling upgrade, and does nothing for an unchanged spec. A manifest that fails validation is ignored and
-  the last good workload keeps serving, so a bad edit never tears down a healthy fleet.
-- **Scale.** Change `replicas.min` / `replicas.max`, or let the autoscaler move within that band
-  (`autoscale.metric` is `inflight` or `cpu`). Scaling is by instance count; there is no in-process
-  concurrency dial.
-- **Roll out a new version.** Point `artifact:` (or `binary:`) at the new build. Replicas are replaced one
-  at a time, draining each with a real grace window before the next starts, so the workload stays up.
-- **Gate a schema migration.** Add `migrate: { args: [--migrate] }` (Kyte workloads only) so the new binary
-  runs its own migration to success before any replica is rolled; a non-zero exit aborts the rollout and
-  keeps the last good replicas serving. See "Schema migrations before a rollout".
-- **Watch health and readiness.** Kynatord supervises process liveness (a crashed replica is respawned) and
-  runs the heal probe (`health.type`). The `service` data plane health-checks every backend and gates
-  traffic on it. The metrics snapshot exposes desired vs running replicas and cumulative restarts;
-  `running < desired` is the under-provisioned signal to alert on.
-- **Operate a cluster.** For a multi-node control plane, use `kynatorctl` on a config-store dump to inspect
-  keys, list or edit members, and print the safe rolling-upgrade node order (see the section above). It is
-  offline by design so you can inspect and repair state without a running control plane.
-
-For the deeper runbooks, leader loss, split-brain, and store-outage handling, see kynator's own repository.
-
 ## Configuration reference: every field
 
 Kynator is configured by a handful of small files. This section is the field-by-field reference for
@@ -616,100 +528,100 @@ field** rather than silently ignoring it, so a typo surfaces at `--check` time.
 The declarative description of one workload, parsed by `src/orch/manifest.ky`. It is what you commit
 and hand to the deploy action, and it lowers to the internal run spec through `toSpec(m)`. Top level:
 
-| Field         | Type   | Default    | Meaning and where it is used                                                        |
-| ------------- | ------ | ---------- | ----------------------------------------------------------------------------------- |
-| `apiVersion`  | string | `kyte/v1`  | Schema version tag. Only `kyte/v1` exists today; it lets the format evolve later.   |
-| `kind`        | string | `App`      | The resource kind. `App` is the only kind.                                          |
-| `metadata`    | object | (below)    | Identity of the workload.                                                           |
-| `workload`    | object | (below)    | What to run, and how the process is launched.                                       |
-| `replicas`    | object | (below)    | The desired replica count (or the band the autoscaler works within).                |
-| `autoscale`   | object | (below)    | Optional PID autoscaler policy.                                                     |
-| `lb`          | object | (below)    | Load-balancer and data-path selection.                                              |
-| `health`      | object | (below)    | Liveness probe settings.                                                            |
-| `network`     | object | (below)    | How the workload is exposed to clients.                                            |
-| `resources`   | object | (below)    | cgroups-v2 resource limits (Linux).                                                |
-| `migrate`     | object | (below)    | Optional pre-rollout database-migration gate.                                      |
-| `routes`      | list   | `[]`       | Informational list of HTTP route prefixes the app owns; used for documentation and future path-based routing, not required to run. |
+| Field        | Type   | Default   | Meaning and where it is used                                                                                                       |
+| ------------ | ------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `apiVersion` | string | `kyte/v1` | Schema version tag. Only `kyte/v1` exists today; it lets the format evolve later.                                                  |
+| `kind`       | string | `App`     | The resource kind. `App` is the only kind.                                                                                         |
+| `metadata`   | object | (below)   | Identity of the workload.                                                                                                          |
+| `workload`   | object | (below)   | What to run, and how the process is launched.                                                                                      |
+| `replicas`   | object | (below)   | The desired replica count (or the band the autoscaler works within).                                                               |
+| `autoscale`  | object | (below)   | Optional PID autoscaler policy.                                                                                                    |
+| `lb`         | object | (below)   | Load-balancer and data-path selection.                                                                                             |
+| `health`     | object | (below)   | Liveness probe settings.                                                                                                           |
+| `network`    | object | (below)   | How the workload is exposed to clients.                                                                                            |
+| `resources`  | object | (below)   | cgroups-v2 resource limits (Linux).                                                                                                |
+| `migrate`    | object | (below)   | Optional pre-rollout database-migration gate.                                                                                      |
+| `routes`     | list   | `[]`      | Informational list of HTTP route prefixes the app owns; used for documentation and future path-based routing, not required to run. |
 
 **`metadata`**
 
-| Field  | Type   | Default | Meaning and where it is used                                                       |
-| ------ | ------ | ------- | ---------------------------------------------------------------------------------- |
+| Field  | Type   | Default    | Meaning and where it is used                                                                                                                                                                                                |
+| ------ | ------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name` | string | (required) | The unique workload key. It names the manifest's job, the companion gateway (`<name>-svc`), the handoff rendezvous `/tmp/kyte-<name>.sock`, and the `workloads/<name>` store key. `validateManifest` rejects an empty name. |
 
 **`workload`** (what each replica runs)
 
-| Field          | Type         | Default     | Meaning and where it is used                                                    |
-| -------------- | ------------ | ----------- | ------------------------------------------------------------------------------- |
-| `binary`       | string       | `""`        | Local path to the executable to run. Used when `artifact` is empty. One of `binary` or `artifact` is required. |
-| `artifact`     | string       | `""`        | Content-addressed binary as `sha256:<hex>`. When set, kynatord pulls the blob by hash into its cache and runs the verified copy instead of `binary`. This is the field the deploy action fills in. |
-| `args`         | `list<string>` | `[]`        | Extra argv passed to each replica, excluding the binary itself and the injected port. For example `["--config", "prod"]`. |
-| `restartPolicy`| string       | `always`    | `always`, `on-failure`, or `never`. Governs whether the supervisor respawns an exited replica. |
-| `workloadType` | string       | `kyte`      | `kyte` (default) or `foreign`. A `foreign` binary (Go, Rust, C# AOT) gets no migrate step, no companion Kyte service, and is put on a real listening port the gateway forwards to. |
-| `env`          | `list<string>` | `[]`        | Extra environment entries, each a `"KEY=VALUE"` string, applied to every replica. It must be an array, not a YAML map; the parser rejects the map form with a clear error. |
-| `secrets`      | `list<string>` | `[]`        | File-mounted secret handles, each `"ENVVAR=/abs/path"`. Only the path is passed, never the secret value. |
-| `workdir`      | string       | `""`        | Working directory for each replica. `""` inherits kynatord's own directory. Set it to a tarball artifact's extract dir. |
-| `portEnv`      | string       | `KYTE_PORT` | The environment variable the assigned port is delivered through. Many foreign apps read `PORT`. |
-| `artifactKind` | string       | `single`    | `single` (the blob is the executable) or `tarball` (the blob is extracted per-workload before running). |
+| Field           | Type           | Default     | Meaning and where it is used                                                                                                                                                                       |
+| --------------- | -------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `binary`        | string         | `""`        | Local path to the executable to run. Used when `artifact` is empty. One of `binary` or `artifact` is required.                                                                                     |
+| `artifact`      | string         | `""`        | Content-addressed binary as `sha256:<hex>`. When set, kynatord pulls the blob by hash into its cache and runs the verified copy instead of `binary`. This is the field the deploy action fills in. |
+| `args`          | `list<string>` | `[]`        | Extra argv passed to each replica, excluding the binary itself and the injected port. For example `["--config", "prod"]`.                                                                          |
+| `restartPolicy` | string         | `always`    | `always`, `on-failure`, or `never`. Governs whether the supervisor respawns an exited replica.                                                                                                     |
+| `workloadType`  | string         | `kyte`      | `kyte` (default) or `foreign`. A `foreign` binary (Go, Rust, C# AOT) gets no migrate step, no companion Kyte service, and is put on a real listening port the gateway forwards to.                 |
+| `env`           | `list<string>` | `[]`        | Extra environment entries, each a `"KEY=VALUE"` string, applied to every replica. It must be an array, not a YAML map; the parser rejects the map form with a clear error.                         |
+| `secrets`       | `list<string>` | `[]`        | File-mounted secret handles, each `"ENVVAR=/abs/path"`. Only the path is passed, never the secret value.                                                                                           |
+| `workdir`       | string         | `""`        | Working directory for each replica. `""` inherits kynatord's own directory. Set it to a tarball artifact's extract dir.                                                                            |
+| `portEnv`       | string         | `KYTE_PORT` | The environment variable the assigned port is delivered through. Many foreign apps read `PORT`.                                                                                                    |
+| `artifactKind`  | string         | `single`    | `single` (the blob is the executable) or `tarball` (the blob is extracted per-workload before running).                                                                                            |
 
 **`replicas`** (desired count)
 
-| Field | Type | Default | Meaning and where it is used                                                               |
-| ----- | ---- | ------- | ------------------------------------------------------------------------------------------ |
-| `min` | int  | `1`     | Lower bound on running replicas. Must be at least 1. A fixed count is `min == max`.        |
-| `max` | int  | `1`     | Upper bound. Must be at least `min`. The autoscaler clamps its output to `[min, max]`.     |
+| Field | Type | Default | Meaning and where it is used                                                           |
+| ----- | ---- | ------- | -------------------------------------------------------------------------------------- |
+| `min` | int  | `1`     | Lower bound on running replicas. Must be at least 1. A fixed count is `min == max`.    |
+| `max` | int  | `1`     | Upper bound. Must be at least `min`. The autoscaler clamps its output to `[min, max]`. |
 
 **`autoscale`** (optional). Automatically add or remove replicas based on live load, staying within the `min`/`max` band from `replicas`. You choose what to measure (`metric`) and the value to aim for per replica (`target`); Kynator adds replicas when the measured load is above the target and removes them when it is below. For example `metric: cpu` with `target: 70` keeps each replica around 70% CPU, scaling out under load and back in when it is idle. Fields:
 
-| Field        | Type   | Default    | Meaning and where it is used                                                     |
-| ------------ | ------ | ---------- | -------------------------------------------------------------------------------- |
-| `enabled`    | bool   | `false`    | Turn the autoscaler on. When off, the count is pinned (usually via `min == max`).|
-| `metric`     | string | `inflight` | The regulated signal: `inflight` (in-flight requests, the gateway's own load metric) or `cpu` (the workload cgroup's CPU utilisation, Linux). |
+| Field        | Type   | Default    | Meaning and where it is used                                                                                                                                                                                                                                                   |
+| ------------ | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`    | bool   | `false`    | Turn the autoscaler on. When off, the count is pinned (usually via `min == max`).                                                                                                                                                                                              |
+| `metric`     | string | `inflight` | The regulated signal: `inflight` (in-flight requests, the gateway's own load metric) or `cpu` (the workload cgroup's CPU utilisation, Linux).                                                                                                                                  |
 | `target`     | double | `0.0`      | Target value of the metric, per replica. `inflight`: in-flight requests (e.g. `8`). `cpu`: percent of one core (e.g. `70`). The autoscaler adds or removes replicas to hold the metric near this value, like a Kubernetes HPA target. Must be greater than 0 when autoscaling. |
-| `intervalMs` | int    | `2000`     | Control-loop period in milliseconds.                                             |
+| `intervalMs` | int    | `2000`     | Control-loop period in milliseconds.                                                                                                                                                                                                                                           |
 
 **`lb`** (load balancer and data path)
 
-| Field      | Type   | Default      | Meaning and where it is used                                                     |
-| ---------- | ------ | ------------ | -------------------------------------------------------------------------------- |
-| `strategy` | string | `roundrobin` | `roundrobin`, `weighted`, `leastconn`, or `consistenthash`. How the gateway picks a replica. |
+| Field      | Type   | Default      | Meaning and where it is used                                                                                                                                                                            |
+| ---------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `strategy` | string | `roundrobin` | `roundrobin`, `weighted`, `leastconn`, or `consistenthash`. How the gateway picks a replica.                                                                                                            |
 | `handoff`  | bool   | `true`       | Selects the fd-passing data path (the app receives client sockets over the AF_UNIX rendezvous and has no public TCP port). Set `false` for classic L7 byte-forwarding. See "The shape of a deployment". |
 
 **`health`** (liveness probe)
 
-| Field        | Type         | Default     | Meaning and where it is used                                                    |
-| ------------ | ------------ | ----------- | ------------------------------------------------------------------------------- |
-| `path`       | string       | `/healthz`  | HTTP GET path the probe hits (expects 2xx/3xx). An empty string means a bare TCP-connect probe. |
-| `intervalMs` | int          | `2000`      | Milliseconds between probes.                                                    |
-| `timeoutMs`  | int          | `1000`      | Per-probe timeout.                                                              |
-| `rise`       | int          | `2`         | Consecutive OK probes needed to return a replica to rotation.                   |
-| `fall`       | int          | `3`         | Consecutive failed probes that drain a replica.                                 |
-| `probeType`  | string       | `http`      | The supervisor's own heal probe: `http`, `tcp` (bare connect), or `exec` (run `probeCmd`, exit 0 = healthy). This is distinct from the data-plane health checks in `service`. |
-| `probeCmd`   | `list<string>` | `[]`        | The argv for an `exec` probe.                                                   |
+| Field        | Type           | Default    | Meaning and where it is used                                                                                                                                                  |
+| ------------ | -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`       | string         | `/healthz` | HTTP GET path the probe hits (expects 2xx/3xx). An empty string means a bare TCP-connect probe.                                                                               |
+| `intervalMs` | int            | `2000`     | Milliseconds between probes.                                                                                                                                                  |
+| `timeoutMs`  | int            | `1000`     | Per-probe timeout.                                                                                                                                                            |
+| `rise`       | int            | `2`        | Consecutive OK probes needed to return a replica to rotation.                                                                                                                 |
+| `fall`       | int            | `3`        | Consecutive failed probes that drain a replica.                                                                                                                               |
+| `probeType`  | string         | `http`     | The supervisor's own heal probe: `http`, `tcp` (bare connect), or `exec` (run `probeCmd`, exit 0 = healthy). This is distinct from the data-plane health checks in `service`. |
+| `probeCmd`   | `list<string>` | `[]`       | The argv for an `exec` probe.                                                                                                                                                 |
 
 **`network`** (exposure)
 
-| Field         | Type   | Default        | Meaning and where it is used                                                  |
-| ------------- | ------ | -------------- | ----------------------------------------------------------------------------- |
+| Field         | Type   | Default        | Meaning and where it is used                                                                                                                                                     |
+| ------------- | ------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `expose`      | string | `gateway-only` | `gateway-only` (reachable only through the gateway; fd-handoff on macOS/Windows or a veth namespace on Linux) or `public` (the app binds a host port directly; dev convenience). |
-| `portBase`    | int    | `0`            | Used only when `expose: public`: replica `i` binds `portBase + i`. `0` means not directly exposed. |
-| `portFlag`    | string | `""`           | Used only when `expose: public`: the flag the port is passed on at spawn, for example `--port`. |
-| `servicePort` | int    | `8080`         | The public front port the workload's gateway listens on. Clients hit this; the gateway hands or forwards connections to the replicas. |
+| `portBase`    | int    | `0`            | Used only when `expose: public`: replica `i` binds `portBase + i`. `0` means not directly exposed.                                                                               |
+| `portFlag`    | string | `""`           | Used only when `expose: public`: the flag the port is passed on at spawn, for example `--port`.                                                                                  |
+| `servicePort` | int    | `8080`         | The public front port the workload's gateway listens on. Clients hit this; the gateway hands or forwards connections to the replicas.                                            |
 
 **`resources`** (cgroups-v2 limits, Linux; `0` = unset)
 
-| Field         | Type | Default | Meaning and where it is used                                                       |
-| ------------- | ---- | ------- | ---------------------------------------------------------------------------------- |
-| `cpuMilli`    | int  | `0`     | Milli-CPU cap. `500` = half a core.                                                |
-| `memMaxBytes` | long | `0`     | Hard memory ceiling in bytes.                                                      |
-| `pidsMax`     | int  | `0`     | Maximum number of processes/threads in the workload's cgroup.                      |
+| Field         | Type | Default | Meaning and where it is used                                  |
+| ------------- | ---- | ------- | ------------------------------------------------------------- |
+| `cpuMilli`    | int  | `0`     | Milli-CPU cap. `500` = half a core.                           |
+| `memMaxBytes` | long | `0`     | Hard memory ceiling in bytes.                                 |
+| `pidsMax`     | int  | `0`     | Maximum number of processes/threads in the workload's cgroup. |
 
 **`migrate`** (optional pre-rollout gate; see "Schema migrations before a rollout")
 
-| Field       | Type         | Default | Meaning and where it is used                                                     |
-| ----------- | ------------ | ------- | -------------------------------------------------------------------------------- |
+| Field       | Type           | Default | Meaning and where it is used                                                                                                                                                                    |
+| ----------- | -------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `args`      | `list<string>` | `[]`    | When non-empty, kynatord runs the workload's own binary once with these args (conventionally `["--migrate"]`) to success before it starts or rolls the app. A non-zero exit aborts the rollout. |
-| `timeoutMs` | int          | `0`     | Bounds the migration run. `0` waits indefinitely.                                |
+| `timeoutMs` | int            | `0`     | Bounds the migration run. `0` waits indefinitely.                                                                                                                                               |
 
 > The app's own `config:` section is intentionally NOT part of this schema. It is the application's
 > configuration, read by the app itself from `app.yaml` through the framework loader (`web.config`), and
@@ -721,65 +633,65 @@ Read by `service` from the path in `SERVICE_CONFIG` (default `service.json`); `K
 `listenPort`. Only needed for classic L7 mode where you run `service` yourself; in the default handoff
 mode kynatord launches the gateway for you from `servicePath` and you do not write this file.
 
-| Field                | Type   | Default       | Meaning and where it is used                                             |
-| -------------------- | ------ | ------------- | ------------------------------------------------------------------------ |
-| `listenHost`         | string | `""`          | Interface to bind. `""` means any interface.                             |
-| `listenPort`         | int    | `8080`        | Front TCP port clients connect to. `KYTE_PORT` overrides it.             |
-| `timeoutMs`          | int    | `15000`       | Per-upstream I/O deadline.                                               |
-| `strategy`           | string | `roundrobin`  | `roundrobin`, `weighted`, `leastconn`, or `consistenthash`.              |
-| `health`             | object | (below)       | Active backend health checks (decides which backends receive traffic).  |
-| `backends`           | list   | `[]`          | Static backend pool (see below). Used when there is no discovery file.   |
-| `discoveryFile`      | string | `""`          | Path to kynatord's service-discovery file. When set, `service` resolves backends from it instead of, or alongside, `backends`. |
-| `discoveryService`   | string | `""`          | The service name to read from the discovery file (matches the `name=host:port` lines kynatord writes). |
-| `discoveryRefreshMs` | int    | `1000`        | How often `service` re-reads the discovery file and reshapes its pool. Only used when `discoveryFile` is set. |
+| Field                | Type   | Default      | Meaning and where it is used                                                                                                   |
+| -------------------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `listenHost`         | string | `""`         | Interface to bind. `""` means any interface.                                                                                   |
+| `listenPort`         | int    | `8080`       | Front TCP port clients connect to. `KYTE_PORT` overrides it.                                                                   |
+| `timeoutMs`          | int    | `15000`      | Per-upstream I/O deadline.                                                                                                     |
+| `strategy`           | string | `roundrobin` | `roundrobin`, `weighted`, `leastconn`, or `consistenthash`.                                                                    |
+| `health`             | object | (below)      | Active backend health checks (decides which backends receive traffic).                                                         |
+| `backends`           | list   | `[]`         | Static backend pool (see below). Used when there is no discovery file.                                                         |
+| `discoveryFile`      | string | `""`         | Path to kynatord's service-discovery file. When set, `service` resolves backends from it instead of, or alongside, `backends`. |
+| `discoveryService`   | string | `""`         | The service name to read from the discovery file (matches the `name=host:port` lines kynatord writes).                         |
+| `discoveryRefreshMs` | int    | `1000`       | How often `service` re-reads the discovery file and reshapes its pool. Only used when `discoveryFile` is set.                  |
 
 **`health`** (nested object)
 
-| Field        | Type   | Default    | Meaning and where it is used                                                     |
-| ------------ | ------ | ---------- | -------------------------------------------------------------------------------- |
+| Field        | Type   | Default    | Meaning and where it is used                                                                                   |
+| ------------ | ------ | ---------- | -------------------------------------------------------------------------------------------------------------- |
 | `enabled`    | bool   | `false`    | Turn active health checks on. (When the `health` block is present but omits `enabled`, it defaults to `true`.) |
-| `path`       | string | `/healthz` | HTTP path the check hits.                                                        |
-| `intervalMs` | int    | `2000`     | Milliseconds between checks.                                                     |
-| `timeoutMs`  | int    | `1000`     | Per-check timeout.                                                               |
-| `rise`       | int    | `2`        | Consecutive successes to return a backend to rotation.                           |
-| `fall`       | int    | `3`        | Consecutive failures to take a backend out.                                      |
+| `path`       | string | `/healthz` | HTTP path the check hits.                                                                                      |
+| `intervalMs` | int    | `2000`     | Milliseconds between checks.                                                                                   |
+| `timeoutMs`  | int    | `1000`     | Per-check timeout.                                                                                             |
+| `rise`       | int    | `2`        | Consecutive successes to return a backend to rotation.                                                         |
+| `fall`       | int    | `3`        | Consecutive failures to take a backend out.                                                                    |
 
 **`backends[]`** (each entry)
 
-| Field    | Type   | Default | Meaning and where it is used                                                        |
-| -------- | ------ | ------- | ----------------------------------------------------------------------------------- |
-| `host`   | string | (required) | Backend host.                                                                    |
-| `port`   | int    | (required) | Backend port.                                                                    |
-| `weight` | int    | `1`     | Relative weight for the `weighted` strategy.                                        |
+| Field    | Type   | Default    | Meaning and where it is used                 |
+| -------- | ------ | ---------- | -------------------------------------------- |
+| `host`   | string | (required) | Backend host.                                |
+| `port`   | int    | (required) | Backend port.                                |
+| `weight` | int    | `1`        | Relative weight for the `weighted` strategy. |
 
 ### `kynatord.json` (the control plane)
 
 Read by `kynatord` from the path in `ORCHD_CONFIG` (default `kynatord.json`). kynatord has no listen port
 of its own. The `store` block chooses standalone vs HA mode.
 
-| Field               | Type   | Default             | Meaning and where it is used                                     |
-| ------------------- | ------ | ------------------- | ---------------------------------------------------------------- |
-| `manifestsDir`      | string | `manifests`         | Directory of workload manifests the nativelet reconciles in standalone mode. |
-| `reconcileMs`       | int    | `2000`              | Reconcile-loop period. Also sets the lease TTL (`max(reconcileMs * 5, 15000)`). |
-| `nodeId`            | string | `node-1`            | This node's identity, used in the leader lease and in logs.      |
-| `discoveryFile`     | string | `""`                | Where kynatord publishes its `name=host:port` discovery lines. `""` means do not publish. |
-| `advertiseHost`     | string | `127.0.0.1`         | The host `service` should reach the replicas on, written into the discovery file. |
-| `store`             | object | (below)             | The artifactd config-store connection. `enabled` chooses standalone vs HA. |
-| `metricsFile`       | string | `""`                | When set, kynatord writes Prometheus exposition text here each tick for a node_exporter textfile collector. |
-| `crashLoopRestarts` | int    | `5`                 | The per-workload restart count at or above which a crash-loop alert fires in the metrics. |
-| `servicePath`       | string | `""`                | Path to the `service` binary. When set, kynatord launches and supervises a companion gateway for every handoff workload. Omit it and a handoff app's front port serves nothing (the most common "deployed but curl returns 000" mistake). |
-| `artifactCacheDir`  | string | `./artifact-cache`  | Per-node blob cache an `artifact: sha256:<hex>` resolves into. A missing blob is pulled by hash and verified before it runs. |
-| `artifactOrigin`    | string | `""`                | Base URL kynatord pulls blobs from (`GET <origin>/artifacts/<sha>`). `""` falls back to the config store's own URL (the all-in-one dev artifactd). Point it at S3/MinIO/CDN/nginx for a durable, TLS-capable origin. See chapter 24. |
-| `artifactToken`     | string | `""`                | Bearer token for the artifact origin. `""` falls back to `store.token`. |
+| Field               | Type   | Default            | Meaning and where it is used                                                                                                                                                                                                              |
+| ------------------- | ------ | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `manifestsDir`      | string | `manifests`        | Directory of workload manifests the nativelet reconciles in standalone mode.                                                                                                                                                              |
+| `reconcileMs`       | int    | `2000`             | Reconcile-loop period. Also sets the lease TTL (`max(reconcileMs * 5, 15000)`).                                                                                                                                                           |
+| `nodeId`            | string | `node-1`           | This node's identity, used in the leader lease and in logs.                                                                                                                                                                               |
+| `discoveryFile`     | string | `""`               | Where kynatord publishes its `name=host:port` discovery lines. `""` means do not publish.                                                                                                                                                 |
+| `advertiseHost`     | string | `127.0.0.1`        | The host `service` should reach the replicas on, written into the discovery file.                                                                                                                                                         |
+| `store`             | object | (below)            | The artifactd config-store connection. `enabled` chooses standalone vs HA.                                                                                                                                                                |
+| `metricsFile`       | string | `""`               | When set, kynatord writes Prometheus exposition text here each tick for a node_exporter textfile collector.                                                                                                                               |
+| `crashLoopRestarts` | int    | `5`                | The per-workload restart count at or above which a crash-loop alert fires in the metrics.                                                                                                                                                 |
+| `servicePath`       | string | `""`               | Path to the `service` binary. When set, kynatord launches and supervises a companion gateway for every handoff workload. Omit it and a handoff app's front port serves nothing (the most common "deployed but curl returns 000" mistake). |
+| `artifactCacheDir`  | string | `./artifact-cache` | Per-node blob cache an `artifact: sha256:<hex>` resolves into. A missing blob is pulled by hash and verified before it runs.                                                                                                              |
+| `artifactOrigin`    | string | `""`               | Base URL kynatord pulls blobs from (`GET <origin>/artifacts/<sha>`). `""` falls back to the config store's own URL (the all-in-one dev artifactd). Point it at S3/MinIO/CDN/nginx for a durable, TLS-capable origin. See chapter 24.      |
+| `artifactToken`     | string | `""`               | Bearer token for the artifact origin. `""` falls back to `store.token`.                                                                                                                                                                   |
 
 **`store`** (nested object; `enabled` selects HA)
 
-| Field     | Type   | Default          | Meaning and where it is used                                                  |
-| --------- | ------ | ---------------- | ----------------------------------------------------------------------------- |
+| Field     | Type   | Default          | Meaning and where it is used                                                                                              |
+| --------- | ------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `enabled` | bool   | `false`          | `false` = standalone (reconcile from `manifestsDir`, no leader lease). `true` = HA path against artifactd's config store. |
-| `addr`    | string | `127.0.0.1:8135` | artifactd's `host:port`. Required when the store is enabled.                  |
-| `token`   | string | `""`             | The deploy bearer token artifactd guards its routes with. `""` = auth off (dev only). |
-| `tls`     | bool   | `false`          | Use `https` for the hop to artifactd.                                        |
+| `addr`    | string | `127.0.0.1:8135` | artifactd's `host:port`. Required when the store is enabled.                                                              |
+| `token`   | string | `""`             | The deploy bearer token artifactd guards its routes with. `""` = auth off (dev only).                                     |
+| `tls`     | bool   | `false`          | Use `https` for the hop to artifactd.                                                                                     |
 
 ### `app.yaml` (your application's own config)
 

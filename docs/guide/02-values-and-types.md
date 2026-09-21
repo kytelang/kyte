@@ -61,6 +61,12 @@ string: Kyte
 `& ^ |` with shifts `<< >>` (`^` is XOR; `~x` is bitwise NOT); compound assignment `+= -= *= /= %=` and
 `&= |= ^= <<= >>=`. Conversions between numeric types (and trait downcasts) use `x as T`.
 
+Operands must share a compatible type: numeric with numeric, `bool` with `bool`. Mixing them (`5 * "x"`,
+`n && flagAsInt`) is a compile error, not a silent reinterpretation. The one exception is `+` with a
+string, which is concatenation, so `"n=" + 5` is fine and produces `"n=5"`. The logical `&&` and `||`
+**short-circuit**: in `a && b` the right side runs only if `a` is true, and in `a || b` only if `a` is
+false. This is what makes an optional guard like `x != undefined && x.length > 0` safe (see Chapter 10).
+
 ## Variables: `let` and `const`
 
 There are exactly two binding keywords (`var` was removed):

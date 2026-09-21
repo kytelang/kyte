@@ -1,7 +1,7 @@
 # 14. Modules & visibility
 
 Every `.ky` file is a **module**. You bring one module into another with `import`, and you control
-what crosses a module's public interface with `pub`. There are three kinds of import, all using the same syntax:
+what crosses a module interface with `pub`. There are three kinds of import, all using the same syntax:
 
 - **Sibling files:** `import geometry;` resolves `geometry.ky` in the same directory.
 - **Stdlib paths:** dotted, e.g. `import collections.list;`. You always **qualify by the last
@@ -73,7 +73,7 @@ Now the program that imports it, plus a stdlib module and `platform`:
 //
 // Cross-module visibility is opt-in: only `pub` declarations are reachable from
 // another module. `geometry.Point` and `geometry.manhattan` are `pub`; a non-pub
-// decl referenced from another module is a hard compile error.
+// decl referenced across a module interface is a hard compile error.
 import geometry;
 import collections.list;
 import platform;

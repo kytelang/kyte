@@ -8,7 +8,7 @@ ship a full object-relational mapper, and deliberately so: it gives you a thin, 
 parameters, row binding, and a table-scoped repository) and leaves the SQL to you. At the end we take the
 exact web app from Chapter 17 and point it at a live PostgreSQL, changing one file.
 
-The running code for this chapter is `examples/28_db_drivers.ky` (the driver interface and row binding, verifiable
+The running code for this chapter is `examples/28_db_drivers.ky` (the interface and row binding, verifiable
 offline) and `examples/webapp/main_postgres.ky` (the same web app, backed by PostgreSQL).
 
 ## One interface, many drivers
@@ -16,12 +16,12 @@ offline) and `examples/webapp/main_postgres.ky` (the same web app, backed by Pos
 Kyte has a single data-access interface, the `Connection` trait in `data.db`. Every driver is a separate
 package that implements it:
 
-| Database   | Import            | Open a connection |
-|------------|-------------------|-------------------|
-| PostgreSQL | `import postgres;`| `PgDriver().connect("postgresql://user:pass@127.0.0.1:5432/shop")` |
-| MySQL      | `import mysql;`   | `MyDriver().connect("mysql://user:pass@127.0.0.1:3306/shop")` |
-| SQL Server | `import mssql;`   | `MssqlDriver().connect("mssql://user:pass@127.0.0.1:1433/shop")` |
-| MongoDB    | `import mongodb;` | a native document API (see [MongoDB: the document API](#mongodb-the-document-api) below) |
+| Database   | Import             | Open a connection                                                                        |
+| ---------- | ------------------ | ---------------------------------------------------------------------------------------- |
+| PostgreSQL | `import postgres;` | `PgDriver().connect("postgresql://user:pass@127.0.0.1:5432/shop")`                       |
+| MySQL      | `import mysql;`    | `MyDriver().connect("mysql://user:pass@127.0.0.1:3306/shop")`                            |
+| SQL Server | `import mssql;`    | `MssqlDriver().connect("mssql://user:pass@127.0.0.1:1433/shop")`                         |
+| MongoDB    | `import mongodb;`  | a native document API (see [MongoDB: the document API](#mongodb-the-document-api) below) |
 
 Because they share the `Connection` interface, the code you write against it does not change when you change
 databases. You pick the driver in one place, at startup, and everything above it is driver-agnostic.
@@ -145,7 +145,7 @@ pub struct ProductRepository {
 This is the whole repository from `examples/webapp`. It is written once and never changes, whichever
 database backs it.
 
-## The generic `Repository<T>`
+## The Generic `Repository<T>`
 
 Writing a `ProductRepository` by hand, as above, is fine, but most repositories are a thin wrapper over a
 single table doing the same five things: read all, read by key, run a query, insert, update, delete. The

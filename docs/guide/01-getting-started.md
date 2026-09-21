@@ -36,9 +36,7 @@ Hello, Kyte!
 | `kyte add feature <name>` | Scaffold a new feature slice inside a project. |
 
 Kyte compiles through LLVM to a real native binary; there is no interpreter and no VM. The default
-target is your host platform; cross-compilation to another native target is opt-in via `--target`.
-Kyte compiles to native code only and does not target WebAssembly. Linux is the production target;
-macOS and Windows are development hosts (see [STABILITY](../STABILITY.md)).
+target is your host platform; cross-compilation and WASM are opt-in via `--target`.
 
 ## A note on `console`
 

@@ -2,7 +2,7 @@
 
 Kyte talks to a database through one interface and many drivers. The interface is the `Connection` trait
 in the standard library (`data.db`); each concrete database ships as its own package that implements the
-interface. You add the driver you need with `kyte get`, import it, and write your queries against the shared
+trait. You add the driver you need with `kyte get`, import it, and write your queries against the shared
 interface. Because every SQL driver speaks the same `Connection` vocabulary, the query and exec code you write
 is identical whichever engine you point it at. MongoDB is the one exception: it is not relational, so it
 carries a native document API alongside the interface.

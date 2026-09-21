@@ -12,7 +12,7 @@ green-thread library to import). The vocabulary is small:
 ## Function colouring, and the sync to async bridge
 
 `await` and `spawn` may appear **only inside an `async fn`**, that is what "colours" a function async.
-The one deliberate exception is the sync-to-async transition: a **synchronous `fn main` may call an `async fn`
+The one deliberate exception is the sync/async transition: a **synchronous `fn main` may call an `async fn`
 directly**. The runtime *block-drives* that call to completion, which is the sanctioned way to start an
 async program from a plain `main` without making `main` itself async.
 

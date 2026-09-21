@@ -257,7 +257,7 @@ fn buildApp(): App {
 fn main(): void {
     let app = buildApp();
     // The port is read from app.yaml (config.port) via app.config, or --port if the orchestrator passed
-    // one, else the default. See Chapter 18 for the config interface; app config is file-based, not env vars.
+    // one, else the default. See Chapter 18 for the config API; app config is file-based, not env vars.
     let port = app.config.port(8080);
     console.log("Listening on http://127.0.0.1:" + `${port}`);
     app.run(port);
@@ -267,7 +267,7 @@ fn main(): void {
 As the app grows you add a feature folder with its own `register(app, deps...)`
 and one call here. That is the whole scaling story for structure.
 
-## The data-access interface
+## The data-access layer
 
 The repository is the one place that knows SQL. Its connection field is the
 `Connection` **trait** from `data.db`, not a concrete database type, so the same
@@ -302,7 +302,7 @@ The starter ships a tiny `InMemoryConnection impl Connection` (in
 server. Parameters are built with `db.dbInt`/`db.dbText`/`db.dbLong` and bound
 to `$1, $2, ...`; the micro-ORM (`orm.bindOne`/`orm.bindAll`) maps result rows
 onto `ProductDto` by column name. Chapter 18, Data access and the ORM, covers
-the `Connection` interface, the `Repository<T>` helper, and connection strings in full.
+the data-access layer, the `Repository<T>` helper, and connection strings in full.
 
 ## Testing offline
 
@@ -369,157 +369,145 @@ The framework in `web.*` covers the rest of a real application:
 
 - **Server-sent events** for live updates: `app.sse(path, handler)` and an
   `EventBus` push HTML fragments to connected browsers (see `web.sse`).
+- **WebSockets** for a bidirectional channel: `app.ws(path, handler)` upgrades a
+  connection so the client can talk back in real time (see the section below).
 - **Sessions and cookies**: `web.session` and `web.cookie` for signed,
   server-side sessions and cookie handling.
-- **Middleware**: `app.use(mw)` runs cross-cutting logic around every handler.
-  See the dedicated [Middleware](#middleware) section below.
+- **Middleware**: `app.use(mw)` runs cross-cutting logic (a `RouteMiddleware`)
+  around every handler, and the library ships CORS, CSRF, rate limiting, a
+  request-id tagger, secure headers, and a body-size limit.
 - **Static files**: `app.useStatic(prefix, dir)`, as above.
 - **The client side**: `web.client` is an HTTP client for calling other
   services, and TLS is built in (chapter 15 and the runtime crypto are pure
   Kyte, no OpenSSL).
 
-## Middleware
+## Real-time: server-sent events and WebSockets
 
-Middleware is cross-cutting request/response logic that wraps every route
-handler: authentication, CORS, CSRF, logging, response tagging. You register it
-with `app.use(mw)`, and each middleware implements the `RouteMiddleware` trait
-from `web.routing`:
+Two edges push work past the finite request and response cycle, and they are for
+different jobs.
 
-```kyte
-pub trait RouteMiddleware {
-    async fn handle(self: RouteMiddleware, ctx: Context, next: Chain): Response;
-}
-```
+**Server-sent events (SSE)** are the default for hypermedia. The server holds one
+long-lived response open and streams HTML fragments (or Datastar patches) to the
+browser as things change. It is one-directional, server to client, which is exactly
+what a live UI needs most of the time. Register one with `app.sse(path, handler)`
+and push through an `EventBus`. Datastar (chapter 21) builds on this.
 
-`handle` receives the request `ctx` and a `Chain` called `next`. It does whatever
-it needs, then calls `next.proceed(ctx)` to run the rest of the chain (the next
-middleware, or finally the route handler) and gets back a `Response` it may
-inspect or edit. To **short-circuit**, it returns its own `Response` without
-calling `next` at all: the handler and everything after this middleware never
-run.
+**WebSockets** are for the cases SSE cannot cover: a genuinely bidirectional,
+low-latency channel where the client also talks back in real time, collaborative
+editing, a terminal, presence and typing indicators, multiplayer. Reach for a
+WebSocket only when you actually need the client to send as well as receive; if you
+just need live updates on the page, SSE is simpler and is the right default.
 
-### Ordering and short-circuit
-
-Middlewares run in **registration order**, nested around the handler like layers
-of an onion. The first one registered is the outermost. So with
+A WebSocket route is a handler that owns a receive loop for the life of the
+connection. Register it with `app.ws(path, handler)`:
 
 ```kyte
-app.use(Tag("outer"));
-app.use(Tag("inner"));
-app.get("/hit", Handler());
-```
+import web.app;
+import web.websocket;
+import web.request;
 
-a request flows `outer -> inner -> handler`, and the responses unwind
-`handler -> inner -> outer`. A middleware that appends to the body after
-`next.proceed` therefore sees the inner tag applied first:
-
-```kyte
-// Appends a label AFTER the downstream runs (post-processing + ordering).
-struct Tag impl RouteMiddleware {
-    label: string,
-    init(label: string) { self.label = label; }
-    async fn handle(self: Tag, ctx: routing.Context, next: routing.Chain): Response {
-        let resp = await next.proceed(ctx);
-        resp.body = resp.body + "[" + self.label + "]";
-        return resp;
-    }
-}
-// GET /hit -> body "handler[inner][outer]"
-```
-
-An auth guard is the short-circuit case: it returns `401` and never calls `next`,
-so the handler is skipped entirely:
-
-```kyte
-// Rejects with 401 when the `x-auth` header is absent; never calls next.
-struct Guard impl RouteMiddleware {
-    init() {}
-    async fn handle(self: Guard, ctx: routing.Context, next: routing.Chain): Response {
-        if (ctx.request.getHeader("x-auth") == undefined) {
-            return response.Response(Status.Unauthorized, "denied");
+// Echoes every message back to the sender.
+class Echo impl WsHandler {
+    pub async fn serve(self: Echo, ws: websocket.WebSocket, req: request.Request): void {
+        // `req` is the upgrade request, so read cookies / session here for auth
+        // BEFORE the loop, exactly like a normal route.
+        while (ws.isOpen()) {
+            let m = await ws.recv();          // blocks for the next message
+            if (m == undefined) { break; }    // the peer closed
+            if (m.isText) {
+                let _ = await ws.sendText(m.text);
+            } else {
+                let _ = await ws.sendBinary(m.data, m.len);
+            }
         }
-        return await next.proceed(ctx);   // header present: fall through to the handler
     }
 }
 
-app.use(Guard());
+fn main(): int {
+    let server = app.App();
+    server.ws("/echo", Echo());
+    server.run(8080);
+    return 0;
+}
 ```
 
-### The built-in middleware and helpers
+`recv` returns a `Message` (`isText` selects `text` for a text frame, or the raw
+bytes at `data` for `len` bytes on a binary frame) or `undefined` once the peer
+closes. Ping and pong frames and the close handshake are handled for you and never
+surface as messages. Send with `ws.sendText(s)` / `ws.sendBinary(buf, len)`, and end
+the connection with `ws.close(code, reason)`.
 
-Two of the built-ins are `RouteMiddleware` you register with `app.use`:
+On the browser side this is the standard `WebSocket` API:
 
-- **CORS** (`web.cors`). Configure a policy and register it; it sets the
-  `Access-Control-*` headers and answers `OPTIONS` preflight requests directly.
+```javascript
+const ws = new WebSocket("ws://localhost:8080/echo");
+ws.onopen = () => ws.send("hello");
+ws.onmessage = (e) => console.log("echo:", e.data);
+```
 
-  ```kyte
-  import web.cors;
-  let policy = cors.CorsConfig {
-      allowOrigin: "https://app.example.com", allowOrigins: list.List(),
-      allowMethods: "GET, POST, PUT, DELETE, OPTIONS", allowHeaders: "Content-Type",
-      maxAge: "600", allowCredentials: true,
-  };
-  app.use(cors.CorsMiddleware(policy));
-  ```
+**Restrict the origin.** A browser sends an `Origin` header on the upgrade, and
+because cookie-based CSRF tokens do not apply to WebSockets, checking it is the
+equivalent guard. By default any origin is accepted (handy in development); call
+`wsAllowOrigin` once per allowed origin to lock it down. A disallowed browser origin
+is refused with `403` before the upgrade; a request with no `Origin` (a non-browser
+client) is allowed, since there is nothing to forge.
 
-- **CSRF** (`web.csrf`). Enforces the double-submit token pattern: safe methods
-  (GET/HEAD/OPTIONS) pass and receive the token, unsafe methods must echo it
-  back. It expects a session layer upstream to have placed the expected token.
+```kyte
+server.ws("/echo", Echo());
+server.wsAllowOrigin("https://app.example.com");
+```
 
-  ```kyte
-  import web.csrf;
-  app.use(csrf.CsrfMiddleware());
-  ```
+**Broadcasting to many clients.** One handler instance serves every connection, so
+it can hold shared state, a "hub" of the connected sockets, and fan a message out to
+all of them. Each `serve` adds its socket to the hub; a message from one is written
+to every live socket (closed ones are dropped):
 
-The other four are helper modules you call from inside a handler rather than
-register globally:
+```kyte
+class Hub {
+    pub conns: list.List<websocket.WebSocket>,
+    init() { self.conns = list.List<websocket.WebSocket>(); }
+    fn add(self: Hub, ws: websocket.WebSocket): void { self.conns.push(ws); }
+    async fn broadcast(self: Hub, text: string): void {
+        let alive = list.List<websocket.WebSocket>();
+        let i = 0;
+        while (i < self.conns.size()) {
+            let c = self.conns.get(i);
+            if (c != undefined && c.isOpen()) {
+                let _ = await c.sendText(text);
+                alive.push(c);
+            }
+            i = i + 1;
+        }
+        self.conns = alive;    // compact: drop connections that have closed
+    }
+}
 
-- **Sessions** (`web.session`). A `SessionStore` creates and looks up
-  server-side sessions keyed by an opaque id you carry in a cookie.
+class Chat impl WsHandler {
+    pub hub: Hub,
+    init(h: Hub) { self.hub = h; }
+    pub async fn serve(self: Chat, ws: websocket.WebSocket, req: request.Request): void {
+        self.hub.add(ws);
+        while (ws.isOpen()) {
+            let m = await ws.recv();
+            if (m == undefined) { break; }
+            if (m.isText) { await self.hub.broadcast(m.text); }
+        }
+    }
+}
 
-  ```kyte
-  import web.session;
-  let store = session.SessionStore();
-  let s = store.createSession();          // fresh session with a new id
-  // ... later, on a subsequent request ...
-  let again = store.getSession(s.id);     // rehydrate by id
-  ```
+// server.ws("/chat", Chat(Hub()));
+```
 
-- **Cookies** (`web.cookie`). Build a `Cookie` and render it into a `Set-Cookie`
-  header value.
+Because the app is a single reactor, the hub needs no locking: handlers cooperate,
+never preempt. To scale past one instance you would move the fan-out to a shared bus
+(each instance subscribes and rebroadcasts to its own connections), the same shape as
+the SSE `EventBus`.
 
-  ```kyte
-  import web.cookie;
-  let c = cookie.Cookie {
-      name: "sid", value: s.id, path: "/", domain: "",
-      maxAge: 3600, secure: true, httpOnly: true, sameSite: "Lax",
-  };
-  ctx.response.header("Set-Cookie", cookie.serialize(c));
-  ```
-
-- **Validation** (`web.validation`). Accumulate field checks with a fluent
-  `Rules` builder and seal them into a `ValidationResult`.
-
-  ```kyte
-  import web.validation as v;
-  let result = v.Rules()
-      .check(v.notEmpty(name), "name", "name is required")
-      .check(v.between(qty, 1, 99), "qty", "qty must be 1..99")
-      .result();
-  if (!result.valid) { /* return a 400 with result.errors */ }
-  ```
-
-- **Redaction** (`web.redact`). Mask sensitive header values before logging, so
-  an `Authorization` or `Cookie` header never reaches a log line in the clear.
-
-  ```kyte
-  import web.redact;
-  if (redact.isSensitiveHeader(name)) { value = redact.redactHeaderValue(name, value); }
-  ```
-
-The middleware chain shape is pinned by conformance cases `440_middleware_chain`
-(ordering and short-circuit) and `172_web_middleware_modules_compile` (the
-built-ins compile and wire).
+A note on deployment, the same one that applies to SSE: a WebSocket is long-lived
+and holds one reactor slot for its lifetime, and a web app is a single reactor, so
+you scale by running instances behind the orchestrator's proxy (chapter 23). The
+proxy passes the `Upgrade` through and keeps each connection pinned to the instance
+that accepted it.
 
 ## Where to go next
 

@@ -61,7 +61,7 @@ importable:
 | `ds_signals`  | `PatchSignalOptions` and `readSignalsRaw(req)`, the inbound-signal reader. |
 | `ds_elements` | `PatchElementOptions` and the element/script line builders.                |
 | `ds_const`    | Protocol constants: event names, patch modes, namespaces, defaults.        |
-| `ds_sink`     | The transport interface: `SseSink` trait, `StreamSink`, `IoSink`, `BufferSink`. |
+| `ds_sink`     | The transport layer: `SseSink` trait, `StreamSink`, `IoSink`, `BufferSink`. |
 | `ds_wire`     | The low-level SSE frame encoder (you rarely call it directly).             |
 
 Most application code touches only `datastar`, `ds_response`, `ds_signals`, and
@@ -98,7 +98,7 @@ connection stays open.
    chapter 17, because it is still one request and one response.
 2. **A live stream.** The browser opens a long-lived connection and the server
    pushes events over it for as long as it stays open (a status feed, a
-   dashboard, a chat). This uses the framework's `app.sse` entry point and an
+   dashboard, a chat). This uses the framework's `app.sse` hook and an
    `SseHandler`.
 
 ### One-shot patches
@@ -367,7 +367,7 @@ public `Sse` stays a readable list of verbs:
 | `ds_wire`     | The SSE frame encoder, the one place that knows the on-the-wire layout. |
 | `ds_elements` | Element, remove, and script line builders plus `PatchElementOptions`.   |
 | `ds_signals`  | The signal patch builder plus `readSignalsRaw`.                         |
-| `ds_sink`     | The transport interface: `SseSink` trait and its stream and buffer sinks.    |
+| `ds_sink`     | The transport layer: `SseSink` trait and its stream and buffer sinks.    |
 | `datastar`    | `Sse`, the public generator that composes the above over a sink.        |
 
 The key decision is that `Sse` depends on the `SseSink` trait, never a concrete
@@ -384,7 +384,7 @@ follow-ons worth knowing before you lean on them:
 - A typed `readSignals<T>` binder, once the serde binder is exposed as a callable
   interface. Today read signals as raw JSON and parse with `serde.json`.
 - First-class router integration so a `RouteHandler` can return a long-lived SSE
-  stream directly. For now the live path is the `app.sse` + `SseHandler` entry point
+  stream directly. For now the live path is the `app.sse` + `SseHandler` hook
   shown above.
 - `datastar-go`'s gzip compression parity.
 - Verification against a live Datastar client in the browser.
@@ -392,7 +392,7 @@ follow-ons worth knowing before you lean on them:
 ## Where to go next
 
 - **Chapter 17, Building a web application**, is the framework this builds on:
-  `RouteHandler`, `ctx.bind`, views, and the `app.sse` entry point.
+  `RouteHandler`, `ctx.bind`, views, and the `app.sse` hook.
 - **Chapter 15, Concurrency**, explains the `async`/`await` the live streaming
   loop relies on.
 - **Chapter 19, Package management**, covers `project.json` and `kyte get` in
