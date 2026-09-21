@@ -106,9 +106,12 @@ pub class WebSocket {
         let i = 0;
         while (i < plen) { bytes.write_byte(fb, hlen + i, bytes.read_byte(payload, i)); i = i + 1; }
         let total = hlen + plen;
+        // `s` reinterprets `fb` as an ARC-owned string, so ARC frees the buffer when `s`
+        // goes out of scope. Do NOT also `bytes.free(fb)`: that is the same allocation and
+        // freeing it here as well is a double-free (matches the HTTP/2 `h2BufToStr` path,
+        // which likewise hands the buffer to `sendStr` and lets ARC reclaim it).
         let s = wsBufToStr(fb, total);
         let r = await self.io.sendStr(s);
-        bytes.free(fb);
         return r;
     }
 
