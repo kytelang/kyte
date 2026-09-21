@@ -31,6 +31,7 @@ class Echo impl WsHandler {
 fn main(): int {
     let a = app.App();
     a.ws("/echo", Echo());
+    a.wsAllowOrigin("https://good.example");   // restrict cross-origin upgrades
     a.run(WS_PORT_PLACEHOLDER);
     return 0;
 }
@@ -89,6 +90,16 @@ check("unmasked -> close 1002", op == 0x8 and int.from_bytes(d[:2], "big") == 10
 # M2 hardening: a frame claiming a size over the message cap -> Close 1009.
 s = connect(); s.sendall(bytes([0x82, 0x80 | 127]) + (32 * 1024 * 1024).to_bytes(8, "big") + os.urandom(4)); op, d = recv(s)
 check("oversized -> close 1009", op == 0x8 and int.from_bytes(d[:2], "big") == 1009); s.close()
+# M3: Origin allowlist. A disallowed browser Origin is refused with a 403 (no upgrade).
+def handshake_status(origin):
+    s = socket.create_connection(("127.0.0.1", PORT), timeout=5)
+    key = base64.b64encode(os.urandom(16)).decode()
+    oh = f"Origin: {origin}\r\n" if origin is not None else ""
+    s.sendall((f"GET /echo HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n{oh}"
+               f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+    line = s.recv(256).decode(errors="replace").splitlines()[0]; s.close(); return line
+check("bad Origin -> 403", "403" in handshake_status("https://evil.example"))
+check("allowed Origin -> 101", "101" in handshake_status("https://good.example"))
 sys.exit(1 if fail else 0)
 PY
 rc=$?

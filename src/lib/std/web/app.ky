@@ -107,6 +107,9 @@ pub class App {
     /// `web.websocket`.
     pub wsRouter: routing.Router,
     pub wsHandlers: List<websocket.WsHandler>,
+    /// Allowed `Origin` values for WebSocket upgrades (the CSRF equivalent for WS).
+    /// Empty means allow any origin; add entries with `wsAllowOrigin` to restrict.
+    pub wsAllowedOrigins: List<string>,
 
     /// Direct route handlers (the Go/axum/Flask-style path), stored homogeneously
     /// as `RouteHandler` trait objects exactly like `sseHandlers`. `routeRouter`
@@ -141,6 +144,7 @@ pub class App {
         self.sseHandlers = List<SseHandler>();
         self.wsRouter = routing.Router();
         self.wsHandlers = List<websocket.WsHandler>();
+        self.wsAllowedOrigins = List<string>();
         self.routeRouter = routing.Router();
         self.routeHandlers = List<routing.RouteHandler>();
         self.middlewares = List<routing.RouteMiddleware>();
@@ -298,6 +302,12 @@ pub class App {
         let idx = self.wsHandlers.size();
         self.wsHandlers.push(handler);
         self.wsRouter.__addRoute("GET", path, `${idx}`);
+    }
+
+    /// Restricts WebSocket upgrades to the given `Origin` (call once per allowed
+    /// origin). With none set, any origin is accepted. See `web.websocket`.
+    pub fn wsAllowOrigin(self: App, origin: string): void {
+        self.wsAllowedOrigins.push(origin);
     }
 
     /// Resolves and serves one request: a matched direct route handler, an
@@ -610,7 +620,7 @@ async fn handleConn(app: App, io: AsyncIO): int {
                 if (who != undefined) {
                     let wreq = request.Request.fromString(bytes.read_string(buf, reqEnd));
                     wm.params.forEach((k, v) => { wreq.query.set(k, v); });
-                    let _ = await websocket.serveWs(who, wreq, io);
+                    let _ = await websocket.serveWs(who, wreq, io, app.wsAllowedOrigins);
                     alive = false;
                     break;
                 }

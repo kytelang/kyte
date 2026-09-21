@@ -21,6 +21,7 @@ import crypto.hash.sha1;
 import crypto.base64;
 import bytes;
 import string;
+import list;
 
 /// The RFC 6455 handshake GUID appended to `Sec-WebSocket-Key` before hashing.
 const WS_GUID: string = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -328,13 +329,36 @@ pub fn computeAccept(key: string): string {
     return base64.encode(ds);
 }
 
+/// Whether the upgrade request's `Origin` is allowed. This is the CSRF equivalent
+/// for WebSocket, because cookie-based CSRF tokens do not apply. An EMPTY allowlist
+/// permits any origin (the dev default; set one for production). A NON-empty list
+/// requires the browser's `Origin` to match; a request with NO `Origin` header (a
+/// non-browser client) is allowed, since there is nothing to forge.
+fn originAllowed(req: request.Request, allowed: list.List<string>): bool {
+    if (allowed.size() == 0) { return true; }
+    let origin = req.getHeader("Origin") ?? "";
+    if (string.eql(origin, "")) { return true; }
+    let i = 0;
+    while (i < allowed.size()) {
+        if (string.eql(allowed.get(i) ?? "", origin)) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
 /// Completes the handshake on `io` for the upgrade `req`, then runs `handler`. On
-/// a missing/blank key it writes a `400` and returns without upgrading. The caller
-/// (the connection loop) has already matched the route and verified `Upgrade`.
-pub async fn serveWs(handler: WsHandler, req: request.Request, io: aio.AsyncIO): int {
+/// a missing/blank key it writes a `400`, and on a disallowed `Origin` a `403`, and
+/// returns without upgrading. The caller (the connection loop) has already matched
+/// the route and verified `Upgrade`. `allowedOrigins` is the Origin allowlist
+/// (empty = allow any; see `originAllowed`).
+pub async fn serveWs(handler: WsHandler, req: request.Request, io: aio.AsyncIO, allowedOrigins: list.List<string>): int {
     let key = req.getHeader("Sec-WebSocket-Key") ?? "";
     if (string.eql(key, "")) {
         let _ = await io.sendStr("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        return -1;
+    }
+    if (!originAllowed(req, allowedOrigins)) {
+        let _ = await io.sendStr("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         return -1;
     }
     let accept = computeAccept(key);
