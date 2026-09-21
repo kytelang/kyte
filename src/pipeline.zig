@@ -524,7 +524,11 @@ pub fn hostArch() []const u8 {
 /// darwin/apple/macos; and aarch64/arm64 vs x86_64/x86-64/amd64). Targets are
 /// 8-byte pointers and POSIX exactly when the os ends up darwin or linux.
 pub fn deriveTargetInfo(target: []const u8, triple: ?[]const u8) TargetInfo {
-    _ = target;
+    // WASM target (embed-wasm.md M0): wasm32, 4-byte pointers, non-posix. Keep the
+    // platform constants consistent with the wasm32 codegen path.
+    if (std.mem.eql(u8, target, "--wasm")) {
+        return .{ .os = "freestanding", .arch = "wasm32", .ptr_size = 4, .is_posix = false };
+    }
     const has = struct {
         fn f(h: []const u8, n: []const u8) bool {
             return std.mem.indexOf(u8, h, n) != null;
