@@ -83,6 +83,12 @@ s = connect(); send(s, 0x2, b"\x00\x01\x02\xff"); op, d = recv(s); check("binary
 s = connect(); send(s, 0x9, b"py"); op, d = recv(s); check("ping->pong", op == 0xA and d == b"py"); s.close()
 s = connect(); send(s, 0x1, b"he", fin=False); send(s, 0x0, b"llo", fin=True); op, d = recv(s); check("fragmented", op == 1 and d == b"hello"); s.close()
 s = connect(); s.sendall(bytes([0x88, 0x80]) + os.urandom(4)); op, d = recv(s); check("close handshake", op == 0x8); s.close()
+# M2 hardening: an UNMASKED client frame is a protocol error -> Close 1002.
+s = connect(); s.sendall(bytes([0x81, 0x02]) + b"hi"); op, d = recv(s)
+check("unmasked -> close 1002", op == 0x8 and int.from_bytes(d[:2], "big") == 1002); s.close()
+# M2 hardening: a frame claiming a size over the message cap -> Close 1009.
+s = connect(); s.sendall(bytes([0x82, 0x80 | 127]) + (32 * 1024 * 1024).to_bytes(8, "big") + os.urandom(4)); op, d = recv(s)
+check("oversized -> close 1009", op == 0x8 and int.from_bytes(d[:2], "big") == 1009); s.close()
 sys.exit(1 if fail else 0)
 PY
 rc=$?
