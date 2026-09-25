@@ -87,6 +87,38 @@ first time it sees it and caches it, then links a real ELF or PE executable. Thi
 convenience for shipping a service built on your development machine; the native target is always the
 most exercised.
 
+## WebAssembly (experimental, synchronous subset only)
+
+Kyte can also compile to WebAssembly. This is a best-effort, experimental target meant for pure,
+sandboxed computation, not for running a Kyte service. Ask for it with `--target wasm`:
+
+```sh
+kyte compute.ky --target wasm
+```
+
+The compiler emits a freestanding `wasm32` object and prints the link line, which uses `wasm-ld`:
+
+```sh
+wasm-ld --no-entry --export-all build/debug/obj/compute.o -o out.wasm
+```
+
+The module needs no host imports for the supported subset. It carries its own small string runtime, so
+integers, `long`, `bool`, value structs, control flow, function calls, generics, ARC, string literals,
+string concatenation, and number interpolation all lower and run inside a plain wasm host. Export the
+functions you want to call by marking them `export fn`.
+
+### `async`/`await` does not compile to WebAssembly
+
+This is the boundary to keep in mind. The asynchronous machinery, `async fn`, `await`, the reactor, and
+coroutines, is native-only and does not lower to wasm. An `await` that reaches code generation is
+rejected at build time rather than producing a broken module. In practice this means the whole
+networking and I/O surface (HTTP, sockets, TLS, the web framework, the database drivers) is not available
+on the wasm target, because it is all built on the async reactor.
+
+So treat the wasm target as a way to ship a synchronous, self-contained computation (parsing, encoding, a
+pure algorithm, a small library of value transforms) into a wasm host. For anything that awaits, build a
+native binary and run it under Kynator as described in Chapter 23.
+
 ## Where to go next
 
 - Chapter 17 for the web framework the `--framework` scaffold sets up.

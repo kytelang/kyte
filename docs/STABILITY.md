@@ -54,8 +54,14 @@ Kyte's platform stance is deliberately narrow so the promise means something.
   on each. Windows builds natively (no WSL or cross-compile shim is required to
   produce a `.exe`); its runtime is exercised in development but Linux is the
   target we certify for production.
-- **WebAssembly is not a target.** Earlier previews described WASM as a secondary,
-  best-effort target. That is dropped. Kyte compiles to native code only.
+- **WebAssembly is a best-effort, synchronous-only target.** `kyte --target wasm`
+  compiles the pure, synchronous subset of Kyte (integers, value structs, control
+  flow, calls, generics, ARC, strings) to a freestanding `wasm32` module with no
+  host imports. It is meant for sandboxed computation, not for running a service.
+  `async`/`await`, the reactor, and everything built on them (HTTP, sockets, TLS,
+  the web framework, the database drivers) are native-only and do not lower to
+  wasm; an `await` reaching code generation is rejected at build time. Native code
+  remains the certified production target. See Chapter 22 for the details.
 
 ## Sharp edges to know about
 
