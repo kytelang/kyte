@@ -389,14 +389,9 @@ pub fn compile(allocator: std.mem.Allocator, program: ast.Program, is_wasm: bool
     }
 
     {
-        // Native links kyte_i64_to_string against libkytecore, so declare the extern here.
-        // For wasm it instead has a self-contained body in generateWasmMemoryFunctions
-        // (embed-wasm.md M0-a), so it must NOT be declared as a bare extern there.
-        if (!is_wasm) {
-            var i64_p = [_]types.LLVMTypeRef{compiler.val_type};
-            const i64_t = core.LLVMFunctionType(compiler.val_type, &i64_p, 1, 0);
-            try compiler.func_map.put("kyte_i64_to_string", core.LLVMAddFunction(compiler.module, "kyte_i64_to_string", i64_t));
-        }
+        var i64_p = [_]types.LLVMTypeRef{compiler.val_type};
+        const i64_t = core.LLVMFunctionType(compiler.val_type, &i64_p, 1, 0);
+        try compiler.func_map.put("kyte_i64_to_string", core.LLVMAddFunction(compiler.module, "kyte_i64_to_string", i64_t));
 
         var f64_p = [_]types.LLVMTypeRef{core.LLVMDoubleType()};
         const f64_t = core.LLVMFunctionType(compiler.val_type, &f64_p, 1, 0);
@@ -479,38 +474,26 @@ pub fn compile(allocator: std.mem.Allocator, program: ast.Program, is_wasm: bool
         try compiler.func_map.put("kyte_get_stacktrace", get_st_fn);
 
         {
-            // These were host imports in the old wasm model. For a self-contained guest
-            // (embed-wasm.md M0-a) emit trivial bodies instead: the test hooks are no-ops and
-            // the returning ones yield 0/null, so a non-test wasm module instantiates with no
-            // required host imports.
             var th_ptr = [_]types.LLVMTypeRef{compiler.ptr_type};
             const th_void_ptr = core.LLVMFunctionType(compiler.void_type, &th_ptr, 1, 0);
             const th_void = core.LLVMFunctionType(compiler.void_type, null, 0, 0);
             const th_i32 = core.LLVMFunctionType(compiler.i32_type, null, 0, 0);
             const th_ptr_ret = core.LLVMFunctionType(compiler.ptr_type, null, 0, 0);
-            const Ret = enum { v, i, p };
-            const Imp = struct { name: [:0]const u8, ty: types.LLVMTypeRef, ret: Ret };
+            const Imp = struct { name: [:0]const u8, ty: types.LLVMTypeRef };
             const imps = [_]Imp{
-                .{ .name = "kyte_test_reset", .ty = th_void, .ret = .v },
-                .{ .name = "kyte_test_begin", .ty = th_void_ptr, .ret = .v },
-                .{ .name = "kyte_test_fail", .ty = th_void_ptr, .ret = .v },
-                .{ .name = "kyte_test_did_fail", .ty = th_i32, .ret = .i },
-                .{ .name = "kyte_test_fail_message", .ty = th_ptr_ret, .ret = .p },
-                .{ .name = "kyte_optional_deref_fail", .ty = th_void_ptr, .ret = .v },
-                .{ .name = "kyte_panic", .ty = th_void_ptr, .ret = .v },
+                .{ .name = "kyte_test_reset", .ty = th_void },
+                .{ .name = "kyte_test_begin", .ty = th_void_ptr },
+                .{ .name = "kyte_test_fail", .ty = th_void_ptr },
+                .{ .name = "kyte_test_did_fail", .ty = th_i32 },
+                .{ .name = "kyte_test_fail_message", .ty = th_ptr_ret },
+                .{ .name = "kyte_optional_deref_fail", .ty = th_void_ptr },
+                .{ .name = "kyte_panic", .ty = th_void_ptr },
             };
             for (imps) |imp| {
                 const f = core.LLVMAddFunction(compiler.module, imp.name.ptr, imp.ty);
+                core.LLVMAddTargetDependentFunctionAttr(f, "wasm-import-module", "env");
+                core.LLVMAddTargetDependentFunctionAttr(f, "wasm-import-name", imp.name.ptr);
                 try compiler.func_map.put(imp.name, f);
-                const bb = core.LLVMAppendBasicBlock(f, "entry");
-                const sbld = core.LLVMCreateBuilder();
-                defer core.LLVMDisposeBuilder(sbld);
-                core.LLVMPositionBuilderAtEnd(sbld, bb);
-                switch (imp.ret) {
-                    .v => _ = core.LLVMBuildRetVoid(sbld),
-                    .i => _ = core.LLVMBuildRet(sbld, core.LLVMConstInt(compiler.i32_type, 0, 0)),
-                    .p => _ = core.LLVMBuildRet(sbld, core.LLVMConstPointerNull(compiler.ptr_type)),
-                }
             }
         }
 

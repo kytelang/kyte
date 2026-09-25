@@ -109,11 +109,6 @@ if [[ "${1:-}" == "--tsan" ]]; then TSAN_MODE=1; shift; fi
 # that conformance/ossa-gate.sh only spot-checks on 6 cases. Sound (never falsely accuses) but incomplete
 # (destructured bindings untracked) -- so it proves "no proven imbalance", not "no possible leak".
 if [[ "${1:-}" == "--ossa" ]]; then OSSA_MODE=1; shift; fi
-# --wasm : build the synchronous-subset example under --target wasm and, when wasm-ld + a wasm
-# runtime (node) are present, link and RUN it, checking the exported results against known values.
-# This is the corpus coverage for the WebAssembly target. It SKIPS cleanly (exit 0) when the wasm
-# toolchain is absent, so it never fails a host that simply lacks wasm-ld/node.
-if [[ "${1:-}" == "--wasm" ]]; then WASM_MODE=1; shift; fi
 # --dogfood : compile-and-run a suite of realistic, whole-program feature COMBINATIONS under ASAN, each
 # expected to exit 0. Unlike cases/ (which are @test suites), these are full main()-driven programs that
 # exercise generics + closures + traits + optionals + error-unions + async together -- the "can I build a
@@ -167,55 +162,6 @@ if [[ $DOGFOOD_MODE -eq 1 ]]; then
   echo "Cases: $((dg_pass+dg_fail))  Passed: $dg_pass  Failed: $dg_fail"
   if [[ $dg_fail -gt 0 ]]; then echo "Failed: ${dg_failed[*]}"; exit 1; fi
   exit 0
-fi
-
-# WebAssembly target gate (opt-in: ./run.sh --wasm). Self-contained and terminal: it builds the
-# synchronous-subset example under --target wasm, links it (one-step when wasm-ld is on PATH, else a
-# manual wasm-ld link here), runs it under a wasm runtime (node), and checks the exported results.
-# It SKIPS cleanly (exit 0) when wasm-ld or node is missing, so it never fails a host that lacks the
-# wasm toolchain. Kept out of the default corpus (which stays native) - run it explicitly.
-if [[ $WASM_MODE -eq 1 ]]; then
-  echo "--- WebAssembly target gate (synchronous subset) ---"
-  ex="$HERE/wasm/compute.ky"
-  if [[ ! -f "$ex" ]]; then echo "  FAIL: missing $ex"; exit 1; fi
-  wd="$(mktemp -d)"; out_wasm="$wd/compute.wasm"
-  build_out="$("$KYTE" build --file "$ex" -o "$out_wasm" --target wasm 2>&1)"; code=$?
-  printf '%s\n' "$build_out" | sed 's/^/  /'
-  if [[ $code -ne 0 ]]; then echo "  FAIL: --target wasm object build failed"; rm -rf "$wd"; exit 1; fi
-  # The compiler emits a relocatable wasm object and prints the link command; it does NOT link (no
-  # wasm linker can be assumed on an arbitrary host). Link it here with whatever is available so the
-  # gate can run the module, and SKIP cleanly when no wasm linker is present.
-  obj="$(printf '%s' "$build_out" | grep -oE '[^ ]+\.wasm\.o' | head -1)"
-  if [[ -z "$obj" || ! -f "$obj" ]]; then echo "  FAIL: no wasm object emitted"; rm -rf "$wd"; exit 1; fi
-  if command -v wasm-ld >/dev/null 2>&1; then
-    wasm-ld --no-entry --export-all "$obj" -o "$out_wasm" || { echo "  FAIL: wasm-ld link failed"; rm -rf "$wd"; exit 1; }
-  elif command -v zig >/dev/null 2>&1; then
-    zig build-exe -target wasm32-freestanding -fno-entry -rdynamic "$obj" -femit-bin="$out_wasm" || { echo "  FAIL: zig wasm link failed"; rm -rf "$wd"; exit 1; }
-  else
-    echo "  SKIP: object built OK but no wasm linker (wasm-ld / zig) available to link + run here"; rm -rf "$wd"; exit 0
-  fi
-  if ! command -v node >/dev/null 2>&1; then
-    echo "  SKIP: module built + linked OK, but no wasm runtime (node) to execute it here"; rm -rf "$wd"; exit 0
-  fi
-  got="$(node -e '
-    const fs = require("fs");
-    WebAssembly.instantiate(fs.readFileSync(process.argv[1]), {}).then(r => {
-      const e = r.instance.exports;
-      console.log(e.fib(20n) + "," + e.sumPoints(100n) + "," + e.overflow32());
-    }).catch(x => console.log("ERR:" + x.message));
-  ' "$out_wasm" 2>&1)"
-  rm -rf "$wd"
-  want="6765,10000,-294967296"
-  echo "----------------------------------------------------------------"
-  if [[ "$got" == "$want" ]]; then
-    echo "  PASS  compute.wasm  (fib/sumPoints/overflow32 = $got)"
-    echo "Cases: 1  Passed: 1  Failed: 0"
-    exit 0
-  else
-    echo "  FAIL  compute.wasm  (got [$got], want [$want])"
-    echo "Cases: 1  Passed: 0  Failed: 1"
-    exit 1
-  fi
 fi
 
 pass=0; fail=0; failed_cases=()

@@ -194,18 +194,16 @@ fn compileProgram(
     var declarations = std.ArrayList(ast.Declaration).empty;
     defer declarations.deinit(allocator);
 
-    // WASM is a re-enabled, experimental target (embed-wasm.md M0). The CLI maps
-    // `--wasm` / `--target wasm` to the `--wasm` target string; codegen then emits a
-    // wasm32 object. Final linking to a `.wasm` module is done out of process with
-    // wasm-ld/clang, since the in-compiler wasm link path was retired.
-    const is_wasm = std.mem.eql(u8, target, "--wasm");
+    // WASM was dropped as a target (native only); the CLI rejects it before this
+    // point, so this is always false. Retained as a constant because the parser
+    // still takes an `is_wasm` flag to gate `@native`/`@wasm` source blocks
+    // (always selecting `@native` now).
+    const is_wasm = false;
     const tinfo = pipeline.deriveTargetInfo(target, target_triple_opt);
 
     const asan = !is_wasm and want_asan;
     codegen_arc.asan_codegen_enabled = asan and (init.environ_map.get("KYTE_ASAN_CODEGEN") != null);
 
-    // The string prelude routes through kyte_str_alloc, which now has a wasm body emitted in
-    // generateWasmMemoryFunctions (embed-wasm.md M0-a), so it loads for wasm as well as native.
     pipeline.loadProgram(allocator, init, "src/std/collections/string_builder.ky", visited, &visiting, &merged, &declarations, is_wasm, &file_sources, tinfo) catch |err| {
         std.debug.print("Warning: Failed to load string_builder standard library: {any}\n", .{err});
     };
@@ -233,8 +231,6 @@ fn compileProgram(
         } else |_| {}
     }
     if (std.mem.eql(u8, target, "--native")) {
-        // These helpers resolve to native runtime symbols (console.log, kyte_str_alloc),
-        // so they are native-only and must not be injected for the wasm target.
         const helpers =
             \\fn __log_i32(val: i32): void {
             \\    console.log(`${val}`);
@@ -355,7 +351,7 @@ fn compileProgram(
     }
 
 
-    if (std.mem.eql(u8, target, "--native") or std.mem.eql(u8, target, "--wasm")) {
+    if (std.mem.eql(u8, target, "--native")) {
 
         const obj_path = if (build_mode)
             try std.fmt.allocPrint(allocator, "{s}/{s}.o", .{ build_obj_dir, std.fs.path.basename(output_path) })
@@ -372,7 +368,7 @@ fn compileProgram(
             }
             split_objs.deinit(allocator);
         }
-        try llvm_codegen.compile(allocator, program, is_wasm, is_release, target_triple_opt, obj_path, false, t6_split, if (t6_split) &split_objs else null, if (build_mode) build_obj_dir else null, init.io);
+        try llvm_codegen.compile(allocator, program, false, is_release, target_triple_opt, obj_path, false, t6_split, if (t6_split) &split_objs else null, if (build_mode) build_obj_dir else null, init.io);
         const link_objs: []const []const u8 = if (split_objs.items.len > 0) split_objs.items else &[_][]const u8{obj_path};
         sema_shadow.reportResolution();
         sema_shadow.reportDiff();
@@ -408,24 +404,6 @@ fn compileProgram(
             sema_shadow.render_bytes,
         });
     }
-
-        if (is_wasm) {
-            // The wasm32 object is the deliverable. The in-compiler wasm link path was
-            // retired, so we keep the object and link it to a final module out of process
-            // (embed-wasm.md M0). Returning here skips the native clang link and the
-            // object-file deletion below, leaving the .o in place.
-            const wasm_obj = if (split_objs.items.len > 0) split_objs.items[0] else obj_path;
-            // The wasm32 object is the deliverable; we do NOT auto-link it. An installed compiler
-            // cannot assume any particular wasm linker exists: a stock macOS/Apple clang ships no
-            // wasm-ld, and zig is a build-time tool a user need not have. Linking in-process (the way
-            // native macOS/ELF builds avoid an external linker) would require this binary to be built
-            // with -Dstatic-llvm -Dinprocess-lld AND the wasm LLD driver, which the default build does
-            // not include. So rather than shell out to a tool that may be missing (and fail a build
-            // that produced a perfectly good object), we emit the object and print the exact link
-            // command, aimed at the caller's -o path, to run with whatever LLVM toolchain they have.
-            std.debug.print("wasm object at {s}\n  link your module with: wasm-ld --no-entry --export-all {s} -o {s}\n", .{ wasm_obj, wasm_obj, output_path });
-            return;
-        }
 
         var clang_args = std.ArrayList([]const u8).empty;
         defer clang_args.deinit(allocator);
@@ -690,7 +668,8 @@ pub fn cmdBuild(allocator: std.mem.Allocator, init: std.process.Init, args: []co
                     i += 1;
                     const val = args[i];
                     if (std.mem.eql(u8, val, "wasm")) {
-                        target = "--wasm";
+                        std.debug.print("WebAssembly is not a supported target. Kyte compiles to native code only.\n", .{});
+                        return;
                     } else if (std.mem.eql(u8, val, "native")) {
                         target = "--native";
                     } else {
@@ -731,7 +710,8 @@ pub fn cmdBuild(allocator: std.mem.Allocator, init: std.process.Init, args: []co
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (std.mem.eql(u8, arg, "--wasm")) {
-                target = "--wasm";
+                std.debug.print("WebAssembly is not a supported target. Kyte compiles to native code only.\n", .{});
+                return;
             } else if (std.mem.eql(u8, arg, "--native")) {
                 target = arg;
             } else if (std.mem.eql(u8, arg, "--release") or std.mem.eql(u8, arg, "-r")) {
