@@ -415,12 +415,64 @@ fn compileProgram(
             // (embed-wasm.md M0). Returning here skips the native clang link and the
             // object-file deletion below, leaving the .o in place.
             const wasm_obj = if (split_objs.items.len > 0) split_objs.items[0] else obj_path;
-            // `-o` names where the caller wants the final module. We do not shell out to
-            // wasm-ld here (the in-compiler link path is retired), so rather than silently
-            // dropping `-o` we point the printed link step at the caller's own output path.
-            // Following it once produces the module exactly where they asked, instead of a
-            // generic out.wasm they then have to rename.
-            std.debug.print("wasm object at {s}\n  link your module with: wasm-ld --no-entry --export-all {s} -o {s}\n", .{ wasm_obj, wasm_obj, output_path });
+            // Finish the job when wasm-ld is available: link the relocatable object into the
+            // final module at the caller's -o path, the same one-step contract the native
+            // path honours. wasm-ld ships with LLVM. We search PATH for it rather than
+            // spawning blindly, so a host without it degrades cleanly to the printed manual
+            // link line instead of turning a good object emit into a build failure.
+            const wasm_ld: ?[]const u8 = blk: {
+                const path_val = init.environ_map.get("PATH") orelse break :blk null;
+                const sep: u8 = if (builtin.target.os.tag == .windows) ';' else ':';
+                var it = std.mem.tokenizeScalar(u8, path_val, sep);
+                while (it.next()) |dir| {
+                    if (dir.len == 0) continue;
+                    const cand = std.fmt.allocPrint(allocator, "{s}/wasm-ld{s}", .{ dir, if (builtin.target.os.tag == .windows) ".exe" else "" }) catch continue;
+                    if (Io.Dir.access(.cwd(), init.io, cand, .{})) |_| break :blk cand else |_| allocator.free(cand);
+                }
+                break :blk null;
+            };
+
+            if (wasm_ld) |linker| {
+                var wl_args = std.ArrayList([]const u8).empty;
+                defer wl_args.deinit(allocator);
+                try wl_args.append(allocator, linker);
+                try wl_args.append(allocator, "--no-entry");
+                try wl_args.append(allocator, "--export-all");
+                try wl_args.append(allocator, wasm_obj);
+                try wl_args.append(allocator, "-o");
+                try wl_args.append(allocator, output_path);
+
+                var child = try std.process.spawn(init.io, .{ .argv = wl_args.items });
+                const term = try child.wait(init.io);
+                switch (term) {
+                    .exited => |code| {
+                        if (code != 0) {
+                            std.debug.print("Linking wasm module failed with code {d}\n", .{code});
+                            return error.LinkFailed;
+                        }
+                    },
+                    else => {
+                        std.debug.print("Linking wasm module failed abnormally\n", .{});
+                        return error.LinkFailed;
+                    },
+                }
+                if (!want_keep_obj and !build_mode) {
+                    Io.Dir.deleteFile(.cwd(), init.io, wasm_obj) catch {};
+                    if (!std.mem.eql(u8, wasm_obj, obj_path)) Io.Dir.deleteFile(.cwd(), init.io, obj_path) catch {};
+                }
+                if (build_mode) {
+                    const cur = std.fmt.allocPrint(allocator, "{x}", .{src_hash}) catch "";
+                    defer if (cur.len > 0) allocator.free(cur);
+                    _ = Io.Dir.writeFile(.cwd(), init.io, .{ .data = cur, .sub_path = build_hash_path, .flags = .{} }) catch {};
+                    std.debug.print("Built {s} ({s}, wasm).\n", .{ output_path, if (is_release) "release" else "debug" });
+                } else {
+                    std.debug.print("Wasm module written to {s}\n", .{output_path});
+                }
+            } else {
+                // No wasm-ld on PATH: keep the object and print the manual link line, aimed
+                // at the caller's -o path so following it once lands the module there.
+                std.debug.print("wasm object at {s}\n  wasm-ld not found on PATH; link your module with:\n  wasm-ld --no-entry --export-all {s} -o {s}\n", .{ wasm_obj, wasm_obj, output_path });
+            }
             return;
         }
 

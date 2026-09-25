@@ -96,11 +96,13 @@ sandboxed computation, not for running a Kyte service. Ask for it with `--target
 kyte compute.ky --target wasm
 ```
 
-The compiler emits a freestanding `wasm32` object and prints the exact link line, which uses `wasm-ld`
-and already points at the `-o` path you passed, so following it once puts the module where you asked:
+If `wasm-ld` (it ships with LLVM) is on your PATH, the compiler links the module for you in one step and
+writes it straight to your `-o` path, so `kyte compute.ky --target wasm -o compute.wasm` gives you a
+ready `compute.wasm`. If `wasm-ld` is not found, the compiler keeps the freestanding `wasm32` object and
+prints the exact link line to run yourself (already aimed at your `-o` path):
 
 ```sh
-wasm-ld --no-entry --export-all build/debug/obj/compute.o -o compute.wasm
+wasm-ld --no-entry --export-all build/debug/obj/compute.wasm.o -o compute.wasm
 ```
 
 The module needs no host imports for the supported subset. It carries its own small string runtime, so
