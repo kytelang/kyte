@@ -96,13 +96,22 @@ sandboxed computation, not for running a Kyte service. Ask for it with `--target
 kyte compute.ky --target wasm
 ```
 
-The compiler links the finished module for you in one step and writes it straight to your `-o` path, so
-`kyte compute.ky --target wasm -o compute.wasm` gives you a ready `compute.wasm`. It links through `zig`
-(the toolchain's own linker for cross targets), which bundles the wasm linker, so there is no separate
-`wasm-ld` to install: wasm builds work wherever the compiler does. Under the hood it runs:
+The compiler emits a freestanding `wasm32` object (a relocatable `.o`) and prints the exact link line to
+turn it into a runnable module, aimed at the `-o` path you passed:
 
 ```sh
-zig build-exe -target wasm32-freestanding -fno-entry -rdynamic build/debug/obj/compute.wasm.o -femit-bin=compute.wasm
+wasm-ld --no-entry --export-all build/debug/obj/compute.wasm.o -o compute.wasm
+```
+
+The compiler does not run this step for you, on purpose. Linking a wasm module needs a wasm linker, and
+that is not something an installed compiler can assume you have: a stock macOS/Apple `clang` ships no
+`wasm-ld`. `wasm-ld` comes with an LLVM install (`brew install llvm`, or the LLVM your distribution
+packages). Any of these produce the same module, so use whichever your toolchain provides:
+
+```sh
+wasm-ld --no-entry --export-all compute.wasm.o -o compute.wasm          # LLVM's wasm linker
+clang --target=wasm32 -nostdlib -Wl,--no-entry -Wl,--export-all compute.wasm.o -o compute.wasm  # LLVM clang
+zig build-exe -target wasm32-freestanding -fno-entry -rdynamic compute.wasm.o -femit-bin=compute.wasm  # zig
 ```
 
 The module needs no host imports for the supported subset. It carries its own small string runtime, so

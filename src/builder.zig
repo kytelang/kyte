@@ -415,48 +415,15 @@ fn compileProgram(
             // (embed-wasm.md M0). Returning here skips the native clang link and the
             // object-file deletion below, leaving the .o in place.
             const wasm_obj = if (split_objs.items.len > 0) split_objs.items[0] else obj_path;
-            // Link with zig's bundled wasm-lld. zig is already this toolchain's linker for cross
-            // targets (see crossLinkViaZig), so wasm linking needs no separate wasm-ld install and
-            // works wherever the compiler does. `-fno-entry` is --no-entry; `-rdynamic` exports every
-            // defined symbol (parity with the old wasm-ld --export-all). The finished module lands at
-            // the caller's -o path in one step.
-            const femit = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{output_path});
-            var zargs = std.ArrayList([]const u8).empty;
-            defer zargs.deinit(allocator);
-            try zargs.appendSlice(allocator, &.{ "zig", "build-exe", "-target", "wasm32-freestanding", "-fno-entry", "-rdynamic", wasm_obj, femit });
-
-            if (std.process.spawn(init.io, .{ .argv = zargs.items })) |child_const| {
-                var child = child_const;
-                const term = try child.wait(init.io);
-                switch (term) {
-                    .exited => |code| {
-                        if (code != 0) {
-                            std.debug.print("Linking wasm module failed with code {d}\n", .{code});
-                            return error.LinkFailed;
-                        }
-                    },
-                    else => {
-                        std.debug.print("Linking wasm module failed abnormally\n", .{});
-                        return error.LinkFailed;
-                    },
-                }
-                if (!want_keep_obj and !build_mode) {
-                    Io.Dir.deleteFile(.cwd(), init.io, wasm_obj) catch {};
-                    if (!std.mem.eql(u8, wasm_obj, obj_path)) Io.Dir.deleteFile(.cwd(), init.io, obj_path) catch {};
-                }
-                if (build_mode) {
-                    const cur = std.fmt.allocPrint(allocator, "{x}", .{src_hash}) catch "";
-                    defer if (cur.len > 0) allocator.free(cur);
-                    _ = Io.Dir.writeFile(.cwd(), init.io, .{ .data = cur, .sub_path = build_hash_path, .flags = .{} }) catch {};
-                    std.debug.print("Built {s} ({s}, wasm).\n", .{ output_path, if (is_release) "release" else "debug" });
-                } else {
-                    std.debug.print("Wasm module written to {s}\n", .{output_path});
-                }
-            } else |_| {
-                // zig not reachable (very unusual - it is the toolchain's own linker): keep the object
-                // and print the manual link line so -o is still honoured by following it once.
-                std.debug.print("wasm object at {s}\n  zig not found; link your module with:\n  zig build-exe -target wasm32-freestanding -fno-entry -rdynamic {s} -femit-bin={s}\n", .{ wasm_obj, wasm_obj, output_path });
-            }
+            // The wasm32 object is the deliverable; we do NOT auto-link it. An installed compiler
+            // cannot assume any particular wasm linker exists: a stock macOS/Apple clang ships no
+            // wasm-ld, and zig is a build-time tool a user need not have. Linking in-process (the way
+            // native macOS/ELF builds avoid an external linker) would require this binary to be built
+            // with -Dstatic-llvm -Dinprocess-lld AND the wasm LLD driver, which the default build does
+            // not include. So rather than shell out to a tool that may be missing (and fail a build
+            // that produced a perfectly good object), we emit the object and print the exact link
+            // command, aimed at the caller's -o path, to run with whatever LLVM toolchain they have.
+            std.debug.print("wasm object at {s}\n  link your module with: wasm-ld --no-entry --export-all {s} -o {s}\n", .{ wasm_obj, wasm_obj, output_path });
             return;
         }
 

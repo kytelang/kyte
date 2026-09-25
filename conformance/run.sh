@@ -181,16 +181,18 @@ if [[ $WASM_MODE -eq 1 ]]; then
   wd="$(mktemp -d)"; out_wasm="$wd/compute.wasm"
   build_out="$("$KYTE" build --file "$ex" -o "$out_wasm" --target wasm 2>&1)"; code=$?
   printf '%s\n' "$build_out" | sed 's/^/  /'
-  if [[ $code -ne 0 ]]; then echo "  FAIL: --target wasm build failed"; rm -rf "$wd"; exit 1; fi
-  # The compiler links via zig's bundled wasm linker and writes the module straight to -o. If it did
-  # not (e.g. zig unreachable), link the emitted object here with zig; if that too is impossible, SKIP.
-  if [[ ! -f "$out_wasm" ]]; then
-    obj="$(printf '%s' "$build_out" | grep -oE '[^ ]+\.wasm\.o' | head -1)"
-    if command -v zig >/dev/null 2>&1 && [[ -n "$obj" && -f "$obj" ]]; then
-      zig build-exe -target wasm32-freestanding -fno-entry -rdynamic "$obj" -femit-bin="$out_wasm" || { echo "  FAIL: zig wasm link failed"; rm -rf "$wd"; exit 1; }
-    else
-      echo "  SKIP: object built OK but zig is unavailable to link a runnable module here"; rm -rf "$wd"; exit 0
-    fi
+  if [[ $code -ne 0 ]]; then echo "  FAIL: --target wasm object build failed"; rm -rf "$wd"; exit 1; fi
+  # The compiler emits a relocatable wasm object and prints the link command; it does NOT link (no
+  # wasm linker can be assumed on an arbitrary host). Link it here with whatever is available so the
+  # gate can run the module, and SKIP cleanly when no wasm linker is present.
+  obj="$(printf '%s' "$build_out" | grep -oE '[^ ]+\.wasm\.o' | head -1)"
+  if [[ -z "$obj" || ! -f "$obj" ]]; then echo "  FAIL: no wasm object emitted"; rm -rf "$wd"; exit 1; fi
+  if command -v wasm-ld >/dev/null 2>&1; then
+    wasm-ld --no-entry --export-all "$obj" -o "$out_wasm" || { echo "  FAIL: wasm-ld link failed"; rm -rf "$wd"; exit 1; }
+  elif command -v zig >/dev/null 2>&1; then
+    zig build-exe -target wasm32-freestanding -fno-entry -rdynamic "$obj" -femit-bin="$out_wasm" || { echo "  FAIL: zig wasm link failed"; rm -rf "$wd"; exit 1; }
+  else
+    echo "  SKIP: object built OK but no wasm linker (wasm-ld / zig) available to link + run here"; rm -rf "$wd"; exit 0
   fi
   if ! command -v node >/dev/null 2>&1; then
     echo "  SKIP: module built + linked OK, but no wasm runtime (node) to execute it here"; rm -rf "$wd"; exit 0
