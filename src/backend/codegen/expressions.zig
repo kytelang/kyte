@@ -5437,6 +5437,16 @@ fn compileExpressionInner(self: *LlvmCompiler, expr: ast.Expression) anyerror!ty
                 if (!(namesExistingOwner(nc.right.kind) and self.isOwnedExpr(nc.right))) {
                     self.consumeTemporary(rhs_val);
                 }
+            } else if (opt_result) {
+                // `int? ?? int?` yields a value-optional BOX (unboxing was suppressed so the phi
+                // merges box against box). That box ALIASES whichever operand was selected, and the
+                // operand's owner (e.g. a named local, or the container element it was read from)
+                // releases it independently at end of scope. Without a matching retain the box is
+                // freed twice - the double-free that crashed `heap`/`ordered_map` cases and made
+                // chained `a ?? c ?? 7` (conformance 461) abort in libmalloc. Retaining the merged
+                // box balances that second release. `compileRetain` is null-safe, so the both-absent
+                // result (a 0/absent box) is untouched.
+                try self.compileRetain(phi);
             }
 
             return phi;

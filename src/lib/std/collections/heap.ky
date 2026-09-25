@@ -96,10 +96,10 @@ pub class Heap<T> {
         let i = self.data.size() - 1;
         while (i > 0) {
             let parent = (i - 1) / 2;
-            let cur = self.data.get(i) ?? v;
-            let par = self.data.get(parent) ?? v;
             let f = self.less;
-            if (f(cur ?? v, par ?? v)) { self.swap(i, parent); i = parent; }
+            // `at` returns `T` directly; passing the coalesced value-optionals `get(i) ?? v`
+            // into the comparator would hand it a boxed optional instead of a value.
+            if (f(self.data.at(i), self.data.at(parent))) { self.swap(i, parent); i = parent; }
             else { break; }
         }
     }
@@ -131,14 +131,10 @@ pub class Heap<T> {
             let r = (2 * i) + 2;
             let smallest = i;
             if (l < sz) {
-                let lv = self.data.get(l);
-                let sv = self.data.get(smallest);
-                if (f(lv ?? sv, sv ?? lv)) { smallest = l; }
+                if (f(self.data.at(l), self.data.at(smallest))) { smallest = l; }
             }
             if (r < sz) {
-                let rv = self.data.get(r);
-                let sv = self.data.get(smallest);
-                if (f(rv ?? sv, sv ?? rv)) { smallest = r; }
+                if (f(self.data.at(r), self.data.at(smallest))) { smallest = r; }
             }
             if (smallest == i) { break; }
             self.swap(i, smallest);
