@@ -74,10 +74,13 @@ pub class Heap<T> {
     /// in range; the `?? self.data.get(0)` guards only satisfy the optional
     /// unwrap on `List.get` and are never expected to fire for valid indices.
     fn swap(self: Heap<T>, i: int, j: int): void {
-        let a = self.data.get(i) ?? self.data.get(0);
-        let b = self.data.get(j) ?? self.data.get(0);
-        self.data.set(i, b ?? a);
-        self.data.set(j, a ?? b);
+        // `at` returns `T` directly (never an optional), so the two elements move without
+        // routing a value-optional through `set`. Both indices are in range at every call
+        // site (the sift loops keep them so), and `at` traps rather than corrupts if not.
+        let a = self.data.at(i);
+        let b = self.data.at(j);
+        self.data.set(i, b);
+        self.data.set(j, a);
     }
 
     /// Inserts `v` and restores the heap ordering. O(log n).
@@ -116,8 +119,9 @@ pub class Heap<T> {
         if (n == 0) { return undefined; }
         let root = self.data.get(0);
         let lastIdx = n - 1;
-        let lastVal = self.data.get(lastIdx);
-        self.data.set(0, lastVal ?? (root ?? lastVal));
+        // Move the last element into the root slot. `at` yields `T` directly (n > 0, so the
+        // index is valid), avoiding the value-optional-into-`set` path.
+        self.data.set(0, self.data.at(lastIdx));
         self.data.pop();
         let sz = self.data.size();
         let i = 0;

@@ -165,8 +165,10 @@ pub class OrderedMap<K, V> {
         let n = self.ks.size();
         let i = idx;
         while (i < n - 1) {
-            self.ks.set(i, self.ks.get(i + 1) ?? self.ks.get(i));
-            self.vs.set(i, self.vs.get(i + 1) ?? self.vs.get(i));
+            // Shift the next entry down by one. `at(i + 1)` returns `K`/`V` directly (the loop
+            // bound keeps `i + 1` in range), so no value-optional is routed through `set`.
+            self.ks.set(i, self.ks.at(i + 1));
+            self.vs.set(i, self.vs.at(i + 1));
             i = i + 1;
         }
         self.ks.pop();
