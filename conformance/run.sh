@@ -182,14 +182,14 @@ if [[ $WASM_MODE -eq 1 ]]; then
   build_out="$("$KYTE" build --file "$ex" -o "$out_wasm" --target wasm 2>&1)"; code=$?
   printf '%s\n' "$build_out" | sed 's/^/  /'
   if [[ $code -ne 0 ]]; then echo "  FAIL: --target wasm build failed"; rm -rf "$wd"; exit 1; fi
-  # One-step path writes the module to -o. If it did not (wasm-ld absent at compile time), try to
-  # link the emitted object here; if that too is impossible, SKIP.
+  # The compiler links via zig's bundled wasm linker and writes the module straight to -o. If it did
+  # not (e.g. zig unreachable), link the emitted object here with zig; if that too is impossible, SKIP.
   if [[ ! -f "$out_wasm" ]]; then
     obj="$(printf '%s' "$build_out" | grep -oE '[^ ]+\.wasm\.o' | head -1)"
-    if command -v wasm-ld >/dev/null 2>&1 && [[ -n "$obj" && -f "$obj" ]]; then
-      wasm-ld --no-entry --export-all "$obj" -o "$out_wasm" || { echo "  FAIL: wasm-ld link failed"; rm -rf "$wd"; exit 1; }
+    if command -v zig >/dev/null 2>&1 && [[ -n "$obj" && -f "$obj" ]]; then
+      zig build-exe -target wasm32-freestanding -fno-entry -rdynamic "$obj" -femit-bin="$out_wasm" || { echo "  FAIL: zig wasm link failed"; rm -rf "$wd"; exit 1; }
     else
-      echo "  SKIP: object built OK but wasm-ld is unavailable to link a runnable module here"; rm -rf "$wd"; exit 0
+      echo "  SKIP: object built OK but zig is unavailable to link a runnable module here"; rm -rf "$wd"; exit 0
     fi
   fi
   if ! command -v node >/dev/null 2>&1; then

@@ -415,34 +415,18 @@ fn compileProgram(
             // (embed-wasm.md M0). Returning here skips the native clang link and the
             // object-file deletion below, leaving the .o in place.
             const wasm_obj = if (split_objs.items.len > 0) split_objs.items[0] else obj_path;
-            // Finish the job when wasm-ld is available: link the relocatable object into the
-            // final module at the caller's -o path, the same one-step contract the native
-            // path honours. wasm-ld ships with LLVM. We search PATH for it rather than
-            // spawning blindly, so a host without it degrades cleanly to the printed manual
-            // link line instead of turning a good object emit into a build failure.
-            const wasm_ld: ?[]const u8 = blk: {
-                const path_val = init.environ_map.get("PATH") orelse break :blk null;
-                const sep: u8 = if (builtin.target.os.tag == .windows) ';' else ':';
-                var it = std.mem.tokenizeScalar(u8, path_val, sep);
-                while (it.next()) |dir| {
-                    if (dir.len == 0) continue;
-                    const cand = std.fmt.allocPrint(allocator, "{s}/wasm-ld{s}", .{ dir, if (builtin.target.os.tag == .windows) ".exe" else "" }) catch continue;
-                    if (Io.Dir.access(.cwd(), init.io, cand, .{})) |_| break :blk cand else |_| allocator.free(cand);
-                }
-                break :blk null;
-            };
+            // Link with zig's bundled wasm-lld. zig is already this toolchain's linker for cross
+            // targets (see crossLinkViaZig), so wasm linking needs no separate wasm-ld install and
+            // works wherever the compiler does. `-fno-entry` is --no-entry; `-rdynamic` exports every
+            // defined symbol (parity with the old wasm-ld --export-all). The finished module lands at
+            // the caller's -o path in one step.
+            const femit = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{output_path});
+            var zargs = std.ArrayList([]const u8).empty;
+            defer zargs.deinit(allocator);
+            try zargs.appendSlice(allocator, &.{ "zig", "build-exe", "-target", "wasm32-freestanding", "-fno-entry", "-rdynamic", wasm_obj, femit });
 
-            if (wasm_ld) |linker| {
-                var wl_args = std.ArrayList([]const u8).empty;
-                defer wl_args.deinit(allocator);
-                try wl_args.append(allocator, linker);
-                try wl_args.append(allocator, "--no-entry");
-                try wl_args.append(allocator, "--export-all");
-                try wl_args.append(allocator, wasm_obj);
-                try wl_args.append(allocator, "-o");
-                try wl_args.append(allocator, output_path);
-
-                var child = try std.process.spawn(init.io, .{ .argv = wl_args.items });
+            if (std.process.spawn(init.io, .{ .argv = zargs.items })) |child_const| {
+                var child = child_const;
                 const term = try child.wait(init.io);
                 switch (term) {
                     .exited => |code| {
@@ -468,10 +452,10 @@ fn compileProgram(
                 } else {
                     std.debug.print("Wasm module written to {s}\n", .{output_path});
                 }
-            } else {
-                // No wasm-ld on PATH: keep the object and print the manual link line, aimed
-                // at the caller's -o path so following it once lands the module there.
-                std.debug.print("wasm object at {s}\n  wasm-ld not found on PATH; link your module with:\n  wasm-ld --no-entry --export-all {s} -o {s}\n", .{ wasm_obj, wasm_obj, output_path });
+            } else |_| {
+                // zig not reachable (very unusual - it is the toolchain's own linker): keep the object
+                // and print the manual link line so -o is still honoured by following it once.
+                std.debug.print("wasm object at {s}\n  zig not found; link your module with:\n  zig build-exe -target wasm32-freestanding -fno-entry -rdynamic {s} -femit-bin={s}\n", .{ wasm_obj, wasm_obj, output_path });
             }
             return;
         }
