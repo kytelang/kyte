@@ -415,7 +415,12 @@ fn compileProgram(
             // (embed-wasm.md M0). Returning here skips the native clang link and the
             // object-file deletion below, leaving the .o in place.
             const wasm_obj = if (split_objs.items.len > 0) split_objs.items[0] else obj_path;
-            std.debug.print("wasm object at {s}\n  link with: wasm-ld --no-entry --export-all {s} -o out.wasm\n", .{ wasm_obj, wasm_obj });
+            // `-o` names where the caller wants the final module. We do not shell out to
+            // wasm-ld here (the in-compiler link path is retired), so rather than silently
+            // dropping `-o` we point the printed link step at the caller's own output path.
+            // Following it once produces the module exactly where they asked, instead of a
+            // generic out.wasm they then have to rename.
+            std.debug.print("wasm object at {s}\n  link your module with: wasm-ld --no-entry --export-all {s} -o {s}\n", .{ wasm_obj, wasm_obj, output_path });
             return;
         }
 

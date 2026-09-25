@@ -96,16 +96,22 @@ sandboxed computation, not for running a Kyte service. Ask for it with `--target
 kyte compute.ky --target wasm
 ```
 
-The compiler emits a freestanding `wasm32` object and prints the link line, which uses `wasm-ld`:
+The compiler emits a freestanding `wasm32` object and prints the exact link line, which uses `wasm-ld`
+and already points at the `-o` path you passed, so following it once puts the module where you asked:
 
 ```sh
-wasm-ld --no-entry --export-all build/debug/obj/compute.o -o out.wasm
+wasm-ld --no-entry --export-all build/debug/obj/compute.o -o compute.wasm
 ```
 
 The module needs no host imports for the supported subset. It carries its own small string runtime, so
 integers, `long`, `bool`, value structs, control flow, function calls, generics, ARC, string literals,
 string concatenation, and number interpolation all lower and run inside a plain wasm host. Export the
 functions you want to call by marking them `export fn`.
+
+One ABI note: both `int` and `long` are passed and returned as 64-bit values at the wasm boundary, so a
+JavaScript host calls an exported function with `BigInt` arguments (`fib(10n)`, not `fib(10)`). This is
+only the calling convention; `int` still behaves as a 32-bit value with wraparound inside the module, so
+arithmetic gives the same result it would on a native build.
 
 ### `async`/`await` does not compile to WebAssembly
 
