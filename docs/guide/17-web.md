@@ -536,7 +536,7 @@ request, detected from its headers:
 ```kyte
 import web.hyper;
 
-// Redirect that htmx/unpoly/alpine honour over XHR, and a plain browser gets a 303.
+// htmx gets a full-page HX-Redirect; unpoly, alpine, htmz, and a plain browser follow a 303.
 fn onSaved(ctx: Context): Response {
     // ... perform the write ...
     return hyper.redirect(ctx.request, "/orders");

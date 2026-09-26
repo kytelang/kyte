@@ -60,7 +60,7 @@ Capability to mechanism map (this is the contract the adapters implement):
 |---|---|---|---|---|---|
 | Detect hypermedia request | `HX-Request` | `X-Up-Target` / `X-Up-Version` | `X-Alpine-Request` | `datastar-request` | (none; treat as full nav) |
 | Trigger client event | `HX-Trigger` | `X-Up-Events` | dispatch via response id merge | `datastar-patch-signals` / execute script (SSE) | not applicable |
-| Redirect | `HX-Redirect` / `HX-Location` | `X-Up-Location` (+ status) | `X-Alpine-Redirect` | signal patch or execute script (SSE) | standard `303 Location` (works through the iframe) |
+| Redirect | `HX-Redirect` / `HX-Location` | standard `303` (+ `X-Up-Location` for history) | standard `303` (fetch follows it) | signal patch or execute script (SSE) | standard `303 Location` (works through the iframe) |
 | Retarget | `HX-Retarget` | `X-Up-Target` (response) | target by element id | element id in the SSE patch | not applicable |
 | Reswap | `HX-Reswap` | `X-Up-*` swap hints | merge strategy by id | morph by id | not applicable |
 | Push history URL | `HX-Push-Url` / `HX-Replace-Url` | `X-Up-Location` + method | not applicable | execute script (SSE) | not applicable |
@@ -100,7 +100,7 @@ neutral control operations: `ctx.isHypermedia()`, `ctx.wantsFragment()`, `hyper.
 `hyper.redirect(res, url)`, `hyper.retarget(res, selector)`, `hyper.reswap(res, mode)`,
 `hyper.pushUrl(res, url)`. Each operation dispatches to the active framework's mechanism per the
 capability map above. The htmx adapter emits the `HX-*` headers, the unpoly adapter emits `X-Up-*`, the
-alpine adapter uses id merge and `X-Alpine-Redirect`, datastar routes through the `kyte-datastar`
+alpine merges by element id and follows a standard `303`, datastar routes through the `kyte-datastar`
 package, and htmz falls back to plain HTTP where it can and reports not applicable otherwise.
 
 **Why hypermedia.** This server driven control channel (trigger an event, redirect, retarget, reswap,
@@ -125,7 +125,7 @@ handlers from hand writing header strings.
   `X-Up-Location`, `X-Up-Target`).
 - For datastar: the neutral calls produce the datastar equivalent through `kyte-datastar` (signal or
   element patch), not `HX-*` headers.
-- For alpine: `redirect` emits `X-Alpine-Redirect`; retarget resolves by element id.
+- For alpine: `redirect` is a standard `303 Location` (alpine-ajax has no redirect header; its fetch follows it); retarget resolves by element id.
 - For htmz: `redirect` emits a standard `303 Location`; operations with no htmz mechanism return a clear
   not applicable result rather than emitting a wrong header.
 - `ctx.isHypermedia()` is true for a request carrying any framework's marker header and false for a plain
@@ -158,7 +158,7 @@ redirect helper at all in `response.ky` today, so every write flow reinvents it.
   redirects to a GET and the flow returns the target page.
 
 **Across frameworks.** `redirect` delegates to item 1's neutral core, so the htmx build emits
-`HX-Redirect`, unpoly emits `X-Up-Location`, alpine emits `X-Alpine-Redirect`, datastar performs the
+`HX-Redirect`; unpoly and alpine follow a standard `303` (unpoly also gets `X-Up-Location` for history); datastar performs the
 redirect over its SSE channel, and htmz gets a plain `303 Location`. The acceptance flow is run against
 at least htmx, unpoly, and htmz to prove the browser lands on the target for each.
 

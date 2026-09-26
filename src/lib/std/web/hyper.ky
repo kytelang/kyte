@@ -56,10 +56,13 @@ pub fn wantsFragment(req: request.Request): bool {
     return detect(req) != Framework.plain;
 }
 
-/// Builds a redirect to `url` in the form the requesting library honours: htmx gets a
-/// `200` carrying `HX-Redirect` (a plain `Location` is swallowed by htmx's XHR), unpoly
-/// gets `X-Up-Location`, alpine-ajax gets `X-Alpine-Redirect`, and datastar, htmz, or a
-/// plain browser get a standard `303 See Other` with `Location`.
+/// Builds a redirect to `url` in the form the requesting library honours. Only htmx needs
+/// a special mechanism: its XHR swallows a plain `Location`, so it gets a `200` carrying
+/// `HX-Redirect` (a full page navigation). Every other library follows a normal `303 See
+/// Other` with `Location` transparently: unpoly and alpine-ajax's fetch follows the
+/// redirect (unpoly additionally reads `X-Up-Location`, added here for correct history),
+/// htmz follows it in its iframe, datastar/plain navigate normally. There is no
+/// `X-Alpine-Redirect`; alpine follows the `303`.
 pub fn redirect(req: request.Request, url: string): response.Response {
     let f = detect(req);
     if (f == Framework.htmx) {
@@ -67,17 +70,11 @@ pub fn redirect(req: request.Request, url: string): response.Response {
         r.setHeader("HX-Redirect", url);
         return r;
     }
+    let r = response.Response.seeOther(url);
     if (f == Framework.unpoly) {
-        let r = response.Response(status.Status.Ok, "");
         r.setHeader("X-Up-Location", url);
-        return r;
     }
-    if (f == Framework.alpine) {
-        let r = response.Response(status.Status.Ok, "");
-        r.setHeader("X-Alpine-Redirect", url);
-        return r;
-    }
-    return response.Response.seeOther(url);
+    return r;
 }
 
 /// Fires a client side event after the swap. htmx emits `HX-Trigger: <event>`, unpoly

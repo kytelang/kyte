@@ -32,8 +32,12 @@ fn t_is_hypermedia(): void {
 @test
 fn t_redirect_per_framework(): void {
     assert.contains(hyper.redirect(reqWith("HX-Request", "true"), "/n").serialize(), "HX-Redirect: /n");
-    assert.contains(hyper.redirect(reqWith("X-Up-Version", "3.0"), "/n").serialize(), "X-Up-Location: /n");
-    assert.contains(hyper.redirect(reqWith("X-Alpine-Request", "true"), "/n").serialize(), "X-Alpine-Redirect: /n");
+    let up = hyper.redirect(reqWith("X-Up-Version", "3.0"), "/n").serialize();
+    assert.contains(up, "303 See Other");
+    assert.contains(up, "X-Up-Location: /n");
+    let al = hyper.redirect(reqWith("X-Alpine-Request", "true"), "/n").serialize();
+    assert.contains(al, "303 See Other");
+    assert.contains(al, "Location: /n");
     let plain = hyper.redirect(request.Request.empty(), "/n").serialize();
     assert.contains(plain, "303 See Other");
     assert.contains(plain, "Location: /n");
