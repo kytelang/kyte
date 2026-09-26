@@ -5,6 +5,7 @@ import serde.source;
 import web.request;
 import web.response;
 import web.status;
+import web.hyper;
 
 pub struct Context {
     pub request: Request,
@@ -55,6 +56,26 @@ pub struct Context {
 
     pub fn param(self: Context, key: string): string {
         return self.params.get(key) ?? "";
+    }
+
+    /// True when this request came from a recognised hypermedia client library
+    /// (htmx, unpoly, alpine-ajax, or datastar). Detected from request headers;
+    /// see `web.hyper`.
+    pub fn isHypermedia(self: Context): bool {
+        return hyper.isHypermedia(self.request);
+    }
+
+    /// True when the client expects an HTML fragment rather than a full page.
+    /// Serve the bare fragment on a hypermedia request and the full page on a
+    /// hard navigation (a plain browser or htmz gets the full page).
+    pub fn wantsFragment(self: Context): bool {
+        return hyper.wantsFragment(self.request);
+    }
+
+    /// The hypermedia client library that made this request, or
+    /// `hyper.Framework.plain` for a hard navigation.
+    pub fn framework(self: Context): hyper.Framework {
+        return hyper.detect(self.request);
     }
 }
 

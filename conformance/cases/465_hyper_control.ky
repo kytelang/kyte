@@ -1,0 +1,63 @@
+// Acceptance for the framework-neutral hypermedia control core (enhancements item 1):
+// web.hyper detects the client library from request markers (htmx/unpoly/alpine/datastar),
+// and redirect/trigger/retarget/reswap/pushUrl emit the right mechanism per framework.
+import web.hyper;
+import web.request;
+import web.response;
+import assert;
+
+fn reqWith(name: string, val: string): request.Request {
+    let r = request.Request.empty();
+    r.headers.set(name, val);
+    return r;
+}
+
+@test
+fn t_detect(): void {
+    assert.isTrue(hyper.detect(reqWith("HX-Request", "true")) == hyper.Framework.htmx);
+    assert.isTrue(hyper.detect(reqWith("X-Up-Target", "#m")) == hyper.Framework.unpoly);
+    assert.isTrue(hyper.detect(reqWith("X-Alpine-Request", "true")) == hyper.Framework.alpine);
+    assert.isTrue(hyper.detect(reqWith("datastar-request", "true")) == hyper.Framework.datastar);
+    assert.isTrue(hyper.detect(request.Request.empty()) == hyper.Framework.plain);
+}
+
+@test
+fn t_is_hypermedia(): void {
+    assert.isTrue(hyper.isHypermedia(reqWith("HX-Request", "true")));
+    assert.isFalse(hyper.isHypermedia(request.Request.empty()));
+    assert.isTrue(hyper.wantsFragment(reqWith("X-Up-Version", "3.0")));
+    assert.isFalse(hyper.wantsFragment(request.Request.empty()));
+}
+
+@test
+fn t_redirect_per_framework(): void {
+    assert.contains(hyper.redirect(reqWith("HX-Request", "true"), "/n").serialize(), "HX-Redirect: /n");
+    assert.contains(hyper.redirect(reqWith("X-Up-Version", "3.0"), "/n").serialize(), "X-Up-Location: /n");
+    assert.contains(hyper.redirect(reqWith("X-Alpine-Request", "true"), "/n").serialize(), "X-Alpine-Redirect: /n");
+    let plain = hyper.redirect(request.Request.empty(), "/n").serialize();
+    assert.contains(plain, "303 See Other");
+    assert.contains(plain, "Location: /n");
+}
+
+@test
+fn t_trigger_retarget_reswap(): void {
+    let r = reqWith("HX-Request", "true");
+    let res = response.Response.ok("<div></div>");
+    hyper.trigger(res, r, "saved");
+    hyper.retarget(res, r, "#errors");
+    hyper.reswap(res, r, "outerHTML");
+    let s = res.serialize();
+    assert.contains(s, "HX-Trigger: saved");
+    assert.contains(s, "HX-Retarget: #errors");
+    assert.contains(s, "HX-Reswap: outerHTML");
+}
+
+@test
+fn t_trigger_detail_and_unpoly_events(): void {
+    let res = response.Response.ok("x");
+    hyper.triggerDetail(res, reqWith("HX-Request", "true"), "count", "{\"n\":3}");
+    assert.contains(res.serialize(), "HX-Trigger: {\"count\":{\"n\":3}}");
+    let res2 = response.Response.ok("y");
+    hyper.trigger(res2, reqWith("X-Up-Target", "#m"), "saved");
+    assert.contains(res2.serialize(), "X-Up-Events: [{\"type\":\"saved\"}]");
+}
