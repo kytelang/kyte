@@ -562,6 +562,58 @@ than the simple `setCookie(name, value)`: it renders the full `web.cookie.Cookie
 `HttpOnly`, `Secure`, `SameSite`, and `Max-Age`, whereas `setCookie` only ever writes a
 bare `Path=/`.
 
+### One route, page or fragment
+
+`hyper.render` picks the shape for you: it returns the bare fragment to a hypermedia client
+and the full page (the fragment wrapped by a `shell` function) to a hard navigation, and sets
+`Vary: HX-Request` on both:
+
+```kyte
+fn products(ctx: Context): Response {
+    return hyper.render(ctx.request, layout, productList(rows));   // layout: (string) -> string
+}
+```
+
+### Out-of-band updates and dynamic attributes
+
+To update a second region in the same response (a cart badge alongside a list row), give that
+element an id and the out-of-band marker for the active library via `hyper.oobAttr`. It plugs
+into a KYX element as a bare `{expr}` attribute (an expression that yields a whole attribute):
+
+```kyte
+<div id="cart-badge" {hyper.oobAttr(ctx.request)}>Cart ({count})</div>
+```
+
+The same bare-attribute form carries conditional attributes, and `hyper.classList` composes a
+class string from conditional pieces (empties dropped):
+
+```kyte
+<button {isBusy ? "disabled" : ""} class={hyper.classList(cls)}>Save</button>
+```
+
+### Forms: CSRF and validation
+
+`web.forms` bridges the form pieces into KYX. `csrfField(ctx)` renders the hidden `_csrf` input
+that `web.csrf` checks, and `fieldError`/`hasError` render a `ValidationResult` inline so an
+invalid submit re-renders as a fragment with messages beside each field:
+
+```kyte
+<form data-on:submit="@post('/register')">
+    {forms.csrfField(ctx)}
+    <input name="email" value={cmd.email} />
+    {forms.fieldError(result, "email")}
+    <button>Register</button>
+</form>
+```
+
+### Typed URLs and server push
+
+`web.urls.build(pattern, params)` builds the URLs that live in `hx-get`/`data-on` attributes,
+substituting `:name`/`{name}` path parameters and appending the rest as a query string, so a
+route rename does not silently break a hand-written URL. And `web.sse.htmxFrame(event, fragment)`
+builds one Server-Sent Events frame for the htmx SSE extension (the counterpart to datastar's
+patch helper) when you push updates over `app.sse`.
+
 ## Where to go next
 
 - **Chapter 18, Data access and the ORM**, takes the `Connection` interface further:
