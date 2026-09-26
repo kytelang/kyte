@@ -614,6 +614,64 @@ route rename does not silently break a hand-written URL. And `web.sse.htmxFrame(
 builds one Server-Sent Events frame for the htmx SSE extension (the counterpart to datastar's
 patch helper) when you push updates over `app.sse`.
 
+### Unpoly
+
+Unpoly is the scaffold you get with `kyte init web --name shop -f unpoly`. It drives the page from
+`up-*` attributes in the markup: a link or form marked `[up-target]` is fetched over AJAX, and
+Unpoly swaps the matching fragment from the response into the current page. The server side is the
+same fragment-returning code you have already seen; only the client attributes differ.
+
+```kyte
+// A slice rendered for Unpoly. The link fetches /products and Unpoly swaps the
+// .catalog fragment; the form submits and Unpoly re-renders #cart.
+fn catalog(ctx: Context): Response {
+    return hyper.render(ctx.request, layout, <div class="catalog">
+        <a href="/products" up-target=".catalog">Refresh</a>
+        <form action="/cart/add" method="post" up-target="#cart" up-submit>
+            {forms.csrfField(ctx)}
+            <button>Add to cart</button>
+        </form>
+        <div id="cart">Cart ({count})</div>
+    </div>);
+}
+```
+
+Unpoly reads `X-Up-*` response headers, and `web.hyper` sets them for you. `hyper.redirect` returns a
+`303 See Other` with `X-Up-Location` so Unpoly updates the address bar after a Post/Redirect/Get,
+`hyper.trigger` emits `X-Up-Events`, and out-of-band regions use the Unpoly form of `hyper.oobAttr`.
+Because Unpoly sends `X-Up-Target` and `X-Up-Version` on every fragment request, `ctx.isHypermedia()`
+is true and `ctx.framework()` reports Unpoly, so a route can serve a bare fragment to Unpoly and a
+full page to a fresh browser from the same handler.
+
+### Alpine AJAX
+
+Alpine is the scaffold from `kyte init web --name shop -f alpine`: Alpine.js with its AJAX plugin.
+Behaviour is sprinkled into markup with `x-` attributes. A link or form marked `x-target="ids"`
+submits over AJAX, and the plugin replaces each listed element id with the element of the same id
+found in the response. So the server returns a fragment whose element ids line up with the targets.
+
+```kyte
+// A slice rendered for Alpine. The form posts over AJAX and replaces #cart and
+// #flash with the same ids from the response fragment.
+fn catalog(ctx: Context): Response {
+    return hyper.render(ctx.request, layout, <div x-data>
+        <form action="/cart/add" method="post" x-target="cart flash">
+            {forms.csrfField(ctx)}
+            <button>Add to cart</button>
+        </form>
+        <div id="cart">Cart ({count})</div>
+        <div id="flash"></div>
+    </div>);
+}
+```
+
+Alpine AJAX does not use a redirect header: it follows a standard `3xx` response transparently, so
+`hyper.redirect` returns a plain `303` for it (there is no `X-Alpine-Redirect`; only htmx takes the
+`HX-Redirect` path). Alpine sends `X-Alpine-Request: true` and `X-Alpine-Target` on its requests, so
+`ctx.isHypermedia()` and `ctx.wantsFragment()` are true and `ctx.framework()` reports Alpine. This is
+why expressing control intent through `web.hyper` rather than hand-writing headers pays off: the same
+handler serves htmx, Unpoly, Alpine, htmz, and a plain browser correctly, each by its own mechanism.
+
 ## Where to go next
 
 - **Chapter 18, Data access and the ORM**, takes the `Connection` interface further:
