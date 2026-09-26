@@ -41,7 +41,7 @@ functions run with `kyte test <file>.ky`.
 | 14  | [Modules & visibility](14-modules.md)                                    | `import`, `pub`, the `platform` module                                                                                      |
 | 15  | [Concurrency](15-concurrency.md)                                         | `async`/`await`/`spawn`, futures, channels                                                                                  |
 | 16  | [Serialization](16-serialization.md)                                     | `@serializable`, JSON/BSON                                                                                                  |
-| 17  | [Web applications](17-web.md)                                            | vertical slices, `RouteHandler`, `ctx.bind`, NSX views, the composition root                                                |
+| 17  | [Web applications](17-web.md)                                            | vertical slices, `RouteHandler`, `ctx.bind`, KYX views, the composition root                                                |
 | 18  | [Data access & the repository](18-data-access.md)                        | the `db` interface, `DbValue`, binding rows to structs, `Repository<T>`, connection strings, backing the web app with PostgreSQL |
 | 19  | [Package management](19-package-management.md)                           | `project.json`, `kyte get`, the lockfile, `kyte init`, import resolution                                                    |
 | 20  | [Database drivers](20-database-drivers.md)                               | PostgreSQL, MySQL, SQL Server, MongoDB: intro, package deployment, connect, and notes                                       |

@@ -264,7 +264,7 @@ pub const Assigner = struct {
         }
     }
 
-    /// Recurses through a JSX/NSX element tree, numbering the expressions
+    /// Recurses through a JSX/KYX element tree, numbering the expressions
     /// embedded in it.
     ///
     /// Two expression surfaces exist in JSX and both are covered: attribute

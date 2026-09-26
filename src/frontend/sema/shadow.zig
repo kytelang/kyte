@@ -1218,7 +1218,7 @@ fn renderUncached(allocator: std.mem.Allocator, store: *const typesys.TypeStore,
         .string => "string",
         // `Html` renders as `string` for codegen: it IS a string at runtime and
         // must take every string codegen path. The nominal distinction is carried
-        // by the TypeId itself and read only by the NSX escape decision (via
+        // by the TypeId itself and read only by the KYX escape decision (via
         // `isHtmlExpr`), never by name.
         .html => "string",
         .decimal => "decimal",

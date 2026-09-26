@@ -1259,7 +1259,7 @@ pub fn isStringExpr(self: *LlvmCompiler, expr_ptr: *const ast.Expression) bool {
         if (typeOfExprConcrete(self, expr_ptr)) |tid| {
             // `Html` is a nominal string: it IS a string at runtime and must take
             // every string codegen path (concat, print, coercion). The Html/string
-            // distinction matters only for the NSX escape decision, not here.
+            // distinction matters only for the KYX escape decision, not here.
             const info = st.get(tid);
             return info == .string or info == .html;
         }
@@ -1267,9 +1267,9 @@ pub fn isStringExpr(self: *LlvmCompiler, expr_ptr: *const ast.Expression) bool {
     return false;
 }
 
-/// True if an expression's concrete type is the nominal `Html` type (NSX `<...>`
+/// True if an expression's concrete type is the nominal `Html` type (KYX `<...>`
 /// literals, a view helper returning `Html`, or `raw(s)`). This is the ONLY place
-/// the Html/string distinction is read in codegen: it drives the NSX escape
+/// the Html/string distinction is read in codegen: it drives the KYX escape
 /// decision (Html is inserted raw; a plain `string` is HTML-escaped). Everywhere
 /// else Html behaves as a string (renders to the name "string").
 pub fn isHtmlExpr(self: *LlvmCompiler, expr_ptr: *const ast.Expression) bool {

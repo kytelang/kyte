@@ -770,7 +770,7 @@ pub const ExprKind = union(enum) {
     optional_chaining: OptionalChaining,
     /// Nullish coalescing `a ?? b`.
     nullish_coalesce: NullishCoalesce,
-    /// A JSX/NSX element literal (hypermedia templating).
+    /// A JSX/KYX element literal (hypermedia templating).
     jsx_element: JsxElement,
     /// A closure/lambda.
     closure: Closure,
@@ -1061,7 +1061,7 @@ pub const NullishCoalesce = struct {
     span: Span,
 };
 
-/// A JSX/NSX element `<tag attr=...>children</tag>` used for hypermedia
+/// A JSX/KYX element `<tag attr=...>children</tag>` used for hypermedia
 /// templating.
 pub const JsxElement = struct {
     /// The element's tag name.

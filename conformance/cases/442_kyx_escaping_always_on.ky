@@ -1,4 +1,4 @@
-// NSX interpolation escaping must ALWAYS fire, even when nothing in the compile
+// KYX interpolation escaping must ALWAYS fire, even when nothing in the compile
 // references the stdlib escapeHtml (which demand-mono would otherwise prune, silently
 // dropping escaping -> XSS). Child `{expr}` string values escape via the always-linked
 // runtime `kyte_html_escape`; `data-*`/`@` attribute values are datastar CODE and stay

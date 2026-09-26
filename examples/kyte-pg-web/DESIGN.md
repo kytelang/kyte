@@ -17,7 +17,7 @@ not the other way round.
 | Language and web framework | Vertical-slice features, DI, the mediator, typed request binding |
 | PostgreSQL driver and `db` seam | All shop data (catalogue, cart, orders, users) over the driver, with a real transaction on checkout |
 | Micro-ORM | `bindAll`/`query<T>` from rows to `@serializable` DTOs, `$N` bound parameters |
-| nova-datastar | Every reactive interaction: add-to-cart, live cart totals, live order status, all as SSE patches, with `.nsx` views carrying the `data-*` attributes |
+| nova-datastar | Every reactive interaction: add-to-cart, live cart totals, live order status, all as SSE patches, with `.kyx` views carrying the `data-*` attributes |
 | SSE streaming seam | `app.sse` route takeover plus the `web.sse` `EventBus`, feeding nova-datastar patches to the browser |
 | Orchestrator | Deployed as N replicas behind `service`, supervised by `orchd`, config store on NovaDB, rolling deploy, in fd-handoff mode |
 
@@ -31,11 +31,11 @@ These are hard rules. The current code violates some of them and is refactored t
 comply (see section 14).
 
 1. **No inline HTML in handlers or stores.** Every fragment of markup lives in an
-   `.nsx` view under a feature's `views/` folder. Handlers call a view function
+   `.kyx` view under a feature's `views/` folder. Handlers call a view function
    and return its string. A handler that concatenates HTML is a defect.
 2. **nova-datastar for all reactivity.** Reactive attributes (`data-on-click`,
    `data-signals`, `data-bind`, `data-indicator`, and so on) are written in
-   `.nsx`. SSE responses are produced with the nova-datastar `Sse` verbs
+   `.kyx`. SSE responses are produced with the nova-datastar `Sse` verbs
    (`patchElements`, `patchSignals`, `removeElement`), never by hand-writing
    `event:`/`data:` lines in application code.
 3. **The schema is the one in section 4.** UUID primary keys, the modifier and
@@ -50,7 +50,7 @@ comply (see section 14).
 6. **Money is exact.** `DECIMAL(10,2)` in the database. Arithmetic on money
    (line subtotals, order totals, tax) happens in SQL, not by pulling values into
    `double` and back. DTOs may read money as `decimal` for display.
-7. **Escaping.** `{expr}` in `.nsx` auto-escapes. Any value that is itself
+7. **Escaping.** `{expr}` in `.kyx` auto-escapes. Any value that is itself
    pre-rendered markup is composed as a view function, never interpolated raw
    from user input.
 
@@ -275,7 +275,7 @@ single atomic SQL statement and publishes the change (section 9).
 
 Two layers, cleanly separated:
 
-- **Views** are `.nsx` and carry Datastar attributes. Example: an add button is
+- **Views** are `.kyx` and carry Datastar attributes. Example: an add button is
   `<button data-on-click="@post('/cart/add?product={id}')" data-indicator="adding">Add</button>`.
   A page that shows live order status contains
   `<div id="order-status" data-on-load="@get('/orders/{id}/events')">…</div>`.
@@ -286,7 +286,7 @@ Flow for a reactive mutation (add-to-cart):
 
 1. `data-on-click="@post('/cart/add?product=…')"` sends the request.
 2. The `AddToCart` handler updates the cart, then returns the re-rendered cart
-   badge and cart panel fragments (an `.nsx` view). For an immediate response
+   badge and cart panel fragments (an `.kyx` view). For an immediate response
    this can be a normal `Response`; for cross-connection updates it publishes to
    the `EventBus`.
 
@@ -298,7 +298,7 @@ Flow for live order status (cross-actor):
    the current status, then forwards each published change as
    `sse.patchElements(fragment, PatchElementOptions.inner("#order-status"))`.
 3. When the kitchen calls `AdvanceStatus`, that handler updates the DB and
-   publishes the newly rendered `.nsx` status fragment to `order:<id>`. Every
+   publishes the newly rendered `.kyx` status fragment to `order:<id>`. Every
    watching browser is patched with no reload.
 
 Required small change to nova-datastar: `Sse.overStream` currently takes the
@@ -338,7 +338,7 @@ subscribers. Handler code does not change.
 - `UserManagement`: list customers (read-only support view).
 - `Inventory`: ingredient stock (optional, from the ingredient tables).
 
-Admin pages are `.nsx` views under `Features/Admin/*/views/`, reactive where it
+Admin pages are `.kyx` views under `Features/Admin/*/views/`, reactive where it
 helps (the order list updates live as new orders arrive, via the same SSE seam on
 an `orders` topic).
 
@@ -367,29 +367,29 @@ one path parameter for SSE routes. The design prefers extending `app.sse` to
 accept a single `{id}` parameter so the URLs read naturally; this is a minor,
 contained framework change.
 
-## 13. Views (.nsx)
+## 13. Views (.kyx)
 
-A shared layout plus per-feature partials, all `.nsx`:
+A shared layout plus per-feature partials, all `.kyx`:
 
-- `Shared/views/layout.nsx`: the page shell (head, Datastar script include, nav,
+- `Shared/views/layout.kyx`: the page shell (head, Datastar script include, nav,
   cart badge), a `page(title, body)` function.
-- `Features/Catalog/views/catalog.nsx`: category sidebar, product grid, product
+- `Features/Catalog/views/catalog.kyx`: category sidebar, product grid, product
   card, product detail with modifier selectors.
-- `Features/Cart/views/cart.nsx`: cart panel, cart line, cart badge, totals.
-- `Features/Checkout/views/checkout.nsx`: the checkout form and summary.
-- `Features/Orders/views/orders.nsx`: confirmation, live status fragment, history
+- `Features/Cart/views/cart.kyx`: cart panel, cart line, cart badge, totals.
+- `Features/Checkout/views/checkout.kyx`: the checkout form and summary.
+- `Features/Orders/views/orders.kyx`: confirmation, live status fragment, history
   list, reorder button.
-- `Features/Auth/views/auth.nsx`: login and register forms with inline validation.
-- `Features/Admin/views/*.nsx`: dashboard, product form and table, order table,
+- `Features/Auth/views/auth.kyx`: login and register forms with inline validation.
+- `Features/Admin/views/*.kyx`: dashboard, product form and table, order table,
   user table, inventory.
 
 The Datastar client script is served from `wwwroot` (vendored, not a CDN, to
 respect the offline and CSP posture). Tailwind builds `wwwroot/app.css` from the
-`.nsx` sources.
+`.kyx` sources.
 
 ## 14. Migration from the current code
 
-The current tree has a working catalogue on `.nsx` and a superficial order slice
+The current tree has a working catalogue on `.kyx` and a superficial order slice
 that violates conventions. Changes:
 
 1. **Schema to UUID** (section 4): replace the SERIAL int schema; regenerate seed.
@@ -397,7 +397,7 @@ that violates conventions. Changes:
 2. **Real cart and checkout**: replace the single-line `createOrder` with the cart
    plus the `PlaceOrder` transaction (sections 7 and 8).
 3. **Remove inline HTML** from the order handlers and the SSE handler: move all
-   markup into `Features/Orders/views/orders.nsx` and produce SSE patches with
+   markup into `Features/Orders/views/orders.kyx` and produce SSE patches with
    nova-datastar `Sse` verbs, not `web.sse.writeEvent` string building.
 4. **Repositories**: split `ShopStore` into `Db` + per-area repositories.
 5. Keep: the `web.sse` `EventBus` and `app.sse` route seam (they are the transport

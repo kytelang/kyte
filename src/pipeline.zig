@@ -673,12 +673,12 @@ pub fn existingSource(kyte_candidate: []const u8, allocator: std.mem.Allocator, 
         return kyte_candidate;
     } else |_| {}
     if (std.mem.endsWith(u8, kyte_candidate, ".ky")) {
-        if (std.fmt.allocPrint(allocator, "{s}.kyx", .{kyte_candidate[0 .. kyte_candidate.len - 3]}) catch null) |nsx| {
-            if (Io.Dir.access(.cwd(), io, nsx, .{})) |_| {
+        if (std.fmt.allocPrint(allocator, "{s}.kyx", .{kyte_candidate[0 .. kyte_candidate.len - 3]}) catch null) |kyx| {
+            if (Io.Dir.access(.cwd(), io, kyx, .{})) |_| {
                 allocator.free(kyte_candidate);
-                return nsx;
+                return kyx;
             } else |_| {
-                allocator.free(nsx);
+                allocator.free(kyx);
             }
         }
     }

@@ -2752,7 +2752,7 @@ fn isTypeCompatible(from: ast.TypeRef, to: ast.TypeRef) bool {
             // `Html` is a nominal string with a ONE-WAY coercion: `Html` -> `string`
             // is implicit (trusted markup is always a valid string), but `string` ->
             // `Html` is NOT -- promoting an arbitrary string to trusted markup must
-            // be explicit via `raw(s)` (or an NSX `<...>` literal), which is where
+            // be explicit via `raw(s)` (or an KYX `<...>` literal), which is where
             // XSS escaping is enforced. `Html` -> `Html` and `string` -> `string` already matched
             // above via the equal-name check.
             if (std.mem.eql(u8, c_from, "Html") and std.mem.eql(u8, c_to, "string")) return true;

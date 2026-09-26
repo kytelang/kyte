@@ -238,9 +238,9 @@ pub const TokenType = enum {
     tilde,
     /// The `%` modulo operator.
     percent,
-    /// The `</` JSX/NSX closing-tag opener.
+    /// The `</` JSX/KYX closing-tag opener.
     jsx_close,
-    /// The `/>` JSX/NSX self-closing-tag terminator.
+    /// The `/>` JSX/KYX self-closing-tag terminator.
     jsx_self_close,
     /// End-of-source sentinel, emitted once the cursor passes the last byte.
     eof,

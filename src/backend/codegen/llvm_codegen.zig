@@ -1473,7 +1473,7 @@ pub const LlvmCompiler = struct {
     /// value can be released correctly later. Declares the extern lazily.
     /// Get-or-declare an `i64 name(i64)` runtime extern (memoised in `func_map`).
     /// Used for always-linked runtime helpers the codegen calls directly, e.g. the
-    /// NSX child-escape `kyte_html_escape`.
+    /// KYX child-escape `kyte_html_escape`.
     pub fn getOrDeclareI64Fn(self: *LlvmCompiler, name: [:0]const u8) types.LLVMValueRef {
         if (self.func_map.get(name)) |g| return g;
         var at = [_]types.LLVMTypeRef{self.val_type};

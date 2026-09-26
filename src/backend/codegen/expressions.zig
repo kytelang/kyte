@@ -6071,7 +6071,7 @@ pub fn jsxAppendExprRaw(self: *LlvmCompiler, sb: types.LLVMValueRef, expr: *cons
     const val = try self.compileExpression(expr.*);
     const type_name = try self.resolveExpressionTypeName(expr);
     // TYPE-DRIVEN escaping rule: a value-position `{expr}` whose static type is
-    // `Html` is trusted, pre-escaped markup (an NSX `<...>` literal, a view helper
+    // `Html` is trusted, pre-escaped markup (an KYX `<...>` literal, a view helper
     // returning `Html`, or `raw(s)`) and is inserted RAW; a plain `string` is
     // HTML-escaped (the XSS escaping point for interpolated text). This replaces the old
     // body-scanning heuristic: composition -- `{productCard(p)}` -- is raw because
@@ -6130,8 +6130,8 @@ pub fn jsxAppendExprRaw(self: *LlvmCompiler, sb: types.LLVMValueRef, expr: *cons
     try self.jsxAppendVal(sb, val);
 }
 
-// (The old view-helper body-scanning heuristic -- `nsxExprIsRaw` /
-// `ensureNsxReturning` / `stmtReturnsJsx` -- has been removed. The NSX escape
+// (The old view-helper body-scanning heuristic -- `kyxExprIsRaw` /
+// `ensureNsxReturning` / `stmtReturnsJsx` -- has been removed. The KYX escape
 // decision is now type-driven: `{expr}` is inserted raw iff its static type is
 // `Html` (see `jsxAppendExprRaw` -> `isHtmlExpr`), which subsumes the literal,
 // `raw(...)`, and view-helper cases soundly.)

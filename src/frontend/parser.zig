@@ -2854,7 +2854,7 @@ pub const Parser = struct {
         return buf.items;
     }
 
-    /// Parses a JSX/NSX element `<tag attrs>children</tag>` (or self-closing
+    /// Parses a JSX/KYX element `<tag attrs>children</tag>` (or self-closing
     /// `<tag/>`) into a [`ast.JsxElement`] expression.
     ///
     /// Attributes are parsed via [`Parser.parseJsxAttrName`] and take a string

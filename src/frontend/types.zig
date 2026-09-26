@@ -159,8 +159,8 @@ pub const Type = union(enum) {
 
     /// Trusted, pre-escaped HTML markup. Payload-free singleton, represented at
     /// runtime EXACTLY as `string` (owned for ARC), but NOMINALLY distinct so the
-    /// NSX interpolation `{expr}` can insert it raw while a plain `string` is
-    /// HTML-escaped (the XSS escaping point). Produced by NSX `<...>` literals and by
+    /// KYX interpolation `{expr}` can insert it raw while a plain `string` is
+    /// HTML-escaped (the XSS escaping point). Produced by KYX `<...>` literals and by
     /// `raw(s)`; coerces to `string` (see the front-end checker's `assignable`).
     html,
 

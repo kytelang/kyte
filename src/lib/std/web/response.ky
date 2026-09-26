@@ -97,9 +97,9 @@ pub fn escapeHtmlIntoView(sb: StringBuilder, v: str.Str): void {
 ///
 /// If `s` contains none of these characters, the original string `s` is
 /// returned unchanged (no copy is made), so the common case is free.
-// Marks an already-rendered, trusted HTML fragment for RAW embedding inside NSX markup:
+// Marks an already-rendered, trusted HTML fragment for RAW embedding inside KYX markup:
 // `<div>{response.raw(childHtml)}</div>` inserts `childHtml` without HTML-escaping, for
-// composing a parent view from a child view's output. The NSX compiler recognises the
+// composing a parent view from a child view's output. The KYX compiler recognises the
 // `raw(...)` / `x.raw(...)` call shape in child position and skips escaping only there.
 // Use ONLY for HTML your own code produced, never for user input (that would be an XSS
 // hole -- every other `{expr}` child is escaped precisely to prevent it).

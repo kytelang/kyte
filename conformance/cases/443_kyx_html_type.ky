@@ -1,4 +1,4 @@
-// The nominal `Html` type drives the NSX escaping rule. An NSX `<...>` literal
+// The nominal `Html` type drives the KYX escaping rule. An KYX `<...>` literal
 // and any view helper declared to return `Html` are trusted, pre-escaped markup
 // and interpolate RAW; a plain `string` value is HTML-escaped. This is
 // type-driven (not a body-scanning heuristic): a helper with a JSX body but a

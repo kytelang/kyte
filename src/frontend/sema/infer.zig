@@ -1732,7 +1732,7 @@ pub const Inferer = struct {
             },
             .jsx_element => |jsx| {
                 try self.inferJsxElement(&jsx);
-                // An NSX `<...>` literal is trusted, pre-escaped markup: type it
+                // An KYX `<...>` literal is trusted, pre-escaped markup: type it
                 // `Html` (nominally distinct from `string`) so `{expr}` inserts it
                 // raw while a plain `string` is HTML-escaped (the XSS escaping point).
                 return self.ok(try self.store.htmlT());

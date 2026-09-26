@@ -4,7 +4,7 @@
 // mappers). The one exception is `modifiers`, a JOIN read-model that carries a
 // column from the join table, so it binds a ModifierDto projection directly.
 // Registered as a DI singleton; handlers take it by constructor injection. All
-// markup is rendered by NSX views, never here. See DESIGN.md section 6.
+// markup is rendered by KYX views, never here. See DESIGN.md section 6.
 import list;
 import string;
 import data.db;

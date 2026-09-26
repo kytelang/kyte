@@ -70,7 +70,7 @@ fn test_compound_expression_child(): void {
 }
 
 @test
-fn test_nsx_element_as_concat_operand(): void {
+fn test_kyx_element_as_concat_operand(): void {
     let body = checkbox("First", "a") + <div class="mt-3">{response.raw(checkbox("Second", "b"))}</div>;
     let h = section("Options", body);
     assert.isTrue(string.contains(h, "<section><h3>Options</h3>"));
