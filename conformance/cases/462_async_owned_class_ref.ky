@@ -1,0 +1,73 @@
+// Regression: an async coroutine frame that owns a CLASS reference across a suspend
+// point must retain/release it exactly once, in three shapes that historically drove a
+// double-free in the DB drivers (a TlsStream/socket class held in a value-struct reader
+// across a socket await; the mongo "c>1" concurrent-connection crash):
+//
+//   1. a local value-struct owning a class, live across two awaits;
+//   2. an async METHOD whose `self` is a value-struct owning a class (the TdsReader shape);
+//   3. several such coroutine frames live concurrently (spawn + await, the "c>1" shape).
+//
+// All three must run cleanly under repetition (macOS xzone malloc aborts deterministically
+// on a double-free, so a surviving loop is the proof). Kept so the value-struct owned-field
+// deep-retain + OSSA balance work can never silently regress on the async path.
+
+import assert;
+import list;
+
+class Conn {
+    pub id: int,
+    init(i: int) { self.id = i; }
+    pub fn tag(self: Conn): int { return self.id; }
+}
+
+struct Session { c: Conn, n: int }
+
+async fn step(x: int): int { return x + 1; }
+
+// Shape 1: local value-struct owning a class, live across two suspends.
+async fn runLocal(): int {
+    let s = Session { c: Conn(7), n: 0 };
+    let a = await step(s.n);
+    let b = await step(a);
+    return s.c.tag() + b;            // 7 + 2 = 9
+}
+
+// Shape 2: async method whose `self` is the value-struct owning the class.
+struct Reader { s: Conn, pos: int }
+async fn readResp(self: Reader): int {
+    let a = await step(self.pos);
+    let b = await step(a);
+    return self.s.tag() + b;         // fd + 2
+}
+fn makeReader(fd: int): Reader { return Reader { s: Conn(fd), pos: 0 }; }
+
+// Shape 3: several coroutine frames, each owning a class, live at once.
+async fn many(): int {
+    let r1 = makeReader(1); let r2 = makeReader(2); let r3 = makeReader(3);
+    let h1 = spawn r1.readResp();
+    let h2 = spawn r2.readResp();
+    let h3 = spawn r3.readResp();
+    return await h1 + await h2 + await h3;   // (1+2)+(2+2)+(3+2) = 12
+}
+
+@test
+fn t_local_owned_class(): void {
+    let i = 0;
+    while (i < 50) { assert.equalInt(runLocal(), 9); i = i + 1; }
+}
+
+@test
+fn t_method_self_owned_class(): void {
+    let i = 0;
+    while (i < 50) {
+        let r = makeReader(5);
+        assert.equalInt(r.readResp(), 7);
+        i = i + 1;
+    }
+}
+
+@test
+fn t_concurrent_owned_class(): void {
+    let i = 0;
+    while (i < 40) { assert.equalInt(many(), 12); i = i + 1; }
+}
