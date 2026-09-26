@@ -134,6 +134,29 @@ pub fn pushUrl(res: response.Response, req: request.Request, url: string): respo
     return res;
 }
 
+/// Serves the right shape for the request: the bare `fragment` when the client is a
+/// hypermedia library expecting a swap, or the full page (the `fragment` wrapped by
+/// `shell`) on a hard navigation. `shell` takes the inner HTML and returns the whole
+/// document. This is the progressive enhancement pattern: one route, one URL, a real
+/// page for a fresh browser and a fragment for htmx and friends. Both responses carry
+/// `Vary: HX-Request` (via `Response.fragment`/`page`) so a shared cache stays honest.
+pub fn render(req: request.Request, shell: (string) -> string, fragment: string): response.Response {
+    if (wantsFragment(req)) {
+        return response.Response.fragment(fragment);
+    }
+    return response.Response.page(shell(fragment));
+}
+
+/// The attribute a fragment's root element needs to be swapped out of band (updating a
+/// region other than the swap target, for example a cart badge alongside a list row).
+/// htmx needs `hx-swap-oob="true"`; unpoly, alpine, and datastar merge by element id, so
+/// the id alone is enough and this returns an empty string. Drop it into a KYX element:
+/// `<div id="cart-badge" {hyper.oobAttr(ctx.request)}>...</div>`.
+pub fn oobAttr(req: request.Request): string {
+    if (detect(req) == Framework.htmx) { return "hx-swap-oob=\"true\""; }
+    return "";
+}
+
 /// A request header is "present" when it exists and is non empty. `getHeader` is case
 /// insensitive, so the canonical spelling here matches regardless of how the client sent it.
 fn present(req: request.Request, name: string): bool {

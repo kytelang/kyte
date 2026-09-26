@@ -223,3 +223,21 @@ pub async fn writeEvent(io: aio.AsyncIO, ev: Event): int {
 pub async fn writeHeartbeat(io: aio.AsyncIO): int {
     return await io.sendStr(":\n\n");
 }
+
+/// Builds one Server-Sent Events frame for the htmx SSE extension: a named `event:`
+/// line, then the fragment as one or more `data:` lines (SSE requires each line of a
+/// multi-line payload to be its own `data:` field), ending with a blank line. The htmx
+/// client swaps the fragment into the element whose `sse-swap` names `event`. This is the
+/// htmx and unpoly counterpart to datastar's one-shot patch helper: write the returned
+/// string to the connection, or concatenate several frames for one flush. Pure string
+/// building, so it is testable without a live socket.
+pub fn htmxFrame(event: string, fragment: string): string {
+    let out = "event: " + event + "\n";
+    let parts = string.split(fragment, "\n");
+    let i = 0;
+    while (i < parts.size()) {
+        out = out + "data: " + (parts.get(i) ?? "") + "\n";
+        i = i + 1;
+    }
+    return out + "\n";
+}
