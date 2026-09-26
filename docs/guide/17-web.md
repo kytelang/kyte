@@ -509,6 +509,59 @@ you scale by running instances behind the orchestrator's proxy (chapter 23). The
 proxy passes the `Upgrade` through and keeps each connection pinned to the instance
 that accepted it.
 
+## Hypermedia responses: fragments, redirects, and control headers
+
+A hypermedia handler returns a small HTML fragment that the client library swaps into
+the page. Two `Response` helpers make that intent explicit and set the right headers for
+you:
+
+```kyte
+// A partial for a swap: 200 with text/html and `Vary: HX-Request` (so a shared cache
+// never serves a fragment where a full page is expected).
+return response.Response.fragment(myView(row));
+
+// A full page for a first load or hard navigation.
+return response.Response.page(shell(myView(row)));
+```
+
+For the Post/Redirect/Get flow, `Response.redirect(url)` (and `seeOther`) build a
+`303 See Other`, and `redirectWith(url, status)` lets you pick a different `3xx`.
+
+Because the five scaffolded client libraries drive the server differently (htmx reads
+`HX-*` response headers, unpoly reads `X-Up-*`, alpine-ajax reads `X-Alpine-*`, datastar
+streams over SSE, htmz just loads a document), the `web.hyper` module lets a handler
+express control intent once and emits the right mechanism for whichever library made the
+request, detected from its headers:
+
+```kyte
+import web.hyper;
+
+// Redirect that htmx/unpoly/alpine honour over XHR, and a plain browser gets a 303.
+fn onSaved(ctx: Context): Response {
+    // ... perform the write ...
+    return hyper.redirect(ctx.request, "/orders");
+}
+
+// Fire a client event, retarget, or reswap on the way out.
+fn onError(ctx: Context): Response {
+    let res = response.Response.fragment(errorView(msg));
+    hyper.retarget(res, ctx.request, "#form-errors");
+    hyper.trigger(res, ctx.request, "form-invalid");
+    return res;
+}
+```
+
+`ctx.isHypermedia()` and `ctx.wantsFragment()` tell you whether the request came from a
+hypermedia client (so the same route can return a bare fragment to htmx and a full page
+to a fresh browser), and `ctx.framework()` names the library. datastar apps drive control
+through the `kyte-datastar` package's SSE helpers rather than these headers, but are still
+recognised by `isHypermedia`.
+
+For cookies that carry a session or auth token, use `Response.setCookieFull(cookie)` rather
+than the simple `setCookie(name, value)`: it renders the full `web.cookie.Cookie` with
+`HttpOnly`, `Secure`, `SameSite`, and `Max-Age`, whereas `setCookie` only ever writes a
+bare `Path=/`.
+
 ## Where to go next
 
 - **Chapter 18, Data access and the ORM**, takes the `Connection` interface further:
