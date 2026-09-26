@@ -22,6 +22,7 @@ import os.sys;
 import collections.string_builder;
 import web.status;
 import web.request;
+import web.cookie;
 import compress.gzip;
 
 /// Scans a raw byte buffer for the first occurrence of byte `b` within
@@ -171,15 +172,22 @@ pub struct Response {
     /// Response headers, keyed by name. Lookup via `getHeader` is
     /// case-insensitive even though the map itself is not.
     pub headers: Map<string, string>,
-    /// Cookies to emit as `Set-Cookie` headers on serialize, each with
-    /// `Path=/`.
+    /// Simple cookies to emit as `Set-Cookie: name=value; Path=/` on serialize.
+    /// For full attribute control (HttpOnly, Secure, SameSite, Max-Age, Domain)
+    /// use `setCookieFull` and `fullCookies` instead.
     pub cookies: Map<string, string>,
+    /// Pre-rendered `Set-Cookie` header values (from `web.cookie.serialize`),
+    /// emitted verbatim after the simple `cookies`. This is the secure path:
+    /// it carries whatever attributes the `Cookie` set, rather than the fixed
+    /// `Path=/` the simple map uses.
+    pub fullCookies: List<string>,
 
     init(stat: Status, body: string) {
         self.status = stat;
         self.body = body;
         self.headers = Map<string, string>(16, string.hash);
         self.cookies = Map<string, string>(16, string.hash);
+        self.fullCookies = List<string>();
     }
 
     /// Builds a 200 OK response with the given body and no headers or cookies.
@@ -196,6 +204,7 @@ pub struct Response {
             body: body,
             headers: headers,
             cookies: cookies,
+            fullCookies: List<string>(),
         };
     }
 
@@ -260,6 +269,17 @@ pub struct Response {
         return self;
     }
 
+    /// Sets a cookie with full attribute control (HttpOnly, Secure, SameSite,
+    /// Max-Age, Domain, Path). The `Cookie` is rendered via `web.cookie.serialize`
+    /// and emitted verbatim as its own `Set-Cookie` header, unlike `setCookie`
+    /// which always writes a fixed `Path=/` and no other attributes. Prefer this
+    /// for session and auth cookies so they can be `HttpOnly` and `SameSite`.
+    /// Returns `self` for chaining.
+    pub fn setCookieFull(self: Response, c: cookie.Cookie): Response {
+        self.fullCookies.push(cookie.serialize(c));
+        return self;
+    }
+
     /// Looks up a header by name, case-insensitively, returning `undefined`
     /// if absent. This is a linear scan over all header keys.
     pub fn getHeader(self: Response, name: string): string | undefined {
@@ -304,6 +324,13 @@ pub struct Response {
             sb.append(value);
             sb.append("; Path=/\r\n");
         });
+        let __fc = 0;
+        while (__fc < self.fullCookies.size()) {
+            sb.append("Set-Cookie: ");
+            sb.append(self.fullCookies.at(__fc));
+            sb.append("\r\n");
+            __fc = __fc + 1;
+        }
         sb.append("\r\n");
         sb.append(self.body);
         return sb.toString();
@@ -336,6 +363,13 @@ pub struct Response {
             sb.append(value);
             sb.append("; Path=/\r\n");
         });
+        let __fc = 0;
+        while (__fc < self.fullCookies.size()) {
+            sb.append("Set-Cookie: ");
+            sb.append(self.fullCookies.at(__fc));
+            sb.append("\r\n");
+            __fc = __fc + 1;
+        }
         sb.append("\r\n");
         return sb.toString();
     }

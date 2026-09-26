@@ -1,0 +1,31 @@
+// Acceptance for secure cookie attributes (enhancements item 5): Response.setCookieFull
+// emits HttpOnly/Secure/SameSite/Max-Age via web.cookie.serialize, while the simple
+// setCookie path stays exactly as before (name=value; Path=/).
+import web.response;
+import web.cookie;
+import assert;
+
+@test
+fn t_full_cookie_attributes(): void {
+    let c = cookie.Cookie{
+        name: "session", value: "abc", path: "/", domain: "",
+        maxAge: 3600, secure: true, httpOnly: true, sameSite: "Lax",
+    };
+    let s = response.Response.ok("hi").setCookieFull(c).serialize();
+    assert.contains(s, "Set-Cookie: session=abc; Path=/; Max-Age=3600; Secure; HttpOnly; SameSite=Lax");
+}
+
+@test
+fn t_simple_cookie_unchanged(): void {
+    let s = response.Response.ok("hi").setCookie("k", "v").serialize();
+    assert.contains(s, "Set-Cookie: k=v; Path=/");
+}
+
+@test
+fn t_both_cookies_emitted(): void {
+    let c = cookie.Cookie{ name: "sid", value: "z", path: "/", domain: "",
+                           maxAge: 0 - 1, secure: false, httpOnly: true, sameSite: "" };
+    let s = response.Response.ok("x").setCookie("plain", "1").setCookieFull(c).serialize();
+    assert.contains(s, "Set-Cookie: plain=1; Path=/");
+    assert.contains(s, "Set-Cookie: sid=z; Path=/; HttpOnly");
+}
