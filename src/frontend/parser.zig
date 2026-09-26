@@ -2883,6 +2883,19 @@ pub const Parser = struct {
             if (self.current().type == .slash and self.peek().type == .greater) {
                 break;
             }
+            // Bare `{expr}` attribute (no name, no `=`): the expression yields a whole
+            // attribute string, for example `hx-swap-oob="true"` or a conditional
+            // `cond ? "disabled" : ""`. Marked by an empty name for codegen to emit raw.
+            if (self.match(.left_brace)) {
+                const dyn_expr = try self.parseExpression();
+                try self.expect(.right_brace);
+                try attributes.append(self.allocator, ast.JsxAttribute{
+                    .name = "",
+                    .value = ast.JsxAttributeValue{ .expression = dyn_expr },
+                    .span = self.span(),
+                });
+                continue;
+            }
             const attr_name = try self.parseJsxAttrName();
             var val: ast.JsxAttributeValue = undefined;
             if (self.current().type == .equal) {

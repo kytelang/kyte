@@ -18,6 +18,7 @@
 import web.request;
 import web.response;
 import web.status;
+import list;
 
 /// The hypermedia client library that made the request, detected from its headers.
 /// `plain` means no hypermedia marker was present (a hard browser navigation, or htmz,
@@ -155,6 +156,23 @@ pub fn render(req: request.Request, shell: (string) -> string, fragment: string)
 pub fn oobAttr(req: request.Request): string {
     if (detect(req) == Framework.htmx) { return "hx-swap-oob=\"true\""; }
     return "";
+}
+
+/// Joins non empty class names with single spaces, for `class={hyper.classList(items)}`.
+/// Pass conditional entries as `cond ? "active" : ""`; the empties are dropped so there are
+/// no stray spaces. Keeps class composition out of ad hoc string concatenation in views.
+pub fn classList(items: list.List<string>): string {
+    let out = "";
+    let i = 0;
+    while (i < items.size()) {
+        let c = items.at(i);
+        if (c != "") {
+            if (out != "") { out = out + " "; }
+            out = out + c;
+        }
+        i = i + 1;
+    }
+    return out;
 }
 
 /// A request header is "present" when it exists and is non empty. `getHeader` is case

@@ -6976,6 +6976,23 @@ pub fn emitJsxInto(self: *LlvmCompiler, sb_val: types.LLVMValueRef, jsx: ast.Jsx
     try self.jsxAppendLiteral(sb_val, tag_open);
 
     for (jsx.attributes) |attr| {
+        // Bare `{expr}` attribute (empty name): the expression yields a whole attribute
+        // token such as `hx-swap-oob="true"` or a conditional `cond ? "disabled" : ""`.
+        // Emit a leading space then the expression's string verbatim (raw, like the
+        // developer-authored `data-*`/`@*` code attributes) - it is structural markup the
+        // developer produced, not interpolated user text.
+        if (attr.name.len == 0) {
+            try self.jsxAppendLiteral(sb_val, " ");
+            switch (attr.value) {
+                .string_literal => |lit| try self.jsxAppendLiteral(sb_val, lit),
+                .expression => |*dexpr| {
+                    self.jsxSetLoc(dexpr.span);
+                    try self.jsxAppendExprRaw(sb_val, dexpr, true, false);
+                    self.jsxSetLoc(jsx.span);
+                },
+            }
+            continue;
+        }
         const attr_prefix = try std.fmt.allocPrint(self.allocator, " {s}=\"", .{attr.name});
         defer self.allocator.free(attr_prefix);
         try self.jsxAppendLiteral(sb_val, attr_prefix);
