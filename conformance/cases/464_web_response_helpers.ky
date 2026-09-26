@@ -1,0 +1,40 @@
+// Regression + acceptance for web response helpers (enhancements items 2 and 10):
+// Response.fragment/page set text/html (fragment also sets Vary: HX-Request), and
+// Response.redirect/seeOther/redirectWith emit the right 3xx status + Location.
+import web.response;
+import web.status;
+import assert;
+
+@test
+fn t_fragment(): void {
+    let r = response.Response.fragment("<li>x</li>");
+    let s = r.serialize();
+    assert.contains(s, "Content-Type: text/html; charset=utf-8");
+    assert.contains(s, "Vary: HX-Request");
+    assert.contains(s, "<li>x</li>");
+    assert.contains(s, "200 OK");
+}
+
+@test
+fn t_page(): void {
+    let r = response.Response.page("<html></html>");
+    let s = r.serialize();
+    assert.contains(s, "Content-Type: text/html; charset=utf-8");
+    assert.contains(s, "200 OK");
+}
+
+@test
+fn t_redirect_see_other(): void {
+    let r = response.Response.redirect("/thanks");
+    let s = r.serialize();
+    assert.contains(s, "303 See Other");
+    assert.contains(s, "Location: /thanks");
+}
+
+@test
+fn t_redirect_with_302(): void {
+    let r = response.Response.redirectWith("/x", Status.Found);
+    let s = r.serialize();
+    assert.contains(s, "302 Found");
+    assert.contains(s, "Location: /x");
+}

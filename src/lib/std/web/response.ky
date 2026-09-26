@@ -199,6 +199,53 @@ pub struct Response {
         };
     }
 
+    /// Builds an HTML fragment response for a hypermedia swap: status 200 with
+    /// `Content-Type: text/html; charset=utf-8` and `Vary: HX-Request` set for
+    /// you. The `Vary` keeps a shared cache from serving a fragment where a full
+    /// page is expected (see the full-page-versus-fragment story). Use this for
+    /// handlers returning partials to htmx, unpoly, alpine, or htmz.
+    pub fn fragment(body: string): Response {
+        let r = Response(Status.Ok, body);
+        r.headers.set("Content-Type", "text/html; charset=utf-8");
+        r.headers.set("Vary", "HX-Request");
+        return r;
+    }
+
+    /// Builds a full HTML page response: status 200 with
+    /// `Content-Type: text/html; charset=utf-8`. The counterpart to `fragment`
+    /// for a hard navigation or first load.
+    pub fn page(body: string): Response {
+        let r = Response(Status.Ok, body);
+        r.headers.set("Content-Type", "text/html; charset=utf-8");
+        return r;
+    }
+
+    /// Builds a `303 See Other` redirect to `url`, the canonical
+    /// Post/Redirect/Get status: the browser re-issues the follow-up request as
+    /// a GET. The body is empty. For htmx and friends, prefer the framework-aware
+    /// redirect in `web.hyper` so an XHR redirect is honoured; this plain form is
+    /// correct for a normal browser navigation.
+    pub fn seeOther(url: string): Response {
+        let r = Response(Status.SeeOther, "");
+        r.headers.set("Location", url);
+        return r;
+    }
+
+    /// Alias for `seeOther`: a `303` redirect to `url`.
+    pub fn redirect(url: string): Response {
+        let r = Response(Status.SeeOther, "");
+        r.headers.set("Location", url);
+        return r;
+    }
+
+    /// Redirect to `url` with an explicit status (for example `Status.Found` for
+    /// a `302` or `Status.MovedPermanently` for a `301`). Body is empty.
+    pub fn redirectWith(url: string, stat: Status): Response {
+        let r = Response(stat, "");
+        r.headers.set("Location", url);
+        return r;
+    }
+
     /// Sets a header, overwriting any existing value for `key`, and returns
     /// `self` for chaining.
     pub fn setHeader(self: Response, key: string, value: string): Response {

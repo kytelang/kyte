@@ -19,6 +19,7 @@ pub enum Status {
     NoContent = 204,
     MovedPermanently = 301,
     Found = 302,
+    SeeOther = 303,
     NotModified = 304,
     BadRequest = 400,
     Unauthorized = 401,
@@ -41,6 +42,7 @@ pub enum Status {
             case Status.NoContent: { return 204; }
             case Status.MovedPermanently: { return 301; }
             case Status.Found: { return 302; }
+            case Status.SeeOther: { return 303; }
             case Status.NotModified: { return 304; }
             case Status.BadRequest: { return 400; }
             case Status.Unauthorized: { return 401; }
@@ -68,6 +70,7 @@ pub enum Status {
             case Status.NoContent: { return "No Content"; }
             case Status.MovedPermanently: { return "Moved Permanently"; }
             case Status.Found: { return "Found"; }
+            case Status.SeeOther: { return "See Other"; }
             case Status.NotModified: { return "Not Modified"; }
             case Status.BadRequest: { return "Bad Request"; }
             case Status.Unauthorized: { return "Unauthorized"; }
@@ -95,6 +98,7 @@ pub enum Status {
         if (code == 204) return Status.NoContent;
         if (code == 301) return Status.MovedPermanently;
         if (code == 302) return Status.Found;
+        if (code == 303) return Status.SeeOther;
         if (code == 304) return Status.NotModified;
         if (code == 400) return Status.BadRequest;
         if (code == 401) return Status.Unauthorized;
