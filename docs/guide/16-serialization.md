@@ -8,6 +8,10 @@ Annotate a struct with **`@serializable`** and the compiler generates two free f
 - **`<Struct>__toJson(value: Struct): string`**: serialize back to a JSON string, in
   field-declaration order. `__toJson` is symmetric with `__bind`, so a value round-trips.
 
+On top of these it also injects two convenience methods, `value.to(fmt)` and `Struct.from(fmt, data)`,
+which most code uses in preference to calling the binders by name (see [The `to` and `from`
+methods](#the-to-and-from-methods) below).
+
 A `ValueSource` is the abstract input the binder reads. `serde.source.fromJson(raw)` wraps a raw JSON
 string as one. (The same abstraction is what lets a web handler bind a struct from a request whose fields
 come partly from the route and partly from the body: same generated `__bind`, different source.)
@@ -98,6 +102,50 @@ json    = {"id":7,"name":"Ada","active":true,"address":{"street":"Main","city":"
 | `<Struct>__bind(src)` | Deserialize from a `ValueSource` (recursive over structs + `List<T>`) |
 | `serde.source.fromJson(raw)` | Wrap a raw JSON string as a `ValueSource` |
 | `<Struct>__toJson(value)` | Serialize back to JSON, field-declaration order |
+
+## The `to` and `from` methods
+
+The `__bind` / `__toJson` free functions are the engine, but you rarely need to call them by name. For
+every `@serializable` struct the compiler also injects two ergonomic methods that read more naturally at
+the call site:
+
+- **`value.to(fmt: Format): string`**: serialize this value to a string in the given format.
+- **`Struct.from(fmt: Format, data: string): Struct`**: build a value of the struct from a string in the
+  given format. This is a static method, so you call it on the type, not an instance.
+
+`Format` is a small enum in `serde.source` with `json`, `yaml`, and `bson`. Today `to(Format.json)` and
+`from(Format.json, ...)` are the fully wired pair, and `from(Format.yaml, ...)` also works (it reads YAML
+through the same binder). The remaining cells are placeholders until the matching reader or writer lands:
+`to(Format.yaml)` and `to(Format.bson)` return an empty string, and `from(Format.bson, ...)` returns a
+default value. So they are safe to call but only JSON (and YAML for `from`) does real work right now.
+
+```kyte
+import serde.source;   // brings `Format` into scope
+
+let u = User { id: 7, name: "Ada", active: true, address: Address(), roles: List<string>() };
+
+// Serialize, then rebuild. `to`/`from` are sugar over the generated binders:
+//   u.to(Format.json)            == User__toJson(u)
+//   User.from(Format.json, s)    == User__bind(source.fromJson(s))
+//   User.from(Format.yaml, s)    == User__bind(source.fromYaml(s))
+let s = u.to(Format.json);
+let back = User.from(Format.json, s);      // round-trips
+let fromYaml = User.from(Format.yaml, "id: 7\nname: Ada\n");
+```
+
+Two things to know:
+
+- The methods are added only when you have not written your own. If you declare a method named `to` or
+  `from` on the struct yourself, the compiler leaves it alone and skips injecting that one, so your
+  version always wins.
+- Generic `@serializable` structs (those with type parameters) do not get the `to`/`from` methods,
+  because the binder names are mangled per instantiation. Use the `__bind` / `__toJson` free-function
+  path for those.
+
+As with the fields the binders read, the struct's fields must be `pub` for the generated methods to reach
+them across the module boundary where the binders are emitted.
+
+## Why compile-time
 
 Because the binders are generated from the struct's declared fields, there is no runtime type
 information and no schema to keep in sync by hand: change a field and the binder changes with it at the
