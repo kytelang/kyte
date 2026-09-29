@@ -614,26 +614,58 @@ pub const Lexer = struct {
                 return Token{ .type = .at, .lexeme = "@", .line = self.line, .column = self.column - 1 };
             },
             '\'' => {
+                // A char literal is `'<one scalar or escape>'`. The old scanner ran
+                // greedily to the next `'` or EOF, so a plain apostrophe in KYX text
+                // (`Don't`) swallowed everything up to the next quote, including the
+                // element's own `<`/`>` structure, and corrupted the whole token
+                // stream. Lex a bounded, well-formed char literal; if the bytes are
+                // not a valid one-unit literal, emit the lone `'` as a single-byte
+                // token so it can never consume following structure. In ordinary
+                // (non-KYX) code a stray quote is then a located parse error
+                // downstream; inside KYX text the parser reconstructs text from the
+                // raw source, so the token kind here does not matter.
                 const start = self.pos;
-                self.pos += 1;
-                self.column += 1;
-                while (self.pos < self.source.len and self.source[self.pos] != '\'') {
-                    if (self.source[self.pos] == '\\') {
-                        self.pos += 2;
-                        self.column += 2;
+                var p = self.pos + 1;
+                var ok = false;
+                if (p < self.source.len and self.source[p] != '\n') {
+                    if (self.source[p] == '\\') {
+                        // Escape body. `\u{...}` and simple one-byte escapes.
+                        p += 1;
+                        if (p < self.source.len and self.source[p] == 'u' and
+                            p + 1 < self.source.len and self.source[p + 1] == '{')
+                        {
+                            p += 2;
+                            while (p < self.source.len and self.source[p] != '}' and
+                                self.source[p] != '\'' and self.source[p] != '\n') : (p += 1)
+                            {}
+                            if (p < self.source.len and self.source[p] == '}') p += 1;
+                        } else if (p < self.source.len) {
+                            p += 1;
+                        }
                     } else {
-                        self.pos += 1;
-                        self.column += 1;
+                        // One UTF-8 scalar.
+                        const n = std.unicode.utf8ByteSequenceLength(self.source[p]) catch 1;
+                        var k: usize = 0;
+                        while (k < n and p < self.source.len and self.source[p] != '\n') : (p += 1) {
+                            k += 1;
+                        }
+                    }
+                    if (p < self.source.len and self.source[p] == '\'') {
+                        p += 1;
+                        ok = true;
                     }
                 }
-                if (self.pos < self.source.len) {
-                    self.pos += 1;
-                    self.column += 1;
-                }
-                return Token{ .type = .char_literal, .lexeme = self.source[start..self.pos], .line = self.line, .column = self.column - (self.pos - start) };
+                if (!ok) p = start + 1; // lone apostrophe: consume just the quote
+                const consumed = p - self.pos;
+                self.column += consumed;
+                self.pos = p;
+                return Token{ .type = .char_literal, .lexeme = self.source[start..p], .line = self.line, .column = self.column - consumed };
             },
             else => {
-                std.debug.print("Unexpected character: {c}\n", .{char});
+                // An unrecognised byte (emoji/non-ASCII, `#`, ...) is skipped rather
+                // than aborting the lex. It is NOT reported to stderr: inside KYX text
+                // the parser rebuilds text runs from the raw source span, so such
+                // bytes survive to the output there; outside KYX they are inert.
                 self.pos += 1;
                 self.column += 1;
                 return self.nextToken();

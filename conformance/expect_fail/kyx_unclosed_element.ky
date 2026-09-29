@@ -1,0 +1,10 @@
+// EXPECT-FAIL: parse
+// A KYX element that is never closed must be rejected by the parser WITH a
+// location, not run to EOF and crash with a bare error. `parseJsxElement` now
+// routes every failure through a located diagnostic (bug 4 ergonomics of the KYX
+// parser fixes plan): the classifier keys the "parse" kind on that message.
+fn broken(): string { return <p>hello; }
+
+fn main(): void {
+    let _ = broken();
+}

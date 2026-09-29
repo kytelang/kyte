@@ -144,24 +144,96 @@ pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) ![]const 
         if (input[i] == '\\' and i + 1 < input.len) {
             const next = input[i + 1];
             switch (next) {
-                'n' => try result.append(allocator, '\n'),
-                'r' => try result.append(allocator, '\r'),
-                't' => try result.append(allocator, '\t'),
-                '\\' => try result.append(allocator, '\\'),
-                '\"' => try result.append(allocator, '\"'),
-                '\'' => try result.append(allocator, '\''),
+                'n' => {
+                    try result.append(allocator, '\n');
+                    i += 2;
+                },
+                'r' => {
+                    try result.append(allocator, '\r');
+                    i += 2;
+                },
+                't' => {
+                    try result.append(allocator, '\t');
+                    i += 2;
+                },
+                '\\' => {
+                    try result.append(allocator, '\\');
+                    i += 2;
+                },
+                '\"' => {
+                    try result.append(allocator, '\"');
+                    i += 2;
+                },
+                '\'' => {
+                    try result.append(allocator, '\'');
+                    i += 2;
+                },
+                'u' => {
+                    // A Unicode escape: `\u{HEX}` (1 to 6 hex digits) or the fixed
+                    // four-digit `\uXXXX`. Decode the scalar and append its UTF-8
+                    // bytes. A malformed or out-of-range escape is passed through
+                    // verbatim (backslash and all) so nothing is silently lost.
+                    var j = i + 2;
+                    var cp: u32 = 0;
+                    var got = false;
+                    if (j < input.len and input[j] == '{') {
+                        j += 1;
+                        const hstart = j;
+                        while (j < input.len and hexVal(input[j]) != null) : (j += 1) {
+                            cp = cp *% 16 +% hexVal(input[j]).?;
+                        }
+                        if (j < input.len and input[j] == '}' and j > hstart) {
+                            j += 1;
+                            got = true;
+                        }
+                    } else {
+                        var k: usize = 0;
+                        while (k < 4 and j < input.len and hexVal(input[j]) != null) : (j += 1) {
+                            cp = cp *% 16 +% hexVal(input[j]).?;
+                            k += 1;
+                        }
+                        if (k == 4) got = true;
+                    }
+                    if (got and cp <= 0x10FFFF and !(cp >= 0xD800 and cp <= 0xDFFF)) {
+                        var buf: [4]u8 = undefined;
+                        const n = std.unicode.utf8Encode(@intCast(cp), &buf) catch 0;
+                        if (n > 0) {
+                            try result.appendSlice(allocator, buf[0..n]);
+                            i = j;
+                        } else {
+                            try result.append(allocator, '\\');
+                            try result.append(allocator, 'u');
+                            i += 2;
+                        }
+                    } else {
+                        try result.append(allocator, '\\');
+                        try result.append(allocator, 'u');
+                        i += 2;
+                    }
+                },
                 else => {
                     try result.append(allocator, '\\');
                     try result.append(allocator, next);
+                    i += 2;
                 },
             }
-            i += 2;
         } else {
             try result.append(allocator, input[i]);
             i += 1;
         }
     }
     return try result.toOwnedSlice(allocator);
+}
+
+/// Returns the numeric value of a hexadecimal digit, or null if `c` is not one.
+/// Helper for the `\u` decoding in [`unescapeString`].
+fn hexVal(c: u8) ?u32 {
+    return switch (c) {
+        '0'...'9' => c - '0',
+        'a'...'f' => c - 'a' + 10,
+        'A'...'F' => c - 'A' + 10,
+        else => null,
+    };
 }
 
 /// A single function or method scheduled for emission, in the flattened,

@@ -51,3 +51,24 @@ fn test_response_raw_embeds_unescaped(): void {
     let h = page("hi", "@get('/x')", "<b>trusted</b>");
     assert.isTrue(string.contains(h, "<b>trusted</b>"));       // raw, not &lt;b&gt;
 }
+
+// Static KYX text is author-written markup, not interpolated user data, so it is
+// emitted verbatim: a numeric HTML entity survives byte-for-byte (the browser
+// decodes it), while a bare `&` typed as static text also survives unchanged. A
+// bare `&` in an INTERPOLATED `{expr}` string, by contrast, still escapes to
+// `&amp;` (that is the injection-prevention point, covered above).
+fn entities(): string { return <span>&#128187; &#9881; &amp;</span>; }
+
+@test
+fn test_numeric_entities_survive_in_static_text(): void {
+    let h = entities();
+    assert.isTrue(string.contains(h, "&#128187;"));            // laptop, undecoded in source
+    assert.isTrue(string.contains(h, "&#9881;"));              // gear
+    assert.isTrue(string.contains(h, "&amp;"));                // literal ampersand entity
+}
+
+@test
+fn test_bare_amp_in_expr_still_escapes(): void {
+    let h = card("a & b");
+    assert.isTrue(string.contains(h, "a &amp; b"));            // interpolated -> escaped
+}

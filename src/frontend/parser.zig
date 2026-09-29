@@ -117,6 +117,13 @@ pub const Parser = struct {
     /// [`Parser.span`] exploits to recover byte offsets by pointer arithmetic.
     source: []const u8,
 
+    /// Byte offset of the first character of each 1-based source line
+    /// (`line_starts[0]` is 0). Built once in [`Parser.init`]. Used to recover a
+    /// token's byte offset from its `(line, column)` even when its lexeme is a
+    /// literal string (operators/punctuation) rather than a source slice, which
+    /// the KYX text reconstruction in [`Parser.parseJsxElement`] relies on.
+    line_starts: []usize,
+
     /// Monotonic counter used to mint unique synthetic variable names during
     /// `for-in` desugaring (`__for_idx_N`, `__for_coll_N`, `__for_keys_N`, ...),
     /// so nested loops never collide. Incremented by
@@ -141,6 +148,13 @@ pub const Parser = struct {
             if (token.type == .eof) break;
         }
 
+        var line_starts = std.ArrayList(usize).empty;
+        defer line_starts.deinit(allocator);
+        try line_starts.append(allocator, 0);
+        for (source, 0..) |c, idx| {
+            if (c == '\n') try line_starts.append(allocator, idx + 1);
+        }
+
         return Parser{
             .allocator = allocator,
             .tokens = try token_list.toOwnedSlice(allocator),
@@ -148,6 +162,7 @@ pub const Parser = struct {
             .file_path = try allocator.dupe(u8, file_path),
             .is_wasm = is_wasm,
             .source = source,
+            .line_starts = try line_starts.toOwnedSlice(allocator),
         };
     }
 
@@ -155,6 +170,7 @@ pub const Parser = struct {
     /// outlive the parser and belong to the caller's arena.
     pub fn deinit(self: *Parser) void {
         self.allocator.free(self.tokens);
+        self.allocator.free(self.line_starts);
     }
 
     /// The token under the cursor. Safe because the buffer is always
@@ -269,6 +285,93 @@ pub const Parser = struct {
             .col = tok.column,
             .file = self.file_path,
         };
+    }
+
+    /// The byte offset of `tok`'s first byte within [`Parser.source`], recovered
+    /// from its `(line, column)` via [`Parser.line_starts`]. This works for every
+    /// token, including the operator/punctuation tokens (`<`, `>`, `{`, `}`) whose
+    /// `lexeme` is a literal string rather than a source slice, because the lexer
+    /// advances `column` one per byte. Clamped to the source length so an EOF or
+    /// out-of-range token never indexes past the buffer.
+    fn tokStartOffset(self: *Parser, tok: lexer.Token) usize {
+        if (tok.line == 0 or tok.line > self.line_starts.len) return self.source.len;
+        const base = self.line_starts[tok.line - 1];
+        const col0 = if (tok.column > 0) tok.column - 1 else 0;
+        return @min(base + col0, self.source.len);
+    }
+
+    /// The byte offset one past `tok`'s last byte. Marks where the character data
+    /// after a structural token (`>`, `}`, a child's closing `>`) begins.
+    fn tokEndOffset(self: *Parser, tok: lexer.Token) usize {
+        return @min(self.tokStartOffset(tok) + tok.lexeme.len, self.source.len);
+    }
+
+    /// Reports a KYX parse error with the current token's file, line and column,
+    /// then returns `error.UnexpectedToken`. KYX errors used to surface as a bare
+    /// "Parser error" with no location; routing them through here makes every KYX
+    /// failure locatable.
+    fn jsxError(self: *Parser, msg: []const u8) ParserError {
+        const t = self.current();
+        std.debug.print("Parser error (KYX): {s} at {s}:{}:{}\n", .{ msg, self.file_path, t.line, t.column });
+        return error.UnexpectedToken;
+    }
+
+    /// Normalises a raw KYX text span the way JSX does, so authored indentation
+    /// does not leak into the HTML while genuine inline spacing survives.
+    ///
+    /// The rules (matching Babel's `cleanJSXElementLiteralChild`): tabs become
+    /// spaces; on every line but the first, leading whitespace is trimmed; on every
+    /// line but the last, trailing whitespace is trimmed; empty lines vanish; and a
+    /// single space joins a non-final surviving line to the next. A single-line span
+    /// is returned byte-for-byte (so `foo `, ` bar`, `Don't`, `&#128187;` and emoji
+    /// all survive intact). The result is arena-allocated; an all-whitespace
+    /// multi-line span yields an empty slice, which the caller drops.
+    fn cleanJsxText(self: *Parser, raw: []const u8) ParserError![]const u8 {
+        // Fast path: no newline means a single inline run, preserved verbatim.
+        if (std.mem.indexOfScalar(u8, raw, '\n') == null and
+            std.mem.indexOfScalar(u8, raw, '\r') == null)
+        {
+            return raw;
+        }
+
+        var lines = std.ArrayList([]const u8).empty;
+        defer lines.deinit(self.allocator);
+        var it = std.mem.splitAny(u8, raw, "\n");
+        while (it.next()) |line| {
+            // Drop a trailing '\r' so CRLF is handled like LF.
+            const l = if (line.len > 0 and line[line.len - 1] == '\r') line[0 .. line.len - 1] else line;
+            try lines.append(self.allocator, l);
+        }
+
+        var last_non_empty: usize = 0;
+        for (lines.items, 0..) |line, idx| {
+            for (line) |c| {
+                if (c != ' ' and c != '\t') {
+                    last_non_empty = idx;
+                    break;
+                }
+            }
+        }
+
+        var out = std.ArrayList(u8).empty;
+        defer out.deinit(self.allocator);
+        const n = lines.items.len;
+        for (lines.items, 0..) |line, idx| {
+            var lo: usize = 0;
+            var hi: usize = line.len;
+            if (idx != 0) {
+                while (lo < hi and (line[lo] == ' ' or line[lo] == '\t')) lo += 1;
+            }
+            if (idx != n - 1) {
+                while (hi > lo and (line[hi - 1] == ' ' or line[hi - 1] == '\t')) hi -= 1;
+            }
+            const trimmed = line[lo..hi];
+            if (trimmed.len == 0) continue;
+            // Tabs that survive inside the trimmed text become spaces.
+            for (trimmed) |c| try out.append(self.allocator, if (c == '\t') ' ' else c);
+            if (idx != last_non_empty) try out.append(self.allocator, ' ');
+        }
+        return try out.toOwnedSlice(self.allocator);
     }
 
     /// Heap-allocates a copy of `value` and returns a pointer to it, for AST
@@ -2931,7 +3034,34 @@ pub const Parser = struct {
         defer children.deinit(self.allocator);
 
         if (!is_self_closing) {
+            // Byte offset in the source just past the last consumed structural
+            // token (the opening `>`, a child's closing `>`, or a `{expr}`'s `}`):
+            // where the next character-data run begins. Text children are rebuilt
+            // verbatim from this raw source span rather than re-assembled from
+            // tokens, so emoji, numeric entities (`&#128187;`), apostrophes and
+            // genuine inter-word/inter-node spacing all survive. See
+            // [`Parser.cleanJsxText`] for the (JSX-standard) whitespace handling.
+            var content_start: usize = self.tokEndOffset(self.tokens[self.pos - 1]);
             while (true) {
+                // Walk over the text tokens of this run (identifiers, numbers,
+                // punctuation, lone apostrophes, string/char literals used as
+                // copy, and the gaps left by skipped non-ASCII bytes) until the
+                // next structural token. The run's real content comes from the
+                // source span, not these tokens.
+                while (true) {
+                    const tt = self.current().type;
+                    if (tt == .less or tt == .jsx_close or tt == .left_brace or
+                        tt == .right_brace or tt == .eof) break;
+                    self.advance();
+                }
+                const term_start: usize = self.tokStartOffset(self.current());
+                if (term_start > content_start and term_start <= self.source.len) {
+                    const cleaned = try self.cleanJsxText(self.source[content_start..term_start]);
+                    if (cleaned.len > 0) {
+                        try children.append(self.allocator, ast.JsxChild{ .text = cleaned });
+                    }
+                }
+
                 if (self.current().type == .jsx_close or (self.current().type == .less and self.peek().type == .slash)) {
                     if (self.current().type == .jsx_close) {
                         self.advance();
@@ -2943,7 +3073,7 @@ pub const Parser = struct {
                         const end_tag = self.current().lexeme;
                         try self.expect(.identifier);
                         if (!std.mem.eql(u8, end_tag, tag)) {
-                            return error.UnexpectedToken;
+                            return self.jsxError("closing tag does not match the opening tag");
                         }
                     }
                     try self.expect(.greater);
@@ -2951,13 +3081,17 @@ pub const Parser = struct {
                 }
 
                 if (self.current().type == .eof) {
-                    return error.UnexpectedToken;
+                    return self.jsxError("unexpected end of source inside KYX element (missing closing tag)");
+                }
+                if (self.current().type == .right_brace) {
+                    return self.jsxError("unexpected '}' inside KYX element content");
                 }
 
                 if (self.current().type == .less) {
                     const child_el = try self.parseJsxElement();
                     try children.append(self.allocator, ast.JsxChild{ .element = child_el.kind.jsx_element });
-                } else if (self.match(.left_brace)) {
+                } else {
+                    _ = self.match(.left_brace);
                     const next_token = self.current();
                     var is_stmt = false;
                     switch (next_token.type) {
@@ -2978,26 +3112,9 @@ pub const Parser = struct {
                         try self.expect(.right_brace);
                         try children.append(self.allocator, ast.JsxChild{ .expression = child_expr });
                     }
-                } else {
-                    var buf = std.ArrayList(u8).empty;
-                    var prev_end_line: usize = 0;
-                    var prev_end_col: usize = 0;
-                    var first = true;
-                    while (true) {
-                        const t = self.current();
-                        if (t.type == .less or t.type == .jsx_close or t.type == .left_brace or
-                            t.type == .greater or t.type == .eof) break;
-                        if (!first and (@as(usize, t.line) != prev_end_line or @as(usize, t.column) != prev_end_col)) {
-                            try buf.append(self.allocator, ' ');
-                        }
-                        try buf.appendSlice(self.allocator, t.lexeme);
-                        prev_end_line = @as(usize, t.line);
-                        prev_end_col = @as(usize, t.column) + t.lexeme.len;
-                        first = false;
-                        self.advance();
-                    }
-                    try children.append(self.allocator, ast.JsxChild{ .text = buf.items });
                 }
+                // The next text run starts just past whatever we just consumed.
+                content_start = self.tokEndOffset(self.tokens[self.pos - 1]);
             }
         }
 

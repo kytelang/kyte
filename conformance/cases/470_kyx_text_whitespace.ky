@@ -1,0 +1,46 @@
+// Inter-node whitespace in KYX text is preserved the way JSX preserves it: a
+// space that sits between text and an inline element, or between text and a
+// `{expr}`, survives, while authored newline indentation between block tags does
+// not leak into the output. Closes bug 3 of the KYX parser fixes plan.
+import assert;
+import string;
+
+// text - element - text, all on one line: both spaces survive.
+fn inline(): string { return <p>foo <b>x</b> bar</p>; }
+
+// text - expr - text: the surrounding spaces survive.
+fn exprBetween(a: string, b: string): string { return <p>{a} and {b}</p>; }
+
+// A trailing/leading space next to a single expr.
+fn allow(n: string): string { return <span>allow {n}</span>; }
+fn decisions(n: string): string { return <span>{n} decisions</span>; }
+
+// Newline-indented block children: the indentation is dropped, so the output has
+// no stray whitespace text nodes between the child tags.
+fn block(): string {
+    return <ul>
+        <li>a</li>
+        <li>b</li>
+    </ul>;
+}
+
+@test
+fn test_inline_text_element_text(): void {
+    assert.equalStr(inline(), "<p>foo <b>x</b> bar</p>");
+}
+
+@test
+fn test_text_expr_text(): void {
+    assert.equalStr(exprBetween("A", "B"), "<p>A and B</p>");
+}
+
+@test
+fn test_expr_leading_and_trailing_space(): void {
+    assert.equalStr(allow("5"), "<span>allow 5</span>");
+    assert.equalStr(decisions("5"), "<span>5 decisions</span>");
+}
+
+@test
+fn test_block_indentation_dropped(): void {
+    assert.equalStr(block(), "<ul><li>a</li><li>b</li></ul>");
+}
