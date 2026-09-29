@@ -1,6 +1,8 @@
 # KYX parser and rendering fixes
 
-Status: planned. Owner: Kyte language. Raised from building the Varman (ACP) console in KYX,
+Status: implemented (commit on `enhancement-one`; corpus 470/470). All four bugs fixed via the
+raw-text reconstruction plus the `\u{...}` decode and located KYX errors described below. Owner:
+Kyte language. Raised from building the Varman (ACP) console in KYX,
 where four KYX behaviours forced ugly workarounds. All four are genuine language bugs and are worth
 fixing regardless of the console, because they make KYX unsafe for ordinary human-readable copy
 (emoji, apostrophes, entities, and normal spacing between words and inline tags).
