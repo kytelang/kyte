@@ -1,0 +1,34 @@
+import assert;
+import list;
+
+struct Bag { pub items: List<string> }
+struct Pair { pub a: List<int>, pub b: List<string> }
+struct Holder<T> { pub items: List<T> }
+
+@test
+fn test_struct_literal_owned_container_field(): void {
+    let b: Bag = Bag{ items: List<string>() };
+    b.items.push("alpha");
+    b.items.push("beta");
+    assert.equalInt(b.items.size(), 2);
+    assert.equalStr(b.items.get(0), "alpha");
+}
+
+@test
+fn test_struct_literal_multiple_owned_fields(): void {
+    let p: Pair = Pair{ a: List<int>(), b: List<string>() };
+    p.a.push(7);
+    p.b.push("seven");
+    assert.equalInt(p.a.get(0), 7);
+    assert.equalStr(p.b.get(0), "seven");
+}
+
+@test
+fn test_generic_struct_literal_owned_field(): void {
+    let h: Holder<string> = Holder<string>{ items: List<string>() };
+    h.items.push("x");
+    h.items.push("y");
+    h.items.push("z");
+    assert.equalInt(h.items.size(), 3);
+    assert.equalStr(h.items.get(2), "z");
+}

@@ -1,0 +1,6 @@
+import map;
+
+@test
+fn t(): void {
+    let m = Map<int, int>();
+}

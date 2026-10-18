@@ -1,0 +1,53 @@
+import assert;
+
+struct User { pub name: string, pub age: int }
+struct Pair { pub a: string, pub b: string, pub n: int }
+class Account { pub owner: string, pub balance: int }
+
+fn valMake(a: int): int {
+    let u = User{ name: "bob", age: a };
+    u.age = u.age + 1;
+    return u.age;
+}
+
+fn valLoop(n: int): int {
+    let acc = 0;
+    let i = 0;
+    while (i < n) {
+        let u = User{ name: "x", age: i };
+        acc = acc + u.age;
+        i = i + 1;
+    }
+    return acc;
+}
+
+fn pairSum(k: int): int {
+    let p = Pair{ a: "hi", b: "there", n: k };
+    return p.n * 2;
+}
+
+fn heapMake(a: int): int {
+    let acc = Account{ owner: "alice", balance: a };
+    acc.balance = acc.balance + 100;
+    return acc.balance;
+}
+
+fn heapLoop(n: int): int {
+    let total = 0;
+    let i = 0;
+    while (i < n) {
+        let acc = Account{ owner: "z", balance: i };
+        total = total + acc.balance;
+        i = i + 1;
+    }
+    return total;
+}
+
+@test
+fn test_owned_field_struct(): void {
+    assert.equalInt(valMake(41), 42);
+    assert.equalInt(valLoop(100), 4950);
+    assert.equalInt(pairSum(21), 42);
+    assert.equalInt(heapMake(41), 141);
+    assert.equalInt(heapLoop(100), 4950);
+}

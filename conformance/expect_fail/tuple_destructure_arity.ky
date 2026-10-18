@@ -1,0 +1,9 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+@test
+fn wrong_arity_destructure_is_rejected(): void {
+    let pair: (int, int) = (10, 20);
+    let (a, b, c) = pair;
+    assert.equalInt(a + b, 30);
+}

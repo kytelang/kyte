@@ -1,0 +1,79 @@
+//! Exercises the runtime certificate authority (crypto.x509mint) by minting a
+//! self-signed root and a leaf, then checking them back through the read side
+//! (crypto.x509). This proves the DER encoder and the certificate builder agree
+//! with the parser/verifier. The live-TLS handshake acceptance (a minted leaf
+//! driving net.asynctls.tlsAccept with a real curl client) is covered out of
+//! band, not here, because a conformance case must not open sockets.
+import assert;
+import bytes;
+import datetime;
+import net.tlsmembio;
+import crypto.x509;
+import crypto.x509mint;
+
+fn mintRootAndLeaf(hosts: List<string>): (x509mint.CA, string) {
+    let now = datetime.now();
+    let nb = datetime.addDays(now, -1);
+    let na = datetime.addDays(now, 825);
+    let rootKey = x509mint.genP256Key();
+    let ca = x509mint.selfSignedRoot("Varman Interceptor Root", rootKey, nb, na);
+    let leafKey = x509mint.genP256Key();
+    let leafPem = x509mint.mintLeaf(ca, hosts, leafKey, nb, na);
+    return (ca, leafPem);
+}
+
+fn leafDer(leafPem: string): string {
+    return tlsmembio.pemBody(leafPem, "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----");
+}
+
+@test
+fn mints_a_verifiable_leaf(): void {
+    let hosts = List<string>();
+    hosts.push("api.anthropic.com");
+    let (ca, leafPem) = mintRootAndLeaf(hosts);
+
+    let rootCert = x509.parseCert(ca.certDer as ptr, ca.certDer.length);
+    let ld = leafDer(leafPem);
+    let leafCert = x509.parseCert(ld as ptr, ld.length);
+
+    assert.isTrue(x509.verifySignedBy(leafCert, rootCert));
+    assert.isTrue(x509.matchHostname(leafCert, "api.anthropic.com"));
+    assert.isTrue(!x509.matchHostname(leafCert, "evil.example.com"));
+    assert.isTrue(x509.checkValidity(leafCert, x509mint.nowValidityNum()));
+    assert.isTrue(!x509.isCA(leafCert));
+    assert.isTrue(x509.isCA(rootCert));
+}
+
+@test
+fn honours_every_san_entry(): void {
+    let hosts = List<string>();
+    hosts.push("api.anthropic.com");
+    hosts.push("api.openai.com");
+    hosts.push("generativelanguage.googleapis.com");
+    let (ca, leafPem) = mintRootAndLeaf(hosts);
+
+    let ld = leafDer(leafPem);
+    let leafCert = x509.parseCert(ld as ptr, ld.length);
+
+    assert.isTrue(x509.matchHostname(leafCert, "api.anthropic.com"));
+    assert.isTrue(x509.matchHostname(leafCert, "api.openai.com"));
+    assert.isTrue(x509.matchHostname(leafCert, "generativelanguage.googleapis.com"));
+    assert.isTrue(!x509.matchHostname(leafCert, "api.openai.com.evil.com"));
+}
+
+@test
+fn key_pem_round_trips_through_the_loader(): void {
+    // The SEC1 PEM we emit must carry the same 32-byte scalar the key holds, so
+    // the TLS server loader reads back exactly what we signed with.
+    let k = x509mint.genP256Key();
+    let pem = x509mint.ecKeyToSec1Pem(k);
+    let scalar = tlsmembio.ecKeyScalar(pem);
+    let i = 0;
+    let same = true;
+    while (i < 32) {
+        if (bytes.read_byte(scalar, i) != k.scalar[i]) { same = false; }
+        i = i + 1;
+    }
+    bytes.free(scalar);
+    assert.isTrue(same);
+}

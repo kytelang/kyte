@@ -1,0 +1,48 @@
+import assert;
+import string;
+import io.dir;
+import io.file;
+import web.app;
+import web.request;
+import web.routing;
+import web.response;
+import web.status;
+
+// A tiny API handler living in the SAME instance as the static SPA.
+struct Health {
+    init() {}
+    async fn serve(self: Health, ctx: routing.Context): response.Response {
+        return response.Response(Status.Ok, "{\"ok\":true}")
+            .setHeader("Content-Type", "application/json");
+    }
+}
+
+@test
+fn test_spa_plus_api_one_instance(): void {
+    // Stand in for the built SPA: an index.html and a JS asset, as your build
+    // tool would drop them into wwwroot.
+    let www = dir.Dir.tempDir();
+    file.File.writeText(www + "/index.html", "<!doctype html><div id=app></div>");
+    file.File.writeText(www + "/app.js", "console.log('spa')");
+
+    let a = app.App();
+    // API routes are registered first; dispatch tries routes before static, so
+    // /api/* always wins over any file of the same name.
+    a.get("/api/health", Health());
+    // Mount the whole SPA at the root: index.html at "/", every asset by name.
+    a.useStatic("/", www);
+
+    // "/" serves index.html.
+    let home = a.dispatch(request.Request.fromString("GET / HTTP/1.1\r\nHost:x\r\n\r\n"));
+    assert.isTrue(string.indexOf(home.body, "id=app") != -1);
+    assert.equalStr(home.headers.get("Content-Type") ?? "?", "text/html");
+
+    // Static assets are served directly with the right content type.
+    let js = a.dispatch(request.Request.fromString("GET /app.js HTTP/1.1\r\nHost:x\r\n\r\n"));
+    assert.isTrue(string.indexOf(js.body, "spa") != -1);
+    assert.equalStr(js.headers.get("Content-Type") ?? "?", "application/javascript");
+
+    // The API answers from the same app, same port.
+    let api = a.dispatch(request.Request.fromString("GET /api/health HTTP/1.1\r\nHost:x\r\n\r\n"));
+    assert.isTrue(string.indexOf(api.body, "\"ok\":true") != -1);
+}

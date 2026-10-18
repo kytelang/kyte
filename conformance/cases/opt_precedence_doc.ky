@@ -1,0 +1,32 @@
+import assert;
+import string;
+
+struct Config {
+    pub host: string,
+    pub port: int,
+    init(h: string, p: int) { self.host = h; self.port = p; }
+}
+
+fn fallback(): Config {
+    return Config("localhost", 8080);
+}
+
+@test
+fn test_coalesce_then_field(): void {
+    let chosen: Config? = undefined;
+
+    // GOTCHA: when the fallback of `??` is itself a call whose result you then
+    // reach into, parenthesise the whole coalesce before the `.field`. Write
+    // `(opt ?? fallback()).field`, not `opt ?? fallback().field`: the second
+    // form binds the `.field` to `fallback()` alone, which is a different
+    // expression and not what you mean.
+    let host = (chosen ?? fallback()).host;
+    let port = (chosen ?? fallback()).port;
+    assert.equalStr(host, "localhost");
+    assert.equalInt(port, 8080);
+
+    // When the optional IS present, the fallback call is never evaluated.
+    let present: Config? = Config("db.internal", 5432);
+    let h2 = (present ?? fallback()).host;
+    assert.equalStr(h2, "db.internal");
+}

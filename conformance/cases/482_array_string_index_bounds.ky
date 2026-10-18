@@ -1,0 +1,26 @@
+// Fixed-array and string subscript bounds: in-range reads and writes must keep
+// working after the bounds guard was added (an out-of-range index now panics
+// cleanly at runtime rather than reading or writing out of bounds, which cannot
+// be asserted inside a passing test, so this case pins the in-range behaviour).
+import assert;
+
+@test
+fn test_fixed_array_in_bounds_read_write(): void {
+    let a: int[4] = [10, 20, 30, 40];
+    assert.equalInt(10, a[0]);
+    assert.equalInt(40, a[3]);
+    a[2] = 99;
+    assert.equalInt(99, a[2]);
+    // Index through a variable (runtime index, still in range).
+    let i = 1;
+    assert.equalInt(20, a[i]);
+}
+
+@test
+fn test_string_in_bounds_index(): void {
+    let s = "hello";
+    assert.equalInt(104, s[0]);   // 'h'
+    assert.equalInt(111, s[4]);   // 'o'
+    let j = 2;
+    assert.equalInt(108, s[j]);   // 'l'
+}

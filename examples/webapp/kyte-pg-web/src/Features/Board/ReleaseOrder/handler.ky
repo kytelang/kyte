@@ -1,0 +1,27 @@
+import web.routing;
+import Features.Board.ReleaseOrder.command;
+import Features.Orders.Shared.OrderRepository;
+import Features.Board.Shared.render;
+import Shared.authsession;
+import web.session;
+import ds_response;
+import web.response;
+
+// Release an order back to the Available pool. The repository guards the update
+// by assigned_to = uid, so a member can only let go of their own claim; then the
+// board region re-renders (the order moves from "My orders" back to "Available").
+pub struct ReleaseOrderHandler impl RouteHandler {
+    orders: OrderRepository,
+    sessions: SessionStore,
+    phase: string,
+    init(orders: OrderRepository, sessions: SessionStore, phase: string) {
+        self.orders = orders; self.sessions = sessions; self.phase = phase;
+    }
+    async fn serve(self: ReleaseOrderHandler, ctx: routing.Context): Response { let c = ctx.bind<ReleaseOrder>();
+        if (!authsession.csrfOk(ctx, c.csrf)) { return authsession.csrfForbidden(); }
+        // Identity comes from the server-side session, never the request.
+        let uid = authsession.uidOf(ctx, self.sessions);
+        let _r = await self.orders.releaseOrder(c.order, uid);
+        return await ds_response.patch(await render.innerFor(self.orders, self.phase, uid));
+    }
+}

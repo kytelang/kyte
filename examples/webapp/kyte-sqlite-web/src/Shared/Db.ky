@@ -1,0 +1,16 @@
+// Db: the shared SQLite connection pool, built on the kyte-sqlite driver (which
+// implements the db.Driver / db.Connection seam just like kyte-postgres). The
+// whole app shares one pool; handlers acquire and release connections from it.
+// Swapping Postgres for SQLite is only this file plus the DSN in app.yaml.
+import driver;
+import pool;
+
+pub struct Db {
+    pub pool: Pool,
+
+    init(dsn: string, poolSize: int) {
+        let sz = if (poolSize < 1) 1 else poolSize;
+        self.pool = pool.Pool(driver.SqliteDriver(), dsn, sz);
+        self.pool.configure(sz, 0, false);
+    }
+}

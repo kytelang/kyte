@@ -1,0 +1,47 @@
+import assert;
+import bytes;
+import os.sys;
+import net.poller;
+
+@test
+fn test_reactor_echo_roundtrip(): void {
+    let (client, server) = sys.newSocketPair(sys.AF_UNIX, sys.SOCK_STREAM);
+    assert.isTrue(client >= 0);
+    assert.isTrue(server >= 0);
+
+    let r = poller.Reactor(16, 4096, 8);
+    assert.isTrue(r.ok());
+    assert.equalInt(r.addRead(server, server as long), 0);
+
+    let out = bytes.alloc(4);
+    bytes.write_byte(out, 0, 112);
+    bytes.write_byte(out, 1, 105);
+    bytes.write_byte(out, 2, 110);
+    bytes.write_byte(out, 3, 103);
+    assert.isTrue(sys.write(client, out, 4) == 4);
+
+    let n = r.poll(1000);
+    assert.equalInt(n, 1);
+    let fd = r.readyFd(0);
+    assert.equalInt(fd, server);
+    assert.equalInt(r.readyToken(0) as int, server);
+    assert.isTrue(r.readyBytes(0) >= 4);
+
+    let buf = r.getBuffer();
+    assert.isTrue(buf != 0);
+    let got = sys.read(fd, buf, 4096);
+    assert.isTrue(got == 4);
+    assert.isTrue(sys.write(fd, buf, got) == got);
+    r.putBuffer(buf);
+
+    let inb = bytes.alloc(16);
+    assert.isTrue(sys.read(client, inb, 16) == 4);
+    assert.equalInt(bytes.read_byte(inb, 0) as int, 112);
+    assert.equalInt(bytes.read_byte(inb, 3) as int, 103);
+
+    bytes.free(out);
+    bytes.free(inb);
+    assert.equalInt(sys.close(client), 0);
+    assert.equalInt(sys.close(server), 0);
+    r.destroy();
+}

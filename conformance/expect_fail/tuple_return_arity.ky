@@ -1,0 +1,14 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+// A function declared to return a 2-element tuple must not be allowed to return a
+// 3-element tuple literal: the extra element was previously dropped silently.
+fn bad(): (int, string) {
+    return (1, "x", 42);
+}
+
+@test
+fn tuple_return_arity_is_rejected(): void {
+    let (a, b) = bad();
+    assert.equalInt(a, 1);
+}

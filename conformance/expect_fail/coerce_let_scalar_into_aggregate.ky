@@ -1,0 +1,5 @@
+// EXPECT-FAIL: typecheck
+// An int literal initialising a declared aggregate slot reinterprets a scalar as a
+// pointer and crashes. Guarded in type_checker.zig (annotated-let, declared agg + scalar).
+@test
+fn t(): void { let o: List<int> = -99; let s = o.size(); }

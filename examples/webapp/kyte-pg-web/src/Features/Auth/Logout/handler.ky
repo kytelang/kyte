@@ -1,0 +1,31 @@
+import web.routing;
+import Features.Auth.Logout.command;
+import Features.Auth.views.auth;
+import Shared.authsession;
+import web.session;
+import web.cookie;
+import ds_response;
+import web.response;
+
+pub struct LogoutHandler impl RouteHandler {
+    sessions: SessionStore,
+    init(sessions: SessionStore) { self.sessions = sessions; }
+    async fn serve(self: LogoutHandler, ctx: routing.Context): Response { let c = ctx.bind<Logout>();
+        // CSRF: a state-changing logout must echo this session's token.
+        if (!authsession.csrfOk(ctx, c.csrf)) { return authsession.csrfForbidden(); }
+        // Destroy the server-side session, then expire the cookie on the client.
+        let sid = ctx.request.headers.get("X-Session-ID") ?? "";
+        self.sessions.destroySession(sid);
+        let r = await ds_response.patch(auth.banner("Logged out", "See you soon.", true));
+        return r.setCookieFull(cookie.Cookie{
+            name: "session_id",
+            value: "",
+            path: "/",
+            domain: "",
+            maxAge: 0,
+            secure: true,
+            httpOnly: true,
+            sameSite: "Lax",
+        });
+    }
+}

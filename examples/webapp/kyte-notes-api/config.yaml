@@ -1,0 +1,7 @@
+# Notes API configuration. Non-secret defaults live here; the API key is a secret,
+# so it is left empty and supplied by the environment (NOTES_API_KEY), registered
+# via .fromEnv in main.ky. This mirrors how the shop layers config.yaml + env.
+api:
+  port: 8098
+  apiKey: ""
+  name: "nova-notes-api"

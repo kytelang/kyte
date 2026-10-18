@@ -1,0 +1,269 @@
+//! A runtime certificate authority. It builds and signs X.509 v3 certificates in
+//! pure Kyte, so the TLS stack can mint a server certificate on demand (for
+//! example a transparent proxy that must present a certificate for whatever host
+//! a client asked for). The read side, `crypto.x509`, verifies what this writes.
+//!
+//! Only ECDSA over P-256 is used, for a simple reason: the self-hosted TLS
+//! server already signs its handshake with P-256 and `ecdsa-with-SHA256`, and
+//! the key loader `net.tlsmembio.ecKeyScalar` reads a P-256 scalar, so a minted
+//! P-256 leaf drops straight in. RSA is not an option here because the stack has
+//! no RSA signing. Clients trust ECDSA P-256 certificates for TLS as long as the
+//! issuing root is installed in their trust store.
+//!
+//! The shape produced is a standard v3 certificate: version, serial, the
+//! `ecdsa-with-SHA256` algorithm identifier (no parameters), an issuer and
+//! subject Name carrying a common name, a validity window, an EC
+//! SubjectPublicKeyInfo over prime256v1, and the extensions a TLS leaf needs
+//! (subjectAltName, basicConstraints, keyUsage, extendedKeyUsage). The
+//! TBSCertificate is DER encoded, hashed with SHA-256, and signed with
+//! `p256.ecdsaSign`.
+import bytes;
+import string;
+import datetime;
+import crypto.x509der;
+import crypto.ecc.p256;
+import crypto.hash.sha256;
+import crypto.hash.sha;
+import crypto.base64;
+import crypto.random;
+
+/// A P-256 key pair: the 32-byte private scalar and the 65-byte uncompressed
+/// public point (`0x04 || X || Y`).
+pub struct EcKey {
+    pub scalar: string,
+    pub pub65: string,
+}
+
+/// A certificate authority: the DER of its subject Name (reused verbatim as the
+/// issuer Name of every leaf so `x509.nameMatches` holds), its signing scalar,
+/// and its own certificate in PEM and DER.
+pub struct CA {
+    pub issuerName: string,
+    pub scalar: string,
+    pub certPem: string,
+    pub certDer: string,
+}
+
+// --- small helpers ------------------------------------------------------------
+
+/// Copy `n` bytes at `p` into a fresh owned string. Used to lift a raw buffer
+/// that primitives wrote into, so the raw buffer can then be freed.
+fn ptrToStr(p: ptr, n: int): string {
+    let out = bytes.alloc(n);
+    bytes.copy(out as long, p as long, n);
+    return out as string;
+}
+
+/// Current wall-clock time in epoch seconds, the unit the validity encoding and
+/// `x509.checkValidity` both use.
+pub fn nowSeconds(): long { return datetime.now(); }
+
+/// `t` shifted by `d` days (negative to go back).
+pub fn plusDays(t: long, d: int): long { return datetime.addDays(t, d); }
+
+/// `t` as the packed `YYYYMMDDHHMMSS` integer that `x509.checkValidity` compares
+/// against. `checkValidity` does not take epoch seconds; a caller that wants to
+/// test a freshly minted certificate must pass a time in this encoding.
+pub fn validityNumAt(t: long): long {
+    let d = digits14(t);
+    let n: long = 0;
+    let i = 0;
+    while (i < d.length) {
+        n = n * 10 + ((d[i] - 48) as long);
+        i = i + 1;
+    }
+    return n;
+}
+
+/// The current time as the packed `YYYYMMDDHHMMSS` integer for `x509.checkValidity`.
+pub fn nowValidityNum(): long { return validityNumAt(datetime.now()); }
+
+/// The fourteen digits `YYYYMMDDHHMMSS` of `t`, pulled out of the ISO form so we
+/// do not depend on a particular separator or zone suffix. `toIso` is UTC.
+fn digits14(t: long): string {
+    let iso = datetime.toIso(t);
+    let d = "";
+    let i = 0;
+    while (i < iso.length && d.length < 14) {
+        let c = iso[i];
+        if (c >= 48 && c <= 57) { d = string.concat(d, string.slice(iso, i, i + 1)); }
+        i = i + 1;
+    }
+    return d;
+}
+
+/// A Time value for the validity window. RFC 5280 wants UTCTime for years before
+/// 2050 and GeneralizedTime from 2050 on.
+fn timeValue(t: long): string {
+    let d = digits14(t);
+    let year = (d[0] - 48) * 1000 + (d[1] - 48) * 100 + (d[2] - 48) * 10 + (d[3] - 48);
+    if (year < 2050) {
+        return x509der.utcTime(string.concat(string.slice(d, 2, 14), "Z"));
+    }
+    return x509der.generalizedTime(string.concat(d, "Z"));
+}
+
+/// A positive 16-byte serial number derived deterministically from `seed`, with
+/// the top bit cleared (so no sign pad is needed) and the low bit set (so it is
+/// never zero).
+fn serialFrom(seed: string): string {
+    let h = sha.sha256Raw(seed);
+    let p = bytes.alloc(16);
+    let i = 0;
+    while (i < 16) { bytes.write_byte(p, i, h[i]); i = i + 1; }
+    bytes.write_byte(p, 0, (h[0] & 0x7f) | 0x01);
+    return p as string;
+}
+
+/// A Name carrying a single commonName RDN.
+fn nameCN(cn: string): string {
+    let atv = x509der.seq(string.concat(x509der.oid("550403"), x509der.utf8(cn)));
+    return x509der.seq(x509der.set(atv));
+}
+
+/// An EC SubjectPublicKeyInfo over prime256v1 for the 65-byte point `pub65`.
+fn spki(pub65: string): string {
+    let algId = x509der.seq(string.concat(x509der.oid("2a8648ce3d0201"), x509der.oid("2a8648ce3d030107")));
+    return x509der.seq(string.concat(algId, x509der.bitString(pub65)));
+}
+
+/// One extension: `SEQUENCE { extnID OID, [critical BOOLEAN], extnValue OCTET
+/// STRING }`. The value is the already-encoded DER of the extension's own type.
+fn ext(oidHex: string, critical: bool, value: string): string {
+    let body = x509der.oid(oidHex);
+    if (critical) { body = string.concat(body, x509der.boolean(true)); }
+    body = string.concat(body, x509der.octet(value));
+    return x509der.seq(body);
+}
+
+/// A subjectAltName extension listing every host as a dNSName.
+fn sanExt(hosts: List<string>): string {
+    let names = "";
+    let i = 0;
+    while (i < hosts.size()) {
+        names = string.concat(names, x509der.contextPrim(2, hosts.get(i) ?? ""));
+        i = i + 1;
+    }
+    return ext("551d11", false, x509der.seq(names));
+}
+
+/// Assemble the TBSCertificate SEQUENCE. `extsContent` is the concatenation of
+/// the already-encoded extension TLVs.
+fn buildTbs(serialMag: string, issuerName: string, subjectName: string, pub65: string, nb: long, na: long, extsContent: string): string {
+    let version = x509der.explicit(0, x509der.integerSmall(2));
+    let serial = x509der.integer(serialMag);
+    let sigAlg = x509der.seq(x509der.oid("2a8648ce3d040302"));
+    let validity = x509der.seq(string.concat(timeValue(nb), timeValue(na)));
+    let pubInfo = spki(pub65);
+    let extsWrapped = x509der.explicit(3, x509der.seq(extsContent));
+    let body = string.concat(version, serial);
+    body = string.concat(body, sigAlg);
+    body = string.concat(body, issuerName);
+    body = string.concat(body, validity);
+    body = string.concat(body, subjectName);
+    body = string.concat(body, pubInfo);
+    body = string.concat(body, extsWrapped);
+    return x509der.seq(body);
+}
+
+/// Hash `tbsDer` with SHA-256, sign with `caScalar`, and assemble the outer
+/// Certificate `SEQUENCE { tbsCertificate, signatureAlgorithm, signatureValue }`.
+fn signCert(tbsDer: string, caScalar: string): string {
+    let dig = bytes.alloc(32);
+    sha256.hashInto(tbsDer as ptr, tbsDer.length, dig);
+    let r = bytes.alloc(32);
+    let s = bytes.alloc(32);
+    p256.ecdsaSign(dig, caScalar as ptr, r, s);
+    let rStr = ptrToStr(r, 32);
+    let sStr = ptrToStr(s, 32);
+    bytes.free(dig);
+    bytes.free(r);
+    bytes.free(s);
+    let sigValue = x509der.seq(string.concat(x509der.integer(rStr), x509der.integer(sStr)));
+    let sigBits = x509der.bitString(sigValue);
+    let sigAlg = x509der.seq(x509der.oid("2a8648ce3d040302"));
+    return x509der.seq(string.concat(string.concat(tbsDer, sigAlg), sigBits));
+}
+
+/// Base64 the DER and wrap it in a PEM block with 64-character lines.
+fn pemWrap(label: string, der: string): string {
+    let b64 = base64.encode(der);
+    let body = "";
+    let i = 0;
+    while (i < b64.length) {
+        let end = i + 64;
+        if (end > b64.length) { end = b64.length; }
+        body = string.concat(body, string.concat(string.slice(b64, i, end), "\n"));
+        i = end;
+    }
+    let head = string.concat(string.concat("-----BEGIN ", label), "-----\n");
+    let tail = string.concat(string.concat("-----END ", label), "-----\n");
+    return string.concat(string.concat(head, body), tail);
+}
+
+// --- public API ---------------------------------------------------------------
+
+/// Generate a fresh P-256 key pair. The scalar is 32 random bytes; the public
+/// point is derived from it.
+pub fn genP256Key(): EcKey {
+    let scalar = random.randomBytes(32);
+    let outp = bytes.alloc(65);
+    p256.derivePublic(outp, scalar as ptr);
+    let pub65 = ptrToStr(outp, 65);
+    bytes.free(outp);
+    return EcKey { scalar: scalar, pub65: pub65 };
+}
+
+/// Rebuild an EC key pair from a stored 32-byte scalar. Lets a long-lived
+/// service persist only the scalar and reconstruct the identical key (and so,
+/// with a fixed subject and validity, the identical self-signed root) across
+/// restarts, so an already-installed root certificate stays valid.
+pub fn ecKeyFromScalar(scalar32: string): EcKey {
+    let outp = bytes.alloc(65);
+    p256.derivePublic(outp, scalar32 as ptr);
+    let pub65 = ptrToStr(outp, 65);
+    bytes.free(outp);
+    return EcKey { scalar: scalar32, pub65: pub65 };
+}
+
+/// Serialise an EC key as a SEC1 `EC PRIVATE KEY` PEM, the form
+/// `net.tlsmembio.ecKeyScalar` loads for a TLS server. The curve parameters and
+/// public key are included so external tools read it as a complete key.
+pub fn ecKeyToSec1Pem(k: EcKey): string {
+    let body = string.concat(x509der.integerSmall(1), x509der.octet(k.scalar));
+    body = string.concat(body, x509der.explicit(0, x509der.oid("2a8648ce3d030107")));
+    body = string.concat(body, x509der.explicit(1, x509der.bitString(k.pub65)));
+    return pemWrap("EC PRIVATE KEY", x509der.seq(body));
+}
+
+/// Build a self-signed root certificate authority with the given common name and
+/// validity window (epoch seconds), signing with its own key.
+pub fn selfSignedRoot(cn: string, key: EcKey, nb: long, na: long): CA {
+    let name = nameCN(cn);
+    let serial = serialFrom(string.concat(cn, "root"));
+    let bc = ext("551d13", true, x509der.seq(x509der.boolean(true)));
+    let ku = ext("551d0f", true, x509der.bitStringUnused(1, x509der.b1(0x06)));
+    let exts = string.concat(bc, ku);
+    let tbs = buildTbs(serial, name, name, key.pub65, nb, na, exts);
+    let certDer = signCert(tbs, key.scalar);
+    let pem = pemWrap("CERTIFICATE", certDer);
+    return CA { issuerName: name, scalar: key.scalar, certPem: pem, certDer: certDer };
+}
+
+/// Mint and sign a leaf certificate for `hosts`, issued by `ca`, valid over the
+/// window (epoch seconds). Returns the leaf certificate as a PEM string. The
+/// first host is used as the subject common name; every host is listed in the
+/// subjectAltName, which is what a modern client actually checks.
+pub fn mintLeaf(ca: CA, hosts: List<string>, leafKey: EcKey, nb: long, na: long): string {
+    let subjectCn = hosts.get(0) ?? "leaf";
+    let subject = nameCN(subjectCn);
+    let serial = serialFrom(string.concat(subjectCn, "leaf"));
+    let san = sanExt(hosts);
+    let bc = ext("551d13", true, x509der.seq(""));
+    let ku = ext("551d0f", true, x509der.bitStringUnused(5, x509der.b1(0xa0)));
+    let eku = ext("551d25", false, x509der.seq(x509der.oid("2b06010505070301")));
+    let exts = string.concat(string.concat(string.concat(san, bc), ku), eku);
+    let tbs = buildTbs(serial, ca.issuerName, subject, leafKey.pub65, nb, na, exts);
+    let certDer = signCert(tbs, ca.scalar);
+    return pemWrap("CERTIFICATE", certDer);
+}

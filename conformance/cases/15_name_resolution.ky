@@ -1,0 +1,79 @@
+import assert;
+import string;
+import list;
+
+fn payload(n: int): string { return "WRONG: global fn payload"; }
+fn tag(): string { return "WRONG: global fn tag"; }
+fn value(): string { return "WRONG: global fn value"; }
+fn size(): int { return -999; }
+fn hash(s: string): int { return -1; }
+
+struct Frame {
+    pub ftype: int,
+    pub payload: string,
+    pub tag: string,
+
+    init(ftype: int, payload: string, tag: string) {
+        self.ftype = ftype;
+        self.payload = payload;
+        self.tag = tag;
+    }
+
+    pub fn value(self: Frame): string { return self.payload; }
+    pub fn size(self: Frame): int { return self.payload.length; }
+}
+
+@test
+fn test_field_shadowed_by_global_fn(): void {
+    let f = Frame(84, "real-payload", "real-tag");
+    assert.equalStr(f.payload, "real-payload");
+    assert.equalStr(f.tag, "real-tag");
+    assert.equalInt(f.ftype, 84);
+}
+
+@test
+fn test_field_through_local(): void {
+    let f = Frame(68, "via-local", "t");
+    let p = f.payload;
+    assert.equalStr(p, "via-local");
+    assert.equalInt(p.length, 9);
+}
+
+@test
+fn test_field_as_call_argument(): void {
+    let f = Frame(67, "as-arg", "t");
+    assert.equalStr(takesString(f.payload), "as-arg");
+}
+
+fn takesString(s: string): string { return s; }
+
+@test
+fn test_method_shadowed_by_global_fn(): void {
+    let f = Frame(84, "abc", "t");
+    assert.equalStr(f.value(), "abc");
+    assert.equalInt(f.size(), 3);
+}
+
+@test
+fn test_field_ops_after_resolution(): void {
+    let f = Frame(84, "hello world", "t");
+    assert.equalInt(f.payload.length, 11);
+    assert.equalStr(string.slice(f.payload, 0, 5), "hello");
+    assert.isTrue(string.contains(f.payload, "world"));
+}
+
+@test
+fn test_collection_field_vs_global_size(): void {
+    let xs = list.List<int>();
+    xs.push(1);
+    xs.push(2);
+    assert.equalInt(xs.size(), 2);
+}
+
+@test
+fn test_module_fn_as_value_still_resolves(): void {
+    let h = string.hash;
+    let direct = string.hash("abc");
+    assert.equalInt((h)("abc"), direct);
+    assert.notEqualInt(direct, -1);
+}

@@ -1,0 +1,37 @@
+import assert;
+import list;
+
+fn ident<T>(x: T): T { return x; }
+
+fn firstOf<T>(xs: List<T>): T { return xs.at(0); }
+
+@test
+fn test_infer_scalar(): void {
+    assert.equalInt(ident(42), 42);
+    assert.equalStr(ident("hi"), "hi");
+}
+
+@test
+fn test_infer_owned_passthrough(): void {
+    let a = "owned-value";
+    let b = ident(a);
+    assert.equalStr(b, "owned-value");
+    assert.equalStr(a, "owned-value");
+}
+
+@test
+fn test_infer_owned_from_container(): void {
+    let xs = List<string>();
+    xs.push("first");
+    xs.push("second");
+    let s = firstOf(xs);
+    assert.equalStr(s, "first");
+}
+
+@test
+fn test_explicit_still_works(): void {
+    assert.equalInt(ident<int>(7), 7);
+    let xs = List<int>();
+    xs.push(99);
+    assert.equalInt(firstOf<int>(xs), 99);
+}

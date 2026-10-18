@@ -1,0 +1,11 @@
+// EXPECT-FAIL: typecheck
+import assert;
+import list;
+import serde.bson;
+
+@test
+fn t(): void {
+    let doc: bson.BsonDocument = bson.BsonDocument{ entries: List<bson.BsonEntry>() };
+    let n: int = bson.getDocSize(doc);
+    assert.equalInt(n, n);
+}

@@ -1,0 +1,8 @@
+// EXPECT-FAIL: typecheck
+fn wrap<T>(x: T): T { return x; }
+
+@test
+fn t_mismatch(): void {
+    let r: string = wrap<int>(5);
+    assert.equalStr(r, "");
+}

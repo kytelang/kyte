@@ -1,0 +1,13 @@
+
+@serializable
+pub struct GetProducts {
+    pub category: string,
+    pub q: string,
+    pub veg: int,
+
+    init() {
+        self.category = "";
+        self.q = "";
+        self.veg = 0;
+    }
+}

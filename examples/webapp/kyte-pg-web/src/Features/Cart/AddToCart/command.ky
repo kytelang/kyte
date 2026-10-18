@@ -1,0 +1,7 @@
+@serializable
+pub struct AddToCart {
+    pub product: string,
+    pub cartid: string,
+    pub csrf: string,
+    init() { self.product = ""; self.cartid = ""; self.csrf = ""; }
+}

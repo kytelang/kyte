@@ -1,0 +1,19 @@
+// EXPECT-FAIL: codegen
+//
+// last-bit-of-hardening C5: a KYX `{expr}` whose static type the escaper cannot prove
+// safe-to-render (here a value of the dynamic `any` type) used to fall through to a RAW
+// append -- the raw i64 word emitted as if it were a string pointer (XSS / garbage), the
+// opposite of escape-by-default. It must now fail closed with a located error. `Html`,
+// `string`, `Str` and the numeric primitives are all handled and still render.
+
+fn render(x: any): Html {
+    return <div>{x}</div>;   // must be rejected: cannot prove `any` is safe text
+}
+
+@test
+fn untyped_interp(): void {
+    let s = render(42) as string;
+    assert_contains(s);
+}
+
+fn assert_contains(s: string): void { }

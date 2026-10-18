@@ -1,0 +1,44 @@
+//! View helpers that bridge the form pieces (CSRF and validation) into KYX, so an invalid
+//! submit can be re-rendered as a fragment with inline per field messages, the hypermedia
+//! way (errors come back as HTML, not JSON).
+
+import string;
+import list;
+import web.routing;
+import web.response;
+import web.validation;
+
+/// Renders the hidden CSRF input that `web.csrf` checks (`_csrf` form field). The value is
+/// the per-session token the client must echo; the session layer places it in the
+/// `X-Session-CSRF` request header, so it is read from there. The value is auto-escaped.
+/// Drop it inside a form: `<form ...>{forms.csrfField(ctx)} ...</form>`.
+pub fn csrfField(ctx: routing.Context): Html {
+    let token = ctx.request.getHeader("X-Session-CSRF") ?? "";
+    return <input type="hidden" name="_csrf" value={token} />;
+}
+
+/// True when `field` has at least one failure in `result`.
+pub fn hasError(result: validation.ValidationResult, field: string): bool {
+    let i = 0;
+    while (i < result.errors.size()) {
+        if (result.errors.at(i).field == field) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+/// The first error message for `field` as an escaped `<span class="field-error">...</span>`,
+/// or empty `Html` when the field is valid. Place it next to the input so a re-rendered form
+/// fragment shows the message inline.
+pub fn fieldError(result: validation.ValidationResult, field: string): Html {
+    let i = 0;
+    while (i < result.errors.size()) {
+        let e = result.errors.at(i);
+        if (e.field == field) {
+            let m = e.message;
+            return <span class="field-error">{m}</span>;
+        }
+        i = i + 1;
+    }
+    return response.raw("");
+}

@@ -1,0 +1,29 @@
+import assert;
+
+@test
+fn test_decimal_roundtrip(): void {
+    let a: decimal = 10.5m;
+    assert.equalStr(`${a}`, "10.5");
+    let hundred: decimal = 100m;
+    assert.equalStr(`${hundred}`, "100");
+}
+
+@test
+fn test_decimal_exact_fraction(): void {
+    let tenth: decimal = 0.1m;
+    assert.equalStr(`${tenth}`, "0.1");
+    let milli: decimal = 0.001m;
+    assert.equalStr(`${milli}`, "0.001");
+}
+
+@test
+fn test_decimal_negative(): void {
+    let neg: decimal = -3.14m;
+    assert.equalStr(`${neg}`, "-3.14");
+}
+
+@test
+fn test_decimal_full_precision(): void {
+    let big: decimal = 12345678901234567890123456789012.34m;
+    assert.equalStr(`${big}`, "12345678901234567890123456789012.34");
+}

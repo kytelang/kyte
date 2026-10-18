@@ -1,0 +1,8 @@
+// Persistence entity: one row of the `ingredients` table (stock/inventory model).
+@serializable
+pub struct Ingredient {
+    pub id: string,
+    pub name: string,
+    pub quantity_on_hand: double,
+    pub unit: string,
+}

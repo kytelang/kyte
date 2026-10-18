@@ -1,0 +1,28 @@
+import assert;
+
+async fn square(n: int): int {
+    return n * n;
+}
+
+async fn addAsync(a: int, b: int): int {
+    let x = await square(a);
+    let y = await square(b);
+    return x + y;
+}
+
+async fn concurrent(): int {
+    let h1 = spawn square(3);
+    let h2 = spawn square(4);
+    let h3 = spawn addAsync(1, 2);
+    return await h1 + await h2 + await h3;
+}
+
+@test
+fn t_await(): void {
+    assert.equalInt(addAsync(2, 3), 13);
+}
+
+@test
+fn t_go(): void {
+    assert.equalInt(concurrent(), 30);
+}

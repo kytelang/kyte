@@ -1,0 +1,28 @@
+import map;
+import assert;
+@test
+fn present_zero_coalesces_to_zero(): void {
+    let m = Map<string, int>(4, h);
+    m.set("a", 0);
+    let x = m.get("a");
+    if (x != undefined) {
+        assert.equalInt(x ?? 999, 0);
+    }
+}
+@test
+fn genuinely_absent_returns_default(): void {
+    let m = Map<string, int>(4, h);
+    let x = m.get("missing");
+    assert.equalInt(x ?? 999, 999);
+}
+@test
+fn reassign_to_absent_invalidates_narrowing(): void {
+    let m = Map<string, int>(4, h);
+    m.set("a", 5);
+    let x = m.get("a");
+    if (x != undefined) {
+        x = m.get("missing");
+        assert.equalInt(x ?? 999, 999);
+    }
+}
+fn h(s: string): int { return 1; }

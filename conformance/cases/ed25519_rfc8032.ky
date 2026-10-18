@@ -1,0 +1,102 @@
+import crypto.ecc.ed25519;
+import bytes;
+import assert;
+
+fn hexNib(c: int): int {
+    if (c >= 48 && c <= 57) { return c - 48; }
+    if (c >= 97 && c <= 102) { return c - 87; }
+    if (c >= 65 && c <= 70) { return c - 55; }
+    return 0;
+}
+
+fn hexBuf(hex: string): ptr {
+    let n = hex.length / 2;
+    let b = bytes.alloc(if (n == 0) (1) else (n));
+    let i = 0;
+    while (i < n) {
+        bytes.write_byte(b, i, hexNib(hex[i * 2]) * 16 + hexNib(hex[i * 2 + 1]));
+        i = i + 1;
+    }
+    return b;
+}
+
+fn eqHex(buf: ptr, n: int, hex: string): bool {
+    if (hex.length != n * 2) { return false; }
+    let i = 0;
+    while (i < n) {
+        if (bytes.read_byte(buf, i) != hexNib(hex[i * 2]) * 16 + hexNib(hex[i * 2 + 1])) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// Runs one RFC 8032 known-answer vector: derive key, sign, verify, tamper.
+fn runVector(seedHex: string, pubHex: string, msgHex: string, sigHex: string): void {
+    let seed = hexBuf(seedHex);
+    let msgLen = msgHex.length / 2;
+    let msg = hexBuf(msgHex);
+
+    let pk = bytes.alloc(32);
+    let sk = bytes.alloc(64);
+    ed25519.seedToKeypair(seed, pk, sk);
+    assert.isTrue(eqHex(pk, 32, pubHex));
+
+    let sig = bytes.alloc(64);
+    ed25519.sign(sk, msg, msgLen, sig);
+    assert.isTrue(eqHex(sig, 64, sigHex));
+
+    // Valid signature must verify.
+    assert.isTrue(ed25519.verify(pk, msg, msgLen, sig));
+
+    // Tamper with the signature: flip one bit in S; must be rejected.
+    bytes.write_byte(sig, 40, bytes.read_byte(sig, 40) ^ 1);
+    assert.isTrue(!ed25519.verify(pk, msg, msgLen, sig));
+    bytes.write_byte(sig, 40, bytes.read_byte(sig, 40) ^ 1);
+
+    // Tamper with the message (if non-empty); must be rejected.
+    if (msgLen > 0) {
+        bytes.write_byte(msg, 0, bytes.read_byte(msg, 0) ^ 1);
+        assert.isTrue(!ed25519.verify(pk, msg, msgLen, sig));
+        bytes.write_byte(msg, 0, bytes.read_byte(msg, 0) ^ 1);
+    }
+
+    bytes.free(seed); bytes.free(msg); bytes.free(pk); bytes.free(sk); bytes.free(sig);
+}
+
+@test
+fn rfc8032_test1_empty(): void {
+    runVector(
+        "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "",
+        "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b");
+}
+
+@test
+fn rfc8032_test2_1byte(): void {
+    runVector(
+        "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+        "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "72",
+        "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00");
+}
+
+@test
+fn rfc8032_test3_2bytes(): void {
+    runVector(
+        "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+        "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "af82",
+        "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a");
+}
+
+@test
+fn rfc8032_long_message(): void {
+    runVector(
+        "575f8fb6c7465e92c250caeec1786224bc3eed729e463953a394c9849cba908f",
+        "71bfa98f5bea790ff183d924e6655cea08d0aafb617f46d23a17a657f0a9b8b2",
+        "2cc372e25e53a138793064610e7ef25d9d7422e18e249675a72e79167f43baf452cbacb50182faf80798cc38597a44b307a536360b0bc1030f8397b94cbf147353dd2d671cb8cab219a2d7b9eb828e9635d2eab6eb08182cb03557783fd282aaf7b471747c84acf72debe4514524f8447bafccccec0a840feca9755ff9adb60301c2f25d4e3ba621df5ad72100c45d7a4b91559c725ab56bb29830e35f5a6faf87db23001f11ffba9c0c15440302065827a7d7aaaeab7b446abce333c0d30c3eae9c9da63eb1c0391d4269b12c45b660290611ac29c91dbd80dc6ed302a4d191f2923922f032ab1ac10ca7323b5241c5751c3c004ac39eb1267aa10017ed2dac6c934a250dda8cb06d5be9f563b827bf3c8d95fd7d2a7e7cc3acbee92538bd7ddfba3ab2dc9f791fac76cdf9cd6a6923534cf3e067108f6aa03e320d954085c218038a70cc768b972e49952b9fe171ee1be2a52cd469b8d36b84ee902cd9410db2777192e90070d2e7c56cb6a45f0a839c78c219203b6f1b33cb4504c6a7996427741e6874cf45c5fa5a38765a1ebf1796ce16e63ee509612c40f088cbceffa3affbc13b75a1b9c02c61a180a7e83b17884fe0ec0f2fe57c47e73a22f753eaf50fca655ebb19896b827a3474911c67853c58b4a78fd085a23239b9737ef8a7baff11ddce5f2cae0543f8b45d144ae6918b9a75293ec78ea618cd2cd08c971301cdfa0a9275c1bf441d4c1f878a2e733ce0a33b6ecdacbbf0bdb5c3643fa45a013979cd01396962897421129a88757c0d88b5ac7e44fdbd938ba4bc37de4929d53751fbb43d4e09a80e735244acada8e6749f77787f33763c7472df52934591591fb226c503c8be61a920a7d37eb1686b62216957844c43c484e58745775553",
+        "903b484cb24bc503cdced844614073256c6d5aa45f1f9f62c7f22e5649212bc1d6ef9eaa617b6b835a6de2beff2faac83d37a4a5fc5cc3b556f56edde2651f02");
+}

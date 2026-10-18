@@ -1,0 +1,10 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+struct Box<T> { pub v: T, }
+
+@test
+fn contradiction(): void {
+    let b = Box<string>{ v: 7 };
+    assert.equalInt(b.v.length, 0);
+}

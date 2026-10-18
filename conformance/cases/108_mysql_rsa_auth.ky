@@ -1,0 +1,30 @@
+import assert;
+import string;
+import crypto.rsa;
+
+fn rsaEnc(pem: string, data: string, len: int): string {
+    return rsa.oaepEncryptSha1(pem, data, len);
+}
+
+const PEM_KEY: string = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyMvPOj+bnx2O7uDUcPyn\nG8OGFD3QnLeLq1EJdHZod6GDin920Cnt98uwmQI1TYX/BkxaSDidZQw81XS2DrhU\ntD1RKAaN9lPV9SVTY8uHitEEvDSRZNdZ1nsLtSHHGyUjDTOgcuj00leZy9VwCszP\nO8HYabnpYOi+tCjRDySVJ3rl/pXoB353WxZrSWWqR8lB+Z01uF1guQr4zhWjWUsq\nWXBozZSVq/LUkLsDSthTBMMGEWQ5QEwQGLGc7fN4DfbnQkNCEcU1S/gMBLzNRpix\ndDIzWa6Kg8TrOYRTvAnpRTSvN61/hSk1G2yX6KOmMJ0BijIjcImk6NBvhyNSc+7O\nYwIDAQAB\n-----END PUBLIC KEY-----\n";
+
+@test
+fn test_oaep_ciphertext_is_modulus_sized(): void {
+    let ct = rsaEnc(PEM_KEY, "secret-blob", 11);
+    assert.equalInt(ct.length, 256);
+}
+
+@test
+fn test_oaep_is_randomized(): void {
+    let a = rsaEnc(PEM_KEY, "secret-blob", 11);
+    let b = rsaEnc(PEM_KEY, "secret-blob", 11);
+    assert.equalInt(a.length, 256);
+    assert.equalInt(b.length, 256);
+    assert.isTrue(!string.eql(a, b));
+}
+
+@test
+fn test_oaep_bad_pem_fails_closed(): void {
+    let ct = rsaEnc("not a valid pem key", "x", 1);
+    assert.equalInt(ct.length, 0);
+}

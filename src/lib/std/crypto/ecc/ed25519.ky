@@ -1,0 +1,746 @@
+//! Ed25519 (EdDSA over edwards25519), RFC 8032 pure-variant signatures.
+//!
+//! This is a faithful port of Go's reference implementation
+//! (`crypto/internal/fips140/ed25519` and `.../edwards25519`). It provides
+//! deterministic key derivation, signing, and verification against the RFC 8032
+//! known-answer vectors.
+//!
+//! ## Field arithmetic
+//!
+//! The 2^255-19 base field is NOT re-ported here. The five-51-bit-limb backend
+//! in `crypto.ecc.x25519` is reused directly (its `mul51`, `sq51`, `add51`,
+//! `sub51`, `carry51`, `invert51`, `fromBytes51`, `toBytes51` are exposed as
+//! `pub`). A field element is a 40-byte heap block of five 64-bit limb slots,
+//! passed as a raw `ptr`, exactly as in x25519. The Edwards-specific field
+//! helpers that x25519 does not need (negate, select, equality, is-negative,
+//! absolute value, `pow22523`, and `sqrtRatio` for decompression) are built on
+//! top of those primitives in this file.
+//!
+//! ## Points
+//!
+//! Curve points live in extended twisted-Edwards coordinates (X, Y, Z, T) where
+//! x = X/Z, y = Y/Z, xy = T/Z. A point is a single 160-byte block holding four
+//! field elements at offsets 0, 40, 80, 120. The addition law is the complete
+//! add-2008-hwcd formula (complete on this curve because a = -1 and d is a
+//! non-square), so double-and-add needs no exceptional-case handling.
+//!
+//! ## Scalars (mod the group order L)
+//!
+//! L = 2^252 + 27742317777372353535851937790883648493. Scalar arithmetic reuses
+//! the P-256-style CIOS Montgomery machinery (eight 32-bit limbs in 64-bit
+//! slots), specialised to modulus L. Wide reduction of a 64-byte hash follows
+//! Go's `SetUniformBytes`: split into three little-endian chunks and recombine
+//! with the precomputed constants 2^168 mod L and 2^336 mod L.
+//!
+//! ## Memory
+//!
+//! Everything is manual `bytes.alloc` / `bytes.free`, outside ARC, following the
+//! allocate-at-top, free-at-bottom convention. Addresses are handled as `long`,
+//! never `int`.
+
+import bytes;
+import crypto.ecc.x25519;
+import crypto.hash.sha512;
+
+// ---------------------------------------------------------------------------
+// Field element helpers (five 51-bit limbs, 40-byte block). Layout matches
+// x25519 so its arithmetic primitives can be called directly.
+// ---------------------------------------------------------------------------
+
+/// Allocates one field element (five 64-bit limb slots).
+fn feNew(): ptr { return bytes.alloc(40); }
+/// Reads limb `i` of a field element (byte offset `i * 8`).
+fn feGet(f: ptr, i: int): ulong { return bytes.read_ptr(f, i * 8) as ulong; }
+/// Writes `v` into limb `i` of a field element (byte offset `i * 8`).
+fn feSet(f: ptr, i: int, v: ulong): void { bytes.write_ptr(f, i * 8, v as ptr); }
+
+/// Copies all five limbs: `out = a`.
+fn feCopy(out: ptr, a: ptr): void {
+    let i = 0;
+    while (i < 5) { feSet(out, i, feGet(a, i)); i = i + 1; }
+}
+/// Sets `out = 0`.
+fn feZero(out: ptr): void {
+    let i = 0;
+    while (i < 5) { feSet(out, i, 0); i = i + 1; }
+}
+/// Sets `out = 1`.
+fn feOne(out: ptr): void {
+    feZero(out);
+    feSet(out, 0, 1);
+}
+
+/// Field negation: `out = -a mod p`. Uses x25519's biased subtract from zero.
+fn feNeg(out: ptr, a: ptr): void {
+    let z = feNew();
+    feZero(z);
+    x25519.sub51(out, z, a);
+    bytes.free(z);
+}
+
+/// Constant-time select: `out = a` if `cond == 1`, else `out = b`.
+fn feSelect(out: ptr, a: ptr, b: ptr, cond: int): void {
+    let m: ulong = 0 - (cond as ulong);
+    let i = 0;
+    while (i < 5) {
+        feSet(out, i, (feGet(a, i) & m) | (feGet(b, i) & (~m)));
+        i = i + 1;
+    }
+}
+
+/// Serialises a field element to 32 canonical little-endian bytes.
+fn feToBytes(out32: ptr, a: ptr): void { x25519.toBytes51(out32, a); }
+/// Decodes a 32-byte little-endian field element (bit 255 is ignored).
+fn feFromBytes(out: ptr, s32: ptr): void { x25519.fromBytes51(out, s32); }
+
+/// Returns 1 if the canonical encodings of `a` and `b` are equal, else 0.
+fn feEqualI(a: ptr, b: ptr): int {
+    let ba = bytes.alloc(32);
+    let bb = bytes.alloc(32);
+    feToBytes(ba, a);
+    feToBytes(bb, b);
+    let diff = 0;
+    let i = 0;
+    while (i < 32) { diff = diff | (bytes.read_byte(ba, i) ^ bytes.read_byte(bb, i)); i = i + 1; }
+    bytes.free(ba); bytes.free(bb);
+    if (diff == 0) { return 1; }
+    return 0;
+}
+
+/// Returns 1 if the field element is "negative" (low bit of canonical encoding).
+fn feIsNeg(a: ptr): int {
+    let b = bytes.alloc(32);
+    feToBytes(b, a);
+    let r = bytes.read_byte(b, 0) & 1;
+    bytes.free(b);
+    return r;
+}
+
+/// `out = |a|`: choose the non-negative representative.
+fn feAbsolute(out: ptr, a: ptr): void {
+    let neg = feNew();
+    feNeg(neg, a);
+    feSelect(out, neg, a, feIsNeg(a));
+    bytes.free(neg);
+}
+
+/// `out = a^(2^n)`: repeated squaring.
+fn feSquareN(out: ptr, a: ptr, n: int): void {
+    feCopy(out, a);
+    let i = 0;
+    while (i < n) { x25519.sq51(out, out); i = i + 1; }
+}
+
+/// `out = x^((p-5)/8) = x^(2^252 - 3)`. Fixed addition chain from fe_generic.go.
+fn fePow22523(out: ptr, x: ptr): void {
+    let t0 = feNew(); let t1 = feNew(); let t2 = feNew();
+    x25519.sq51(t0, x);            // x^2
+    x25519.mul51(t1, x, t0);       // x^3
+    x25519.sq51(t0, t1);           // x^6
+    x25519.sq51(t0, t0);           // x^12
+    x25519.mul51(t0, t1, t0);      // x^15
+    x25519.sq51(t0, t0);           // x^30
+    x25519.mul51(t0, x, t0);       // x^31 = 2^5 - 1
+    feSquareN(t1, t0, 5);          // 2^10 - 2^5
+    x25519.mul51(t1, t1, t0);      // 2^10 - 1
+    feSquareN(t2, t1, 5);          // 2^15 - 2^5
+    x25519.mul51(t0, t2, t0);      // 2^15 - 1
+    feSquareN(t2, t0, 15);         // 2^30 - 2^15
+    x25519.mul51(t2, t2, t0);      // 2^30 - 1
+    feSquareN(t0, t2, 30);         // 2^60 - 2^30
+    x25519.mul51(t0, t0, t2);      // 2^60 - 1
+    feSquareN(t2, t0, 60);         // 2^120 - 2^60
+    x25519.mul51(t2, t2, t0);      // 2^120 - 1
+    feSquareN(t0, t2, 120);        // 2^240 - 2^120
+    x25519.mul51(t0, t0, t2);      // 2^240 - 1
+    feSquareN(t0, t0, 10);         // 2^250 - 2^10
+    x25519.mul51(t0, t0, t1);      // 2^250 - 1
+    feSquareN(t0, t0, 2);          // 2^252 - 4
+    x25519.mul51(out, t0, x);      // 2^252 - 3
+    bytes.free(t0); bytes.free(t1); bytes.free(t2);
+}
+
+/// sqrtM1 = 2^((p-1)/4), a square root of -1, as five 51-bit limbs.
+fn feSqrtM1(out: ptr): void {
+    feSet(out, 0, 1718705420411056);
+    feSet(out, 1, 234908883556509);
+    feSet(out, 2, 2233514472574048);
+    feSet(out, 3, 2117202627021982);
+    feSet(out, 4, 765476049583133);
+}
+
+/// Sets `out` to the non-negative square root of u/v, returning 1 if u/v is a
+/// square (and the root is valid) or 0 otherwise. Port of fe.go SqrtRatio.
+fn feSqrtRatio(out: ptr, u: ptr, v: ptr): int {
+    let v2 = feNew(); let t = feNew(); let uv3 = feNew(); let uv7 = feNew();
+    let rr = feNew(); let check = feNew(); let uNeg = feNew(); let rPrime = feNew();
+    let sm1 = feNew(); feSqrtM1(sm1);
+
+    x25519.sq51(v2, v);                 // v^2
+    x25519.mul51(t, v2, v);             // v^3
+    x25519.mul51(uv3, u, t);            // u v^3
+    x25519.sq51(t, v2);                 // v^4
+    x25519.mul51(uv7, uv3, t);          // u v^7
+    fePow22523(t, uv7);                 // (u v^7)^((p-5)/8)
+    x25519.mul51(rr, uv3, t);           // r = u v^3 (u v^7)^((p-5)/8)
+
+    x25519.sq51(t, rr);
+    x25519.mul51(check, v, t);          // check = v r^2
+
+    feNeg(uNeg, u);
+    let correct = feEqualI(check, u);
+    let flipped = feEqualI(check, uNeg);
+    x25519.mul51(t, uNeg, sm1);
+    let flippedI = feEqualI(check, t);
+
+    x25519.mul51(rPrime, rr, sm1);
+    let sel = flipped | flippedI;
+    feSelect(rr, rPrime, rr, sel);
+
+    feAbsolute(out, rr);
+
+    bytes.free(v2); bytes.free(t); bytes.free(uv3); bytes.free(uv7);
+    bytes.free(rr); bytes.free(check); bytes.free(uNeg); bytes.free(rPrime);
+    bytes.free(sm1);
+    return correct | flipped;
+}
+
+/// Maps one lowercase/uppercase hex digit to its numeric value.
+fn nib(c: int): int {
+    if (c >= 48 && c <= 57) { return c - 48; }
+    if (c >= 97 && c <= 102) { return c - 87; }
+    return c - 55;
+}
+/// Decodes a hex string into `buf` (two chars per byte).
+fn setHex(buf: ptr, hex: string): void {
+    let n = hex.length / 2;
+    let i = 0;
+    while (i < n) {
+        bytes.write_byte(buf, i, nib(hex[i * 2]) * 16 + nib(hex[i * 2 + 1]));
+        i = i + 1;
+    }
+}
+
+/// Loads the curve constant d (little-endian encoding from edwards25519.go).
+fn feLoadD(out: ptr): void {
+    let b = bytes.alloc(32);
+    setHex(b, "a3785913ca4deb75abd841414d0a700098e879777940c78c73fe6f2bee6c0352");
+    feFromBytes(out, b);
+    bytes.free(b);
+}
+/// Loads d2 = 2d.
+fn feLoadD2(out: ptr): void {
+    let d = feNew();
+    feLoadD(d);
+    x25519.add51(out, d, d);
+    bytes.free(d);
+}
+
+// ---------------------------------------------------------------------------
+// Points in extended coordinates (X, Y, Z, T), a 160-byte block.
+// ---------------------------------------------------------------------------
+
+fn ptNew(): ptr { return bytes.alloc(160); }
+fn ptX(p: ptr): ptr { return p; }
+fn ptY(p: ptr): ptr { return (p as long + 40) as ptr; }
+fn ptZ(p: ptr): ptr { return (p as long + 80) as ptr; }
+fn ptT(p: ptr): ptr { return (p as long + 120) as ptr; }
+
+/// Copies a whole point (all four coordinates).
+fn ptCopy(out: ptr, a: ptr): void {
+    let i = 0;
+    while (i < 20) { feSet(out, i, feGet(a, i)); i = i + 1; }
+}
+/// Sets `p` to the identity point (0, 1, 1, 0).
+fn ptIdentity(p: ptr): void {
+    feZero(ptX(p)); feOne(ptY(p)); feOne(ptZ(p)); feZero(ptT(p));
+}
+
+/// Constant-time point select: `out = cond ? a : b`, coordinate by coordinate,
+/// with no secret-dependent branch (masked). `out` may alias `b`.
+fn ptSelect(out: ptr, a: ptr, b: ptr, cond: int): void {
+    feSelect(ptX(out), ptX(a), ptX(b), cond);
+    feSelect(ptY(out), ptY(a), ptY(b), cond);
+    feSelect(ptZ(out), ptZ(a), ptZ(b), cond);
+    feSelect(ptT(out), ptT(a), ptT(b), cond);
+}
+
+/// `out = p + q` using the complete add-2008-hwcd law. `out` may alias `p`/`q`.
+fn ptAdd(out: ptr, p: ptr, q: ptr): void {
+    let d2 = feNew(); feLoadD2(d2);
+    let ypx1 = feNew(); let ymx1 = feNew(); let ypx2 = feNew(); let ymx2 = feNew();
+    let t2d = feNew(); let PP = feNew(); let MM = feNew(); let TT2d = feNew(); let ZZ2 = feNew();
+    let X = feNew(); let Y = feNew(); let Z = feNew(); let T = feNew();
+
+    x25519.add51(ypx1, ptY(p), ptX(p));
+    x25519.sub51(ymx1, ptY(p), ptX(p));
+    x25519.add51(ypx2, ptY(q), ptX(q));
+    x25519.sub51(ymx2, ptY(q), ptX(q));
+    x25519.mul51(t2d, ptT(q), d2);        // T2d = T2 * d2
+
+    x25519.mul51(PP, ypx1, ypx2);
+    x25519.mul51(MM, ymx1, ymx2);
+    x25519.mul51(TT2d, ptT(p), t2d);
+    x25519.mul51(ZZ2, ptZ(p), ptZ(q));
+    x25519.add51(ZZ2, ZZ2, ZZ2);
+
+    x25519.sub51(X, PP, MM);
+    x25519.add51(Y, PP, MM);
+    x25519.add51(Z, ZZ2, TT2d);
+    x25519.sub51(T, ZZ2, TT2d);
+
+    // fromP1xP1 into extended coordinates (inputs no longer read beyond here).
+    x25519.mul51(ptX(out), X, T);
+    x25519.mul51(ptY(out), Y, Z);
+    x25519.mul51(ptZ(out), Z, T);
+    x25519.mul51(ptT(out), X, Y);
+
+    bytes.free(d2);
+    bytes.free(ypx1); bytes.free(ymx1); bytes.free(ypx2); bytes.free(ymx2);
+    bytes.free(t2d); bytes.free(PP); bytes.free(MM); bytes.free(TT2d); bytes.free(ZZ2);
+    bytes.free(X); bytes.free(Y); bytes.free(Z); bytes.free(T);
+}
+
+/// `out = 2p` (projP2 doubling then back to extended). `out` may alias `p`.
+fn ptDouble(out: ptr, p: ptr): void {
+    let XX = feNew(); let YY = feNew(); let ZZ2 = feNew(); let XpY = feNew();
+    let Yr = feNew(); let Zr = feNew(); let Xr = feNew(); let Tr = feNew();
+
+    x25519.sq51(XX, ptX(p));
+    x25519.sq51(YY, ptY(p));
+    x25519.sq51(ZZ2, ptZ(p));
+    x25519.add51(ZZ2, ZZ2, ZZ2);
+    x25519.add51(XpY, ptX(p), ptY(p));
+    x25519.sq51(XpY, XpY);
+
+    x25519.add51(Yr, YY, XX);
+    x25519.sub51(Zr, YY, XX);
+    x25519.sub51(Xr, XpY, Yr);
+    x25519.sub51(Tr, ZZ2, Zr);
+
+    x25519.mul51(ptX(out), Xr, Tr);
+    x25519.mul51(ptY(out), Yr, Zr);
+    x25519.mul51(ptZ(out), Zr, Tr);
+    x25519.mul51(ptT(out), Xr, Yr);
+
+    bytes.free(XX); bytes.free(YY); bytes.free(ZZ2); bytes.free(XpY);
+    bytes.free(Yr); bytes.free(Zr); bytes.free(Xr); bytes.free(Tr);
+}
+
+/// `out = -p`.
+fn ptNeg(out: ptr, p: ptr): void {
+    feNeg(ptX(out), ptX(p));
+    feCopy(ptY(out), ptY(p));
+    feCopy(ptZ(out), ptZ(p));
+    feNeg(ptT(out), ptT(p));
+}
+
+/// Decodes a 32-byte compressed point into extended coordinates.
+/// Returns 1 on success, 0 if the encoding is not a valid curve point.
+fn ptDecode(out: ptr, s32: ptr): int {
+    let y = feNew(); feFromBytes(y, s32);
+    let one = feNew(); feOne(one);
+    let y2 = feNew(); x25519.sq51(y2, y);
+    let u = feNew(); x25519.sub51(u, y2, one);     // u = y^2 - 1
+    let d = feNew(); feLoadD(d);
+    let vv = feNew(); x25519.mul51(vv, y2, d);
+    x25519.add51(vv, vv, one);                      // v = d y^2 + 1
+
+    let xx = feNew();
+    let ws = feSqrtRatio(xx, u, vv);
+    let okRet = 0;
+    if (ws == 1) {
+        let xNeg = feNew(); feNeg(xNeg, xx);
+        let signBit = (bytes.read_byte(s32, 31) >> 7) & 1;
+        let xFinal = feNew();
+        feSelect(xFinal, xNeg, xx, signBit);         // negative root if sign set
+        feCopy(ptX(out), xFinal);
+        feCopy(ptY(out), y);
+        feOne(ptZ(out));
+        x25519.mul51(ptT(out), xFinal, y);           // T = x * y
+        bytes.free(xNeg); bytes.free(xFinal);
+        okRet = 1;
+    }
+    bytes.free(y); bytes.free(one); bytes.free(y2); bytes.free(u);
+    bytes.free(d); bytes.free(vv); bytes.free(xx);
+    return okRet;
+}
+
+/// Encodes a point to its 32-byte compressed form.
+fn ptEncode(out32: ptr, p: ptr): void {
+    let zInv = feNew(); x25519.invert51(zInv, ptZ(p));
+    let x = feNew(); x25519.mul51(x, ptX(p), zInv);
+    let y = feNew(); x25519.mul51(y, ptY(p), zInv);
+    feToBytes(out32, y);
+    let sign = feIsNeg(x);
+    bytes.write_byte(out32, 31, bytes.read_byte(out32, 31) | (sign << 7));
+    bytes.free(zInv); bytes.free(x); bytes.free(y);
+}
+
+/// Loads the canonical base point B (generator) into extended coordinates.
+fn ptBase(out: ptr): void {
+    let b = bytes.alloc(32);
+    setHex(b, "5866666666666666666666666666666666666666666666666666666666666666");
+    ptDecode(out, b);
+    bytes.free(b);
+}
+
+/// `out = [scalar] * base` by double-and-add-ALWAYS (bit 254 down to 0), which
+/// is constant-time: every bit does the same double, add, and masked select, so
+/// there is no secret-dependent branch or memory index. This is what signing
+/// needs (the scalar is secret for `[s]B` and the nonce `[r]B`); verify reuses it
+/// harmlessly. The complete addition law makes it correct for every point,
+/// including the identity.
+fn ptScalarMul(out: ptr, scalar32: ptr, base: ptr): void {
+    let acc = ptNew();
+    ptIdentity(acc);
+    let sum = ptNew();
+    let pos = 254;
+    while (pos >= 0) {
+        ptDouble(acc, acc);
+        ptAdd(sum, acc, base);                                      // always compute acc + base
+        let bit = (bytes.read_byte(scalar32, pos >> 3) >> (pos & 7)) & 1;
+        ptSelect(acc, sum, acc, bit);                               // acc = bit ? acc+base : acc (masked)
+        pos = pos - 1;
+    }
+    ptCopy(out, acc);
+    bytes.free(acc);
+    bytes.free(sum);
+}
+
+// ---------------------------------------------------------------------------
+// Scalar arithmetic mod L (eight 32-bit limbs in 64-bit slots, CIOS Montgomery).
+// ---------------------------------------------------------------------------
+
+const MASK32: ulong = 0xffffffff;
+const U0: ulong = 0;
+const U1: ulong = 1;
+/// Montgomery reduction constant: -L^-1 mod 2^32.
+const L0INV: ulong = 0x12547e1b;
+
+fn scNew(): ptr { return bytes.alloc(64); }
+fn scGet(f: ptr, i: int): ulong { return (bytes.read_ptr(f, i * 8) as long) as ulong; }
+fn scSet(f: ptr, i: int, v: ulong): void { bytes.write_ptr(f, i * 8, (v as long) as ptr); }
+fn scCopy(out: ptr, a: ptr): void { let i = 0; while (i < 8) { scSet(out, i, scGet(a, i)); i = i + 1; } }
+fn scZero(f: ptr): void { let i = 0; while (i < 8) { scSet(f, i, U0); i = i + 1; } }
+
+/// Limb `i` of the group order L, least-significant first.
+fn Ll(i: int): ulong {
+    if (i == 0) { return 0x5cf5d3ed; }
+    if (i == 1) { return 0x5812631a; }
+    if (i == 2) { return 0xa2f79cd6; }
+    if (i == 3) { return 0x14def9de; }
+    if (i == 7) { return 0x10000000; }
+    return U0;
+}
+
+/// Constant-time conditional subtract of L from a nine-limb value in [0, 2L).
+fn lCondSub(out: ptr, t: ptr): void {
+    let d = bytes.alloc(64);
+    let borrow: ulong = 0;
+    let j = 0;
+    while (j < 8) {
+        let x = scGet(t, j) - Ll(j) - borrow;
+        scSet(d, j, x & MASK32);
+        borrow = (x >> 32) & U1;
+        j = j + 1;
+    }
+    let x8 = scGet(t, 8) - borrow;
+    borrow = (x8 >> 32) & U1;
+    let mask = U0 - (borrow ^ U1);
+    j = 0;
+    while (j < 8) {
+        scSet(out, j, (scGet(d, j) & mask) | (scGet(t, j) & (~mask)));
+        j = j + 1;
+    }
+    bytes.free(d);
+}
+
+/// `out = (a + b) mod L` for a, b < L.
+fn lAdd(out: ptr, a: ptr, b: ptr): void {
+    let t = bytes.alloc(72);
+    let carry: ulong = 0;
+    let j = 0;
+    while (j < 8) {
+        let s = scGet(a, j) + scGet(b, j) + carry;
+        scSet(t, j, s & MASK32);
+        carry = s >> 32;
+        j = j + 1;
+    }
+    scSet(t, 8, carry);
+    lCondSub(out, t);
+    bytes.free(t);
+}
+
+/// `out = a * b * R^-1 mod L` (CIOS Montgomery). Operands must be < L.
+fn lMul(out: ptr, a: ptr, b: ptr): void {
+    let t = bytes.alloc(80);
+    let j = 0;
+    while (j < 10) { scSet(t, j, U0); j = j + 1; }
+    let i = 0;
+    while (i < 8) {
+        let bi = scGet(b, i);
+        let carry: ulong = 0;
+        j = 0;
+        while (j < 8) {
+            let s = scGet(t, j) + scGet(a, j) * bi + carry;
+            scSet(t, j, s & MASK32);
+            carry = s >> 32;
+            j = j + 1;
+        }
+        let s8 = scGet(t, 8) + carry;
+        scSet(t, 8, s8 & MASK32);
+        scSet(t, 9, s8 >> 32);
+        let m = (scGet(t, 0) * L0INV) & MASK32;
+        let c2 = (scGet(t, 0) + m * Ll(0)) >> 32;
+        j = 1;
+        while (j < 8) {
+            let s = scGet(t, j) + m * Ll(j) + c2;
+            scSet(t, j - 1, s & MASK32);
+            c2 = s >> 32;
+            j = j + 1;
+        }
+        let s7 = scGet(t, 8) + c2;
+        scSet(t, 7, s7 & MASK32);
+        scSet(t, 8, scGet(t, 9) + (s7 >> 32));
+        i = i + 1;
+    }
+    lCondSub(out, t);
+    bytes.free(t);
+}
+
+/// `out = a * R mod L`: lift into the Montgomery domain by doubling 256 times.
+fn toMontL(out: ptr, a: ptr): void {
+    scCopy(out, a);
+    let i = 0;
+    while (i < 256) { lAdd(out, out, out); i = i + 1; }
+}
+
+/// `out = (a * b) mod L` for plain (non-Montgomery) a, b < L.
+fn lModMul(out: ptr, a: ptr, b: ptr): void {
+    let aM = scNew();
+    toMontL(aM, a);
+    lMul(out, aM, b);
+    bytes.free(aM);
+}
+
+/// Loads `nbytes` little-endian bytes at `src + off` into a scalar element.
+fn scLoadLE(out: ptr, src: ptr, off: int, nbytes: int): void {
+    scZero(out);
+    let j = 0;
+    while (j < nbytes) {
+        let limb = j >> 2;
+        let sh = (j & 3) * 8;
+        let cur = scGet(out, limb) | ((bytes.read_byte(src, off + j) as ulong) << sh);
+        scSet(out, limb, cur);
+        j = j + 1;
+    }
+}
+
+/// Stores a scalar element as 32 little-endian bytes.
+fn scStoreLE(dst: ptr, a: ptr): void {
+    let i = 0;
+    while (i < 8) {
+        let w = scGet(a, i);
+        let b = 0;
+        while (b < 4) {
+            bytes.write_byte(dst, i * 4 + b, ((w >> (b * 8)) & 0xff) as int);
+            b = b + 1;
+        }
+        i = i + 1;
+    }
+}
+
+/// Sets the eight limbs of a scalar element from explicit values.
+fn scSet8(f: ptr, l0: ulong, l1: ulong, l2: ulong, l3: ulong, l4: ulong, l5: ulong, l6: ulong, l7: ulong): void {
+    scSet(f, 0, l0); scSet(f, 1, l1); scSet(f, 2, l2); scSet(f, 3, l3);
+    scSet(f, 4, l4); scSet(f, 5, l5); scSet(f, 6, l6); scSet(f, 7, l7);
+}
+
+/// Reduces a 64-byte little-endian value mod L, writing 32 little-endian bytes.
+/// Port of edwards25519 Scalar.SetUniformBytes.
+fn scReduce64(out32: ptr, in64: ptr): void {
+    let s0 = scNew(); scLoadLE(s0, in64, 0, 21);
+    let s1 = scNew(); scLoadLE(s1, in64, 21, 21);
+    let s2 = scNew(); scLoadLE(s2, in64, 42, 22);
+
+    let c168 = scNew(); scSet8(c168, U0, U0, U0, U0, U0, 0x100, U0, U0);                 // 2^168 mod L
+    let c336 = scNew(); scSet8(c336, 0x5cf5d3ed, 0x5812631a, 0x64279cd6, 0xe3392a81,
+                               0x329a7ed9, 0x6215d086, 0xfffeb210, 0x0fffffff);          // 2^336 mod L
+
+    let t1 = scNew(); lModMul(t1, s1, c168);
+    let t2 = scNew(); lModMul(t2, s2, c336);
+    let r = scNew(); lAdd(r, s0, t1); lAdd(r, r, t2);
+    scStoreLE(out32, r);
+
+    bytes.free(s0); bytes.free(s1); bytes.free(s2);
+    bytes.free(c168); bytes.free(c336);
+    bytes.free(t1); bytes.free(t2); bytes.free(r);
+}
+
+/// `out = (a * b + c) mod L`, all operands given as 32-byte little-endian < L.
+fn scMulAdd(out32: ptr, a32: ptr, b32: ptr, c32: ptr): void {
+    let a = scNew(); scLoadLE(a, a32, 0, 32);
+    let b = scNew(); scLoadLE(b, b32, 0, 32);
+    let c = scNew(); scLoadLE(c, c32, 0, 32);
+    let ab = scNew(); lModMul(ab, a, b);
+    let s = scNew(); lAdd(s, ab, c);
+    scStoreLE(out32, s);
+    bytes.free(a); bytes.free(b); bytes.free(c); bytes.free(ab); bytes.free(s);
+}
+
+/// Returns true if the 32-byte little-endian scalar is reduced (< L).
+fn scIsReducedLE(s32: ptr): bool {
+    let a = scNew(); scLoadLE(a, s32, 0, 32);
+    let borrow: ulong = 0;
+    let j = 0;
+    while (j < 8) {
+        let x = scGet(a, j) - Ll(j) - borrow;
+        borrow = (x >> 32) & U1;
+        j = j + 1;
+    }
+    bytes.free(a);
+    return borrow == U1;
+}
+
+// ---------------------------------------------------------------------------
+// EdDSA scheme.
+// ---------------------------------------------------------------------------
+
+/// Expands a SHA-512 hash of the seed into the clamped secret scalar (reduced
+/// mod L, 32-byte little-endian in `sOut`) and the 32-byte nonce prefix
+/// (`prefixOut`). Matches precomputePrivateKey.
+fn expandSeed(seed32: ptr, sOut: ptr, prefixOut: ptr): void {
+    let h = bytes.alloc(64);
+    sha512.hashInto(seed32, 32, h);
+    // Clamp the low 32 bytes (RFC 8032 5.1.5).
+    let wide = bytes.alloc(64);
+    let i = 0;
+    while (i < 64) { bytes.write_byte(wide, i, 0); i = i + 1; }
+    i = 0;
+    while (i < 32) { bytes.write_byte(wide, i, bytes.read_byte(h, i)); i = i + 1; }
+    bytes.write_byte(wide, 0, bytes.read_byte(wide, 0) & 248);
+    bytes.write_byte(wide, 31, (bytes.read_byte(wide, 31) & 63) | 64);
+    scReduce64(sOut, wide);
+    i = 0;
+    while (i < 32) { bytes.write_byte(prefixOut, i, bytes.read_byte(h, 32 + i)); i = i + 1; }
+    bytes.free(h); bytes.free(wide);
+}
+
+/// Derives the Ed25519 key pair from a 32-byte seed.
+///
+/// Writes the 32-byte public key to `outPub32` and the 64-byte private key
+/// (seed || public key, matching Go's PrivateKey.Bytes) to `outPriv64`.
+pub fn seedToKeypair(seed32: ptr, outPub32: ptr, outPriv64: ptr): void {
+    let s = bytes.alloc(32);
+    let prefix = bytes.alloc(32);
+    expandSeed(seed32, s, prefix);
+
+    let base = ptNew(); ptBase(base);
+    let A = ptNew(); ptScalarMul(A, s, base);
+    ptEncode(outPub32, A);
+
+    let i = 0;
+    while (i < 32) { bytes.write_byte(outPriv64, i, bytes.read_byte(seed32, i)); i = i + 1; }
+    i = 0;
+    while (i < 32) { bytes.write_byte(outPriv64, 32 + i, bytes.read_byte(outPub32, i)); i = i + 1; }
+
+    bytes.free(s); bytes.free(prefix); bytes.free(base); bytes.free(A);
+}
+
+/// Signs `msg` (length `msgLen`) with the 64-byte private key (seed || pub),
+/// writing the 64-byte signature to `outSig64`. Deterministic per RFC 8032.
+pub fn sign(priv64: ptr, msg: ptr, msgLen: int, outSig64: ptr): void {
+    let pubKey = (priv64 as long + 32) as ptr;
+
+    let s = bytes.alloc(32);
+    let prefix = bytes.alloc(32);
+    expandSeed(priv64, s, prefix);
+
+    // r = SHA-512(prefix || msg) mod L
+    let buf1 = bytes.alloc(32 + msgLen);
+    let i = 0;
+    while (i < 32) { bytes.write_byte(buf1, i, bytes.read_byte(prefix, i)); i = i + 1; }
+    i = 0;
+    while (i < msgLen) { bytes.write_byte(buf1, 32 + i, bytes.read_byte(msg, i)); i = i + 1; }
+    let hr = bytes.alloc(64); sha512.hashInto(buf1, 32 + msgLen, hr);
+    let r = bytes.alloc(32); scReduce64(r, hr);
+
+    // R = [r]B
+    let base = ptNew(); ptBase(base);
+    let R = ptNew(); ptScalarMul(R, r, base);
+    let Rbytes = bytes.alloc(32); ptEncode(Rbytes, R);
+
+    // k = SHA-512(R || A || msg) mod L
+    let buf2 = bytes.alloc(64 + msgLen);
+    i = 0;
+    while (i < 32) { bytes.write_byte(buf2, i, bytes.read_byte(Rbytes, i)); i = i + 1; }
+    i = 0;
+    while (i < 32) { bytes.write_byte(buf2, 32 + i, bytes.read_byte(pubKey, i)); i = i + 1; }
+    i = 0;
+    while (i < msgLen) { bytes.write_byte(buf2, 64 + i, bytes.read_byte(msg, i)); i = i + 1; }
+    let hk = bytes.alloc(64); sha512.hashInto(buf2, 64 + msgLen, hk);
+    let k = bytes.alloc(32); scReduce64(k, hk);
+
+    // S = (k * s + r) mod L
+    let S = bytes.alloc(32); scMulAdd(S, k, s, r);
+
+    i = 0;
+    while (i < 32) { bytes.write_byte(outSig64, i, bytes.read_byte(Rbytes, i)); i = i + 1; }
+    i = 0;
+    while (i < 32) { bytes.write_byte(outSig64, 32 + i, bytes.read_byte(S, i)); i = i + 1; }
+
+    bytes.free(s); bytes.free(prefix); bytes.free(buf1); bytes.free(hr); bytes.free(r);
+    bytes.free(base); bytes.free(R); bytes.free(Rbytes);
+    bytes.free(buf2); bytes.free(hk); bytes.free(k); bytes.free(S);
+}
+
+/// Verifies a 64-byte signature over `msg` under the 32-byte public key.
+/// Returns true only for a valid signature with a canonical (reduced) S.
+pub fn verify(pub32: ptr, msg: ptr, msgLen: int, sig64: ptr): bool {
+    // Reject non-canonical S high bits early (matches Go: sig[63] & 224 != 0).
+    if ((bytes.read_byte(sig64, 63) & 224) != 0) { return false; }
+
+    let A = ptNew();
+    if (ptDecode(A, pub32) == 0) {
+        bytes.free(A);
+        return false;
+    }
+
+    // k = SHA-512(R || A || msg) mod L
+    let buf = bytes.alloc(64 + msgLen);
+    let i = 0;
+    while (i < 32) { bytes.write_byte(buf, i, bytes.read_byte(sig64, i)); i = i + 1; }
+    i = 0;
+    while (i < 32) { bytes.write_byte(buf, 32 + i, bytes.read_byte(pub32, i)); i = i + 1; }
+    i = 0;
+    while (i < msgLen) { bytes.write_byte(buf, 64 + i, bytes.read_byte(msg, i)); i = i + 1; }
+    let hk = bytes.alloc(64); sha512.hashInto(buf, 64 + msgLen, hk);
+    let k = bytes.alloc(32); scReduce64(k, hk);
+
+    // S must be canonical.
+    let S = bytes.alloc(32);
+    i = 0;
+    while (i < 32) { bytes.write_byte(S, i, bytes.read_byte(sig64, 32 + i)); i = i + 1; }
+    if (!scIsReducedLE(S)) {
+        bytes.free(A); bytes.free(buf); bytes.free(hk); bytes.free(k); bytes.free(S);
+        return false;
+    }
+
+    // R' = [S]B - [k]A = [S]B + [k](-A)
+    let minusA = ptNew(); ptNeg(minusA, A);
+    let base = ptNew(); ptBase(base);
+    let SB = ptNew(); ptScalarMul(SB, S, base);
+    let kA = ptNew(); ptScalarMul(kA, k, minusA);
+    let R = ptNew(); ptAdd(R, SB, kA);
+    let Rb = bytes.alloc(32); ptEncode(Rb, R);
+
+    let diff = 0;
+    i = 0;
+    while (i < 32) { diff = diff | (bytes.read_byte(Rb, i) ^ bytes.read_byte(sig64, i)); i = i + 1; }
+
+    bytes.free(A); bytes.free(buf); bytes.free(hk); bytes.free(k); bytes.free(S);
+    bytes.free(minusA); bytes.free(base); bytes.free(SB); bytes.free(kA); bytes.free(R); bytes.free(Rb);
+
+    return diff == 0;
+}

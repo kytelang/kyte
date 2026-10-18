@@ -1,0 +1,83 @@
+import assert;
+import map;
+import string;
+
+fn test_map_int_zero() {
+    let m = Map<string, int>(8, string.hash);
+    m.set("zero", 0);
+    m.set("five", 5);
+
+    assert.isTrue(m.get("zero") != undefined);
+    assert.isTrue(m.get("five") != undefined);
+    assert.isTrue(m.get("absent") == undefined);
+
+    assert.zero(m.get("zero") ?? 99);
+    assert.equalInt(m.get("five") ?? 99, 5);
+    assert.equalInt(m.get("absent") ?? 99, 99);
+}
+
+fn test_narrowed_zero() {
+    let m = Map<string, int>(8, string.hash);
+    m.set("k", 0);
+    let got = m.get("k");
+    if (got != undefined) {
+        assert.zero(got);
+        assert.equalInt(got + 7, 7);
+    } else {
+        assert.fail("present-0 wrongly narrowed as absent");
+    }
+}
+
+fn test_local_widths() {
+    let i: int | undefined = 0;
+    assert.isTrue(i != undefined);
+    assert.zero(i ?? 42);
+
+    let l: long | undefined = 0;
+    assert.isTrue(l != undefined);
+
+    let b: bool | undefined = false;
+    assert.isTrue(b != undefined);
+    assert.isFalse(b ?? true);
+
+    let f: float | undefined = 0.0;
+    assert.isTrue(f != undefined);
+
+    let d: double | undefined = 0.0;
+    assert.isTrue(d != undefined);
+
+    let u: int | undefined = undefined;
+    assert.isTrue(u == undefined);
+    assert.equalInt(u ?? 7, 7);
+}
+
+fn viaParam(x: int | undefined): int {
+    if (x != undefined) { return x; }
+    return -1;
+}
+fn viaDefault(x: int | undefined): int { return x ?? 99; }
+fn boolParam(b: bool | undefined): int {
+    if (b != undefined) { return if (b) 1 else 0; }
+    return -1;
+}
+fn dblParam(d: double | undefined): int { return if (d != undefined) 1 else -1; }
+
+fn test_param_widths() {
+    assert.zero(viaParam(0));
+    assert.equalInt(viaParam(5), 5);
+    assert.equalInt(viaParam(undefined), -1);
+    assert.zero(viaDefault(0));
+    assert.equalInt(viaDefault(undefined), 99);
+    assert.equalInt(boolParam(false), 0);
+    assert.equalInt(boolParam(undefined), -1);
+    assert.equalInt(dblParam(0.0), 1);
+    assert.equalInt(dblParam(undefined), -1);
+}
+
+@test
+fn run() {
+    test_map_int_zero();
+    test_narrowed_zero();
+    test_local_widths();
+    test_param_widths();
+}

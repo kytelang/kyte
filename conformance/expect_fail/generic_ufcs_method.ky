@@ -1,0 +1,7 @@
+// EXPECT-FAIL: typecheck
+struct Box<T> { pub val: T }
+
+pub fn get<T>(self: Box<T>): T { return self.val; }
+
+@test
+fn t(): void {}

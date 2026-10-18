@@ -1,0 +1,22 @@
+import assert;
+import scoped.status_b;
+import scoped.status_a;
+
+@test
+fn test_module_a_enum(): void {
+    let a = status_a.getA();
+    assert.equalInt(a.code(), 200);
+}
+
+@test
+fn test_module_b_enum(): void {
+    let b = status_b.getB();
+    assert.equalInt(b.code(), 3);
+}
+
+@test
+fn test_both_coexist(): void {
+    let a = status_a.getA();
+    let b = status_b.getB();
+    assert.equalInt(a.code() + b.code(), 203);
+}

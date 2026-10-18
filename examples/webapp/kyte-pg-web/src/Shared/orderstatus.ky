@@ -1,0 +1,91 @@
+// The order lifecycle, in one place: the ordered list of stages a sandwich
+// order moves through from placement to delivery, plus human labels and the
+// index of a given status. Both the admin advance action and the customer's
+// live status view read from here so they never disagree. See DESIGN.md
+// section 9 (live order status over SSE).
+import list;
+import string;
+
+// The stages in order. Kitchen owns accepted -> preparing -> ready; the delivery
+// partner owns picked_up -> on_the_way; delivered is terminal.
+pub fn stages(): list.List<string> {
+    let s = list.List<string>();
+    s.push("pending");
+    s.push("accepted");
+    s.push("preparing");
+    s.push("ready");
+    s.push("picked_up");
+    s.push("on_the_way");
+    s.push("delivered");
+    return s;
+}
+
+// A human label for a status code.
+pub fn label(status: string): string {
+    if (string.eql(status, "pending")) { return "Order placed"; }
+    if (string.eql(status, "accepted")) { return "Accepted by kitchen"; }
+    if (string.eql(status, "preparing")) { return "Preparing your food"; }
+    if (string.eql(status, "ready")) { return "Ready for delivery"; }
+    if (string.eql(status, "picked_up")) { return "Picked up by delivery partner"; }
+    if (string.eql(status, "on_the_way")) { return "On the way"; }
+    if (string.eql(status, "delivered")) { return "Delivered"; }
+    if (string.eql(status, "cancelled")) { return "Cancelled"; }
+    return status;
+}
+
+// The 0-based position of `status` in the lifecycle, or 0 if unknown.
+pub fn step(status: string): int {
+    let s = stages();
+    let i = 0;
+    while (i < s.size()) {
+        if (string.eql(s.get(i) ?? "", status)) { return i; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// The next status after `status`, or "" if it is already terminal.
+pub fn next(status: string): string {
+    let s = stages();
+    let i = step(status);
+    if (i + 1 < s.size()) { return s.get(i + 1) ?? ""; }
+    return "";
+}
+
+pub fn isTerminal(status: string): bool {
+    return string.eql(status, "delivered") || string.eql(status, "cancelled");
+}
+
+// Which staff role acts on an order in this status. Kitchen owns
+// pending/accepted/preparing; the delivery partner owns ready/picked_up/on_the_way.
+pub fn roleForStatus(status: string): string {
+    if (string.eql(status, "pending") || string.eql(status, "accepted") || string.eql(status, "preparing")) {
+        return "kitchen";
+    }
+    if (string.eql(status, "ready") || string.eql(status, "picked_up") || string.eql(status, "on_the_way")) {
+        return "delivery";
+    }
+    return "admin";
+}
+
+// True when a user with `role` is allowed to advance an order currently in
+// `status`. Admin can advance anything not terminal; kitchen and delivery may
+// only advance orders at their own stages.
+pub fn canAdvance(role: string, status: string): bool {
+    if (isTerminal(status)) { return false; }
+    if (string.eql(role, "admin")) { return true; }
+    return string.eql(role, roleForStatus(status));
+}
+
+// Is this one of the three self-registerable roles?
+pub fn isValidSignupRole(role: string): bool {
+    return string.eql(role, "customer") || string.eql(role, "kitchen") || string.eql(role, "delivery");
+}
+
+// A human label for a role.
+pub fn roleLabel(role: string): string {
+    if (string.eql(role, "kitchen")) { return "Kitchen operator"; }
+    if (string.eql(role, "delivery")) { return "Delivery partner"; }
+    if (string.eql(role, "admin")) { return "Administrator"; }
+    return "Customer";
+}

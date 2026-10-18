@@ -1,0 +1,38 @@
+import assert;
+import bytes;
+
+@test
+fn clmul_identity(): void {
+    let out = bytes.alloc(16);
+    simd.storeU64x2(out, 0, simd.clmulU64x2(0x1122334455667788, 1));
+    assert.equalInt(bytes.read_i32(out, 0), 0x55667788);
+    assert.equalInt(bytes.read_i32(out, 4), 0x11223344);
+    assert.equalInt(bytes.read_i32(out, 8), 0);
+    assert.equalInt(bytes.read_i32(out, 12), 0);
+}
+
+@test
+fn clmul_shift(): void {
+    let out = bytes.alloc(16);
+    simd.storeU64x2(out, 0, simd.clmulU64x2(0x8, 2));
+    assert.equalInt(bytes.read_i32(out, 0), 0x10);
+    assert.equalInt(bytes.read_i32(out, 8), 0);
+}
+
+@test
+fn clmul_is_carryless(): void {
+    let out = bytes.alloc(16);
+    simd.storeU64x2(out, 0, simd.clmulU64x2(3, 3));
+    assert.equalInt(bytes.read_i32(out, 0), 5);
+    assert.equalInt(bytes.read_i32(out, 8), 0);
+}
+
+@test
+fn clmul_high_bits(): void {
+    let out = bytes.alloc(16);
+    let hi: long = 1;
+    let shifted = hi << 40;
+    simd.storeU64x2(out, 0, simd.clmulU64x2(shifted, shifted));
+    assert.equalInt(bytes.read_i32(out, 0), 0);
+    assert.equalInt(bytes.read_i32(out, 8), 1 << 16);
+}

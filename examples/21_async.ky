@@ -1,0 +1,26 @@
+
+async fn square(n: int): int {
+    return n * n;
+}
+
+async fn sumOfSquares(a: int, b: int): int {
+    let x = await square(a);
+    let y = await square(b);
+    return x + y;
+}
+
+async fn run(): int {
+    let h1 = spawn square(5);
+    let h2 = spawn square(6);
+    let h3 = spawn sumOfSquares(1, 2);
+
+    let r1 = await h1;
+    let r2 = await h2;
+    let r3 = await h3;
+    return r1 + r2 + r3;
+}
+
+fn main(): void {
+    let total = run();
+    console.log(`25 + 36 + 5 = ${total}`);
+}

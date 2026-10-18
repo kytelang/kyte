@@ -1,0 +1,39 @@
+import list;
+import assert;
+
+fn sum_until(n: int): int {
+    let p = 0;
+    let acc = 0;
+    while (true) {
+        if (p >= n) { return acc; }
+        let hold = List<int>();
+        hold.push(p);
+        acc = acc + hold.at(0);
+        p = p + 1;
+    }
+    return 0 - 1;
+}
+
+fn count_until(n: int): int {
+    let p = 0;
+    while (p < 1000) {
+        if (p >= n) { return p; }
+        let scratch = List<int>();
+        scratch.push(p);
+        p = p + 1;
+    }
+    return p;
+}
+
+@test
+fn test_while_true_early_return(): void {
+    assert.equalInt(sum_until(4), 6);
+    assert.equalInt(sum_until(0), 0);
+    assert.equalInt(sum_until(1), 0);
+}
+
+@test
+fn test_bounded_while_early_return(): void {
+    assert.equalInt(count_until(5), 5);
+    assert.equalInt(count_until(0), 0);
+}

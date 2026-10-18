@@ -1,0 +1,23 @@
+import web.routing;
+import Features.Cart.GetCart.query;
+import Features.Cart.Shared.CartRepository;
+import Features.Cart.views.cart;
+import Domain.Contracts.cart;
+import ds_response;
+import web.response;
+
+pub struct GetCartHandler impl RouteHandler {
+    repo: CartRepository,
+
+    init(repo: CartRepository) {
+        self.repo = repo;
+    }
+
+    async fn serve(self: GetCartHandler, ctx: Context): Response {
+        let q = ctx.bind<GetCart>();
+        let lines = await self.repo.lines(q.cartid);
+        let summ = await self.repo.summary(q.cartid);
+        let s = summ.items.get(0) ?? CartSummaryDto {itemCount: 0, subtotal: 0.0, tax: 0.0, total: 0.0};
+        return await ds_response.patch(cart.cartView(lines.items, s));
+    }
+}

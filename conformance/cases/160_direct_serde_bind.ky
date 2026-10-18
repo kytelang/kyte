@@ -1,0 +1,26 @@
+import assert;
+import serde.source;
+
+@serializable struct Dto { pub id: int, pub name: string }
+
+@test
+fn test_let_bound_jsonsource(): void {
+    let js = source.fromJson("{\"id\": 7, \"name\": \"Ada\"}");
+    let a = serde.bind<Dto>(js);
+    assert.equalInt(a.id, 7);
+    assert.equalStr(a.name, "Ada");
+}
+
+@test
+fn test_let_bound_valuesource(): void {
+    let vs: ValueSource = source.fromJson("{\"id\": 0, \"name\": \"Zero\"}");
+    let a = serde.bind<Dto>(vs);
+    assert.equalInt(a.id, 0);
+    assert.equalStr(a.name, "Zero");
+}
+
+@test
+fn test_immediate_use(): void {
+    let js = source.fromJson("{\"id\": 42, \"name\": \"Grace\"}");
+    assert.equalInt(serde.bind<Dto>(js).id, 42);
+}

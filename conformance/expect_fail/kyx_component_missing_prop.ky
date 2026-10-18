@@ -1,0 +1,5 @@
+// EXPECT-FAIL: parse
+// A component usage missing a required prop is rejected with a location.
+component Badge(label: string) { <span>{label}</span> }
+fn f(): string { return <Badge/>; }
+fn main(): void { let _ = f(); }

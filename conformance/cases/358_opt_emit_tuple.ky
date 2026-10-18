@@ -1,0 +1,42 @@
+import assert;
+
+fn addPair(): int {
+    let t: (int, int) = (3, 4);
+    return t.0 + t.1;
+}
+
+fn readThird(): int {
+    let t3: (int, bool, int) = (7, true, 5);
+    let b = 0;
+    if (t3.1) { b = 1; }
+    return t3.0 + b + t3.2;
+}
+
+fn loopSum(): int {
+    let acc = 0;
+    let i = 0;
+    while (i < 20) {
+        let p: (int, int) = (i, i + 1);
+        acc = acc + p.0 + p.1;
+        i = i + 1;
+    }
+    return acc;
+}
+
+fn overflowsAs64Bit(): bool {
+    let t: (int, int) = (2000000000, 2000000000);
+    let s = t.0 + t.1;
+    return s < 0;
+}
+
+@test
+fn test_tuple_scalar_access(): void {
+    assert.equalInt(addPair(), 7);
+    assert.equalInt(readThird(), 13);
+    assert.equalInt(loopSum(), 400);
+}
+
+@test
+fn test_tuple_element_is_64bit_word(): void {
+    assert.isTrue(!overflowsAs64Bit());
+}

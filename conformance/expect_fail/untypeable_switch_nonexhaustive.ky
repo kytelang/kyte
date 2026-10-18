@@ -1,0 +1,11 @@
+import list;
+enum Color { Red, Green, Blue }
+@test
+fn t(): void {
+    let l = List<Color>();
+    l.push(Color.Red);
+    switch (l[0]) {
+        case Color.Red: {}
+        case Color.Green: {}
+    }
+}

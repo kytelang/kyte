@@ -1,0 +1,15 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+// A function declared to return (int, string) must not be allowed to return
+// (int, int): the second element's type mismatch previously compiled and then
+// crashed at runtime (the int was read as a string pointer).
+fn bad(): (int, string) {
+    return (1, 2);
+}
+
+@test
+fn tuple_return_element_type_is_rejected(): void {
+    let (a, b) = bad();
+    assert.equalInt(a, 1);
+}

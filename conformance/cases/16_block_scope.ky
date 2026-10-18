@@ -1,0 +1,101 @@
+import assert;
+
+@test
+fn test_shadowing_does_not_alias_outer(): void {
+    let x = 1;
+    if (true) {
+        let x = 2;
+        assert.equalInt(x, 2);
+    }
+    assert.equalInt(x, 1);
+}
+
+@test
+fn test_disjoint_blocks_are_distinct_bindings(): void {
+    let out = "";
+    if (true) {
+        let v = 42;
+        out = out + `${v}`;
+    }
+    if (true) {
+        let v = "str";
+        out = out + v;
+    }
+    assert.equalStr(out, "42str");
+}
+
+@test
+fn test_dead_branch_does_not_retype(): void {
+    let out = "";
+    if (true) {
+        let v = 42;
+        out = out + `${v}`;
+    }
+    if (false) {
+        let v = "never-runs";
+        out = out + v;
+    }
+    assert.equalStr(out, "42");
+}
+
+@test
+fn test_nested_shadowing(): void {
+    let n = 1;
+    if (true) {
+        let n = 2;
+        if (true) {
+            let n = 3;
+            assert.equalInt(n, 3);
+        }
+        assert.equalInt(n, 2);
+    }
+    assert.equalInt(n, 1);
+}
+
+@test
+fn test_init_sees_outer_binding(): void {
+    let x = 10;
+    if (true) {
+        let x = x + 5;
+        assert.equalInt(x, 15);
+    }
+    assert.equalInt(x, 10);
+}
+
+@test
+fn test_shadowing_in_loop_body(): void {
+    let i = 99;
+    let count = 0;
+    let k = 0;
+    while (k < 3) {
+        let i = k;
+        count = count + i;
+        k = k + 1;
+    }
+    assert.equalInt(count, 3);
+    assert.equalInt(i, 99);
+}
+
+@test
+fn test_closure_captures_correct_binding(): void {
+    let base = 100;
+    if (true) {
+        let base = 5;
+        let f = (x) => x + base;
+        assert.equalInt((f)(1), 6);
+    }
+    assert.equalInt(base, 100);
+}
+
+fn takesParam(p: int): int {
+    if (true) {
+        let p = 999;
+        if (p != 999) { return -1; }
+    }
+    return p;
+}
+
+@test
+fn test_let_does_not_clobber_param(): void {
+    assert.equalInt(takesParam(7), 7);
+}

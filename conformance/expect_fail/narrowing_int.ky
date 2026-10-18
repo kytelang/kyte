@@ -1,0 +1,6 @@
+@test
+fn test_narrowing_rejected(): void {
+    let big: long = 100;
+    let small: int = big;
+    assert.isTrue(small == small);
+}

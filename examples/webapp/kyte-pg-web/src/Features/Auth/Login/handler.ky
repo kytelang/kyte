@@ -1,0 +1,51 @@
+import web.routing;
+import Features.Auth.Login.command;
+import Features.Auth.Shared.AuthRepository;
+import Features.Auth.Mappers.authMappers;
+import Features.Auth.views.auth;
+import Domain.Entities.User;
+import Shared.passwords;
+import Shared.authsession;
+import web.session;
+import web.cookie;
+import ds_response;
+import web.response;
+
+pub struct LoginHandler impl RouteHandler {
+    repo: AuthRepository,
+    sessions: SessionStore,
+    init(repo: AuthRepository, sessions: SessionStore) { self.repo = repo; self.sessions = sessions; }
+    async fn serve(self: LoginHandler, ctx: routing.Context): Response { let c = ctx.bind<Login>();
+        // CSRF: a state-changing login must echo this session's token.
+        if (!authsession.csrfOk(ctx, c.csrf)) { return authsession.csrfForbidden(); }
+        let users = await self.repo.findByEmail(c.email);
+        let u0 = users.items.get(0);
+        if (u0 == undefined) {
+            return await ds_response.patch(auth.banner("Login failed", "No account for that email.", false));
+        }
+        // Verify against the ENTITY's password_hash (server-side only).
+        let user = u0 ?? User{ id: "", email: "", password_hash: "", full_name: "", phone: "", address: "", role: "customer", created_at: "", updated_at: "" };
+        if (passwords.verify(c.password, user.password_hash)) {
+            // Map to a UserDto (no password_hash) for everything the response uses.
+            let dto = authMappers.toUserDto(user);
+            // Establish identity SERVER-SIDE: a fresh session (new id defeats
+            // fixation) carries the user id and role. The browser only ever sees
+            // the opaque session id, in an HttpOnly cookie it cannot read or forge.
+            let sess = self.sessions.createSession();
+            sess.data.set("uid", dto.id);
+            sess.data.set("role", user.role);
+            let r = await ds_response.patch(auth.banner("Logged in", "Welcome back, " + dto.fullName + ".", true));
+            return r.setCookieFull(cookie.Cookie{
+                name: "session_id",
+                value: sess.id,
+                path: "/",
+                domain: "",
+                maxAge: self.sessions.defaultTtl,
+                secure: true,
+                httpOnly: true,
+                sameSite: "Lax",
+            });
+        }
+        return await ds_response.patch(auth.banner("Login failed", "Incorrect password.", false));
+    }
+}

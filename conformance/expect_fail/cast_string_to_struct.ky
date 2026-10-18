@@ -1,0 +1,17 @@
+// EXPECT-FAIL: codegen
+//
+// last-bit-of-hardening A1: casting a `string` to a struct reinterprets the string's
+// heap pointer as a struct layout -- memory-unsafety with no trap before the fix. The
+// `Html`/`string`/`Str` same-representation family stays legal (see cases/477); a cast
+// to an unrelated declared struct does not.
+
+struct Point { pub x: int, pub y: int, init(a: int, b: int) { self.x = a; self.y = b; } }
+
+@test
+fn reinterpret_string(): void {
+    let s = "not a point";
+    let p = s as Point;    // must be rejected
+    assert_unreachable(p.x);
+}
+
+fn assert_unreachable(n: int): void { }

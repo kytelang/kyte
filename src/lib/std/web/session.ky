@@ -1,0 +1,172 @@
+//! Server-side session support for the web framework: in-memory session
+//! storage with expiry, and a `RouteMiddleware` that binds each request to a
+//! session via a cookie.
+//!
+//! `SessionStore` owns the session table and is the single source of truth
+//! for creating, fetching, and expiring sessions. `SessionMiddleware` wires
+//! that store into the request pipeline: it reads (or mints) a session
+//! cookie on every request, refreshes the session's expiry, and stamps a
+//! CSRF token onto the request headers for downstream handlers to check.
+//! Sessions live only in process memory, so they do not survive a restart
+//! and are not shared across multiple server instances.
+
+import map;
+import string;
+import datetime;
+import crypto.random;
+import web.routing;
+import web.response;
+import web.cookie;
+
+/// A single server-side session: an opaque id, an arbitrary string-keyed
+/// data bag, and an absolute expiry timestamp.
+pub struct Session {
+    /// Unique session identifier, also used as the session cookie value.
+    pub id: string,
+    /// Arbitrary session-scoped key/value data (for example the CSRF token).
+    pub data: Map<string, string>,
+    /// Unix timestamp (seconds) after which the session is considered expired.
+    pub expiresAt: int,
+}
+
+/// In-memory table of active sessions, keyed by session id.
+pub struct SessionStore {
+    /// Live sessions, keyed by `Session.id`.
+    pub sessions: Map<string, Session>,
+    /// Seconds a session stays valid after it was created or last touched.
+    pub defaultTtl: int,
+    /// Upper bound on live sessions. When the table reaches this size, expired
+    /// entries are swept before a new session is created, so an attacker minting
+    /// sessions cannot grow the table without bound.
+    pub maxSessions: int,
+
+    init() {
+        self.sessions = Map<string, Session>(16, string.hash);
+        self.defaultTtl = 604800;
+        self.maxSessions = 100000;
+    }
+
+    /// Creates a new session with a cryptographically random id and a freshly
+    /// generated, independent CSRF token, and inserts it into the store. The id
+    /// is 144 bits of CSPRNG output (not a predictable timestamp/counter), so it
+    /// cannot be guessed or enumerated; the CSRF token is separate random, so it
+    /// is not derivable from the id. Expiry is set to now plus `defaultTtl`.
+    pub fn createSession(self: SessionStore): Session {
+        if (self.sessions.size() >= self.maxSessions) {
+            self.sweepExpired();
+        }
+        let ts = datetime.now();
+        let id = "sess-" + random.randomHex(18);
+        let data = Map<string, string>(16, string.hash);
+        data.set("csrf_token", random.randomHex(32));
+        let sess = Session{
+            id: id,
+            data: data,
+            expiresAt: ts + self.defaultTtl,
+        };
+        self.sessions.set(id, sess);
+        return sess;
+    }
+
+    /// Deletes every expired session from the table. Called when the store is
+    /// at capacity, to bound memory against session-flood attacks.
+    fn sweepExpired(self: SessionStore): void {
+        let ts = datetime.now();
+        let ks = self.sessions.keys();
+        let i = 0;
+        while (i < ks.size()) {
+            let k = ks.get(i) ?? "";
+            let s = self.sessions.get(k);
+            if (s != undefined) {
+                if (ts > s.expiresAt) { self.sessions.delete_key(k); }
+            }
+            i = i + 1;
+        }
+    }
+
+    /// Looks up a session by id and, if it is still valid, slides its
+    /// expiry forward by another `defaultTtl` (a "touch on access" policy).
+    /// Returns `undefined` if the id is not known, and also returns
+    /// `undefined` (after deleting the entry) if the session has expired.
+    pub fn getSession(self: SessionStore, id: string): Session {
+        let ts = datetime.now();
+        let sess = self.sessions.get(id);
+        if (sess != undefined) {
+            if (ts > sess.expiresAt) {
+                self.sessions.delete_key(id);
+                return undefined;
+            }
+
+            sess.expiresAt = ts + self.defaultTtl;
+            return sess;
+        }
+        return undefined;
+    }
+
+    /// Removes a session from the store immediately (for example on logout).
+    /// A no-op if the id does not exist.
+    pub fn destroySession(self: SessionStore, id: string): void {
+        self.sessions.delete_key(id);
+    }
+}
+
+/// Middleware that attaches a `Session` to every request via a cookie,
+/// creating one on first visit, and stamps a per-session CSRF token onto the
+/// request headers for handlers or later middleware to validate.
+pub struct SessionMiddleware impl RouteMiddleware {
+    /// Backing session store this middleware reads and writes.
+    pub store: SessionStore,
+    /// Name of the cookie used to carry the session id (defaults to `session_id`).
+    pub cookieName: string,
+    /// Whether to mark the session cookie `Secure` (sent only over HTTPS). Defaults
+    /// to true; set false only for plain-HTTP local development on a non-localhost host.
+    pub secure: bool,
+
+    init(store: SessionStore) {
+        self.store = store;
+        self.cookieName = "session_id";
+        self.secure = true;
+    }
+
+    /// Resolves the session for this request: reads the session cookie, and if
+    /// it is missing or invalid, mints a new session. The session id and its
+    /// CSRF token are stamped onto the request headers (`X-Session-ID`,
+    /// `X-Session-CSRF`) BEFORE the handler runs, so downstream code does not
+    /// need to know about the session store. On the way out, a freshly created
+    /// session's cookie is set on the response. Always continues the chain.
+    async fn handle(self: SessionMiddleware, ctx: routing.Context, next: routing.Chain): Response {
+        let sid = ctx.request.getCookie(self.cookieName) ?? "";
+
+        let sess = self.store.getSession(sid);
+        let isNew = false;
+        if (sess == undefined) {
+            sess = self.store.createSession();
+            isNew = true;
+        }
+
+        ctx.request.headers.set("X-Session-ID", sess.id);
+
+        let csrfToken = sess.data.get("csrf_token") ?? "";
+        if (csrfToken == "") {
+            csrfToken = random.randomHex(32);
+            sess.data.set("csrf_token", csrfToken);
+        }
+        ctx.request.headers.set("X-Session-CSRF", csrfToken);
+
+        let res = await next.proceed(ctx);
+        if (isNew) {
+            // HttpOnly (hidden from JS), SameSite=Lax (CSRF defence), Secure (HTTPS-only) by default.
+            res.setCookieFull(cookie.Cookie{
+                name: self.cookieName,
+                value: sess.id,
+                path: "/",
+                domain: "",
+                maxAge: self.store.defaultTtl,
+                secure: self.secure,
+                httpOnly: true,
+                sameSite: "Lax",
+            });
+        }
+        return res;
+    }
+}

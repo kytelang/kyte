@@ -1,0 +1,22 @@
+// A KYX fragment `<>...</>` renders only its children, with no wrapper element.
+// This is what lets a component's children be passed as one Html value.
+import assert;
+
+fn twoParas(): string { return <><p>a</p><p>b</p></>; }
+fn nestedFrag(): string { return <div><>x<span>y</span></></div>; }
+fn fragWithExpr(name: string): string { return <>Hello {name}</>; }
+
+@test
+fn test_fragment_has_no_wrapper(): void {
+    assert.equalStr(twoParas(), "<p>a</p><p>b</p>");
+}
+
+@test
+fn test_fragment_nested_in_element(): void {
+    assert.equalStr(nestedFrag(), "<div>x<span>y</span></div>");
+}
+
+@test
+fn test_fragment_with_interpolation(): void {
+    assert.equalStr(fragWithExpr("Ada"), "Hello Ada");
+}

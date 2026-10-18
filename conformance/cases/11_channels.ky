@@ -1,0 +1,23 @@
+import assert;
+import concurrency.asyncchan;
+
+async fn producer(ch: long): int {
+    asyncchan.chanSend(ch, 40);
+    asyncchan.chanSend(ch, 2);
+    return 0;
+}
+
+async fn consumer(): int {
+    let ch = asyncchan.chanNew();
+    let h = spawn producer(ch);
+    let a = await asyncchan.chanRecv(ch);
+    let b = await asyncchan.chanRecv(ch);
+    let done = await h;
+    asyncchan.chanFree(ch);
+    return a + b;
+}
+
+@test
+fn t_channels(): void {
+    assert.equalInt(consumer(), 42);
+}

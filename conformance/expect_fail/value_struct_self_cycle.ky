@@ -1,0 +1,7 @@
+// EXPECT-FAIL: typecheck
+struct Node {
+    pub v: int,
+    pub next: Node,
+}
+@test
+fn t(): void { }

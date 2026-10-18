@@ -1,0 +1,82 @@
+import assert;
+import list;
+
+async fn triple(n: int): int { return n * 3; }
+
+trait Compute {
+    async fn work(self, x: int): int;
+    fn label(self): string;
+}
+
+struct Adder impl Compute {
+    pub base: int,
+    init(base: int) { self.base = base; }
+    pub async fn work(self: Adder, x: int): int {
+        let f = spawn triple(x);
+        return self.base + (await f);
+    }
+    pub fn label(self: Adder): string { return "adder"; }
+}
+
+struct Doubler impl Compute {
+    pub base: int,
+    init(base: int) { self.base = base; }
+    pub async fn work(self: Doubler, x: int): int {
+        return self.base + (x + x);
+    }
+    pub fn label(self: Doubler): string { return "doubler"; }
+}
+
+async fn run(c: Compute, v: int): int {
+    return await c.work(v);
+}
+
+@test
+fn test_direct_drive_through_trait(): void {
+    let a = Adder(100);
+    let c: Compute = a;
+    assert.equalInt(c.work(5), 115);
+    assert.equalStr(c.label(), "adder");
+}
+
+@test
+fn test_await_through_trait_object(): void {
+    let a = Adder(10);
+    assert.equalInt(run(a, 7), 31);
+}
+
+@test
+fn test_polymorphic_dispatch(): void {
+    let d = Doubler(1);
+    let a = Adder(1);
+    assert.equalInt(run(d, 20), 41);
+    assert.equalInt(run(a, 20), 61);
+}
+
+async fn useTrait(c: Compute, v: int): int {
+    return await c.work(v);
+}
+async fn nestedTraitArg(v: int): int {
+    let a = Adder(1000);
+    return await useTrait(a, v);
+}
+
+@test
+fn test_nested_trait_param_widening(): void {
+    assert.equalInt(nestedTraitArg(9), 1027);
+}
+
+@test
+fn test_trait_objects_in_list(): void {
+    let cs = List<Compute>();
+    cs.push(Adder(0));
+    cs.push(Doubler(0));
+    let total = 0;
+    let i = 0;
+    while (i < cs.size()) {
+        let c = cs.get(i) ?? Adder(0);
+        total = total + c.work(4);
+        i = i + 1;
+    }
+    assert.equalInt(total, 20);
+}

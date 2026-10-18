@@ -1,0 +1,149 @@
+import assert;
+import list;
+
+struct Rec {
+    pub name: string,
+    pub nums: List<int>,
+    pub count: int,
+
+    init() {
+        self.name = "rec";
+        self.nums = List<int>();
+        self.count = 0;
+    }
+
+    pub fn rename(self: Rec, n: string): void {
+        self.name = n;
+    }
+
+    pub fn add(self: Rec, v: int): void {
+        self.nums.push(v);
+        self.count = self.count + 1;
+    }
+
+    pub fn sum(self: Rec): int {
+        let s = 0;
+        let i = 0;
+        while (i < self.nums.size()) {
+            s = s + self.nums.get(i);
+            i = i + 1;
+        }
+        return s;
+    }
+}
+
+struct Outer {
+    pub inner: Rec,
+    pub tag: string,
+
+    init() {
+        self.inner = Rec();
+        self.tag = "outer";
+    }
+}
+
+enum Msg {
+    Text(string),
+    Code(int),
+}
+
+fn describe(m: Msg): string {
+    switch (m) {
+        case Msg.Text(t): { return t; }
+        case Msg.Code(c): { return "code"; }
+    }
+    return "?";
+}
+
+enum Boxed {
+    Pair { name: string, n: int },
+    Empty,
+}
+
+fn boxedName(b: Boxed): string {
+    switch (b) {
+        case Boxed.Pair{ name: nm, n: cnt }: { return nm; }
+        case Boxed.Empty: { return "empty"; }
+    }
+    return "?";
+}
+
+@test
+fn test_mixed_field_ownership(): void {
+    let i = 0;
+    let acc = 0;
+    while (i < 50) {
+        let r = Rec();
+        r.rename("iteration");
+        r.add(1);
+        r.add(2);
+        r.add(3);
+        acc = acc + r.sum();
+        i = i + 1;
+    }
+    assert.equalInt(acc, 300);
+}
+
+@test
+fn test_field_reassignment(): void {
+    let r = Rec();
+    r.rename("first");
+    r.rename("second");
+    r.rename("third");
+    assert.equalStr(r.name, "third");
+}
+
+@test
+fn test_nested_struct_ownership(): void {
+    let i = 0;
+    while (i < 30) {
+        let o = Outer();
+        o.inner.rename("nested");
+        o.inner.add(7);
+        i = i + 1;
+    }
+    assert.equalStr("ok", "ok");
+}
+
+@test
+fn test_enum_box_ownership(): void {
+    let i = 0;
+    let hits = 0;
+    while (i < 40) {
+        let m = Msg.Text("payload");
+        if (describe(m) == "payload") {
+            hits = hits + 1;
+        }
+        i = i + 1;
+    }
+    assert.equalInt(hits, 40);
+}
+
+@test
+fn test_enum_temp_payload(): void {
+    let i = 0;
+    let hits = 0;
+    while (i < 40) {
+        let m = Msg.Text("pay" + "load");
+        if (describe(m) == "payload") {
+            hits = hits + 1;
+        }
+        i = i + 1;
+    }
+    assert.equalInt(hits, 40);
+}
+
+@test
+fn test_struct_payload_variant(): void {
+    let i = 0;
+    let hits = 0;
+    while (i < 40) {
+        let nm = "na" + "me";
+        let b = Boxed.Pair{ name: nm, n: 7 };
+        let c = Boxed.Pair{ name: "x" + "y", n: 9 };
+        if (boxedName(b) == "name") { hits = hits + 1; }
+        if (boxedName(c) == "xy") { hits = hits + 1; }
+        i = i + 1;
+    }
+    assert.equalInt(hits, 80);
+}

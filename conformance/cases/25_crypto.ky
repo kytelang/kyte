@@ -1,0 +1,45 @@
+import crypto.hash.sha;
+import crypto.random;
+import assert;
+
+@test
+fn test_sha256_kat(): void {
+    assert.equalStr(sha.sha256("hello"),
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    assert.equalStr(sha.sha256(""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+}
+
+@test
+fn test_sha1_kat(): void {
+    assert.equalStr(sha.sha1("abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
+    assert.equalStr(sha.sha1(""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+}
+
+@test
+fn test_hmac_sha256_kat(): void {
+    assert.equalStr(sha.hmacSha256("Jefe", "what do ya want for nothing?"),
+        "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+}
+
+@test
+fn test_csprng(): void {
+    let a = random.randomBytes(16);
+    assert.equalInt(a.length, 16);
+    assert.isTrue(a != random.randomBytes(16));
+    assert.equalInt(random.randomHex(16).length, 32);
+    let r = random.randomInt(50);
+    assert.isTrue(r >= 0);
+    assert.isTrue(r < 50);
+}
+
+@test
+fn test_prng_deterministic_and_correct(): void {
+    let p = random.newPrngSeq(42, 54);
+    assert.equalInt((p.next() == 2707161783) as int, 1);
+    assert.equalInt((p.next() == 2068313097) as int, 1);
+    let a = random.newPrng(2024);
+    let b = random.newPrng(2024);
+    assert.equalInt((a.next() == b.next()) as int, 1);
+    assert.equalInt((a.next() == b.next()) as int, 1);
+}

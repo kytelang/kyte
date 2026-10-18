@@ -1,0 +1,58 @@
+import concurrency.async_util;
+import list;
+import assert;
+
+async fn square(n: int): int { return n * n; }
+async fn dbl(n: int): int { return n + n; }
+
+async fn parallel_squares(n: int): List<int> {
+    let fs = List<future<int>>();
+    let i = 1;
+    while (i <= n) { fs.push(spawn square(i)); i = i + 1; }
+    return await async_util.when_all<int>(fs);
+}
+
+@test
+fn test_when_all_collects_in_order(): void {
+    let r = parallel_squares(5);
+    assert.equalInt(r.size(), 5);
+    assert.equalInt(r.get(0) ?? -1, 1);
+    assert.equalInt(r.get(2) ?? -1, 9);
+    assert.equalInt(r.get(4) ?? -1, 25);
+}
+
+@test
+fn test_when_all_sum(): void {
+    let r = parallel_squares(4);
+    let total = 0;
+    let i = 0;
+    while (i < r.size()) { total = total + (r.get(i) ?? 0); i = i + 1; }
+    assert.equalInt(total, 30);
+}
+
+async fn barrierAndBounded(): int {
+    let fs = List<future<int>>();
+    fs.push(spawn dbl(10));
+    fs.push(spawn dbl(20));
+    fs.push(spawn dbl(30));
+    let firstTwo = await async_util.when_first_n<int>(fs, 2);
+    return (firstTwo.get(0) ?? 0) + (firstTwo.get(1) ?? 0);
+}
+
+@test
+fn test_when_first_n(): void {
+    assert.equalInt(barrierAndBounded(), 60);
+}
+
+async fn mixedFanout(): int {
+    let fs = List<future<int>>();
+    fs.push(spawn square(6));
+    fs.push(spawn dbl(7));
+    let rs = await async_util.when_all<int>(fs);
+    return (rs.get(0) ?? 0) + (rs.get(1) ?? 0);
+}
+
+@test
+fn test_mixed_fanout(): void {
+    assert.equalInt(mixedFanout(), 50);
+}

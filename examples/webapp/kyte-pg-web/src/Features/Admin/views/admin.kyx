@@ -1,0 +1,87 @@
+// Admin views as NSX: the dashboard with stats and the order-management table.
+// Each order row carries its own id so advancing an order morphs just that row.
+// See DESIGN.md sections 11 and 13.
+import Shared.fmt;
+import Shared.orderstatus;
+import list;
+import Domain.Contracts.orders;
+import Features.Admin.Dtos.admin;
+
+// One order row. Advancing posts to /orders/advance, whose response re-renders
+// this row (and pushes the new status to the customer over SSE).
+pub fn orderRow(o: orders.OrderDto, role: string): Html {
+    let st = o.status;
+    return <tr id={`order-row-${o.id}`} class="border-t border-slate-100">
+        <td class="px-3 py-2 text-sm font-medium text-slate-700">{o.orderNumber}</td>
+        <td class="px-3 py-2"><span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{orderstatus.label(st)}</span></td>
+        <td class="px-3 py-2 text-sm text-right">{`£${fmt.money(o.total)}`}</td>
+        <td class="px-3 py-2 text-right">
+            {if (orderstatus.canAdvance(role, st)) {
+                <button class="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                        data-on:click={`@post('/orders/advance?order=${o.id}')`}>{`Advance to: ${orderstatus.label(orderstatus.next(st))}`}</button>;
+            } else if (orderstatus.isTerminal(st)) {
+                <span class="text-xs text-slate-400">Done</span>;
+            } else {
+                <span class="text-xs text-slate-400">{`With ${orderstatus.roleLabel(orderstatus.roleForStatus(st))}`}</span>;
+            }}
+        </td>
+    </tr>;
+}
+
+// The admin product edit form. Inputs bind to Datastar signals (seeded from the
+// current values); Save posts them to /admin/products/edit, which writes the
+// Product entity back and re-renders this form with `saved` set.
+pub fn editForm(p: admin.ProductEditDto, saved: bool): Html {
+    return <div id="content" class="flex-1 overflow-y-auto p-6 max-w-lg">
+        <button class="text-sm text-emerald-700 mb-4" data-on:click={"@get('/admin')"}>&larr; Back to dashboard</button>
+        <h1 class="text-xl font-bold text-slate-800 mb-4">Edit product</h1>
+        {if (saved) { <p class="text-sm text-emerald-700 mb-3 font-semibold">Saved.</p>; }}
+        <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+            <input type="hidden" data-bind="id" value={p.id} />
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Name</label>
+            <input data-bind="name" value={p.name} class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</label>
+            <textarea data-bind="description" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">{p.description}</textarea>
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Price (£)</label>
+            <input data-bind="price" value={`${fmt.money(p.price)}`} class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Image URL</label>
+            <input data-bind="imageUrl" value={p.imageUrl} class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <button class="w-full px-4 py-2.5 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition"
+                    data-on:click={"@post('/admin/products/edit')"}>Save changes</button>
+        </div>
+    </div>;
+}
+
+pub fn dashboard(stats: admin.DashboardStatsDto, orders: list.List<orders.OrderDto>): Html {
+    return <div id="content" class="flex-1 overflow-y-auto p-6">
+        <h1 class="text-xl font-bold text-slate-800 mb-4">Admin dashboard</h1>
+        <div class="grid grid-cols-3 gap-4 mb-6">
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wide">Open orders</p>
+                <p class="text-2xl font-bold text-slate-800">{`${stats.newOrders}`}</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wide">Revenue today</p>
+                <p class="text-2xl font-bold text-slate-800">{`£${fmt.money(stats.revenueToday)}`}</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+                <p class="text-xs text-slate-400 uppercase tracking-wide">Low stock</p>
+                <p class="text-2xl font-bold text-slate-800">{`${stats.lowStock}`}</p>
+            </div>
+        </div>
+        <h2 class="text-sm font-semibold text-slate-500 mb-2">Orders</h2>
+        <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <table class="w-full">
+                <thead><tr class="text-left text-xs text-slate-400 uppercase">
+                    <th class="px-3 py-2">Order</th><th class="px-3 py-2">Status</th><th class="px-3 py-2 text-right">Total</th><th class="px-3 py-2"></th>
+                </tr></thead>
+                <tbody>
+                    {for (i in 0..orders.size()) {
+                        let o = orders.get(i) ?? OrderDto{ id: "", orderNumber: "", status: "", subtotal: 0.0, tax: 0.0, total: 0.0 };
+                        orderRow(o, "admin");
+                    }}
+                </tbody>
+            </table>
+        </div>
+    </div>;
+}

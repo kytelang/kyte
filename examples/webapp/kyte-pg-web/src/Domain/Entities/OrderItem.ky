@@ -1,0 +1,13 @@
+// Persistence entity: one row of the `order_items` table. `subtotal` is a STORED
+// generated column (unit_price * quantity); it is read here but never written.
+@serializable
+pub struct OrderItem {
+    pub id: string,
+    pub order_id: string,
+    pub product_id: string,
+    pub product_name: string,
+    pub unit_price: double,
+    pub quantity: int,
+    pub modifiers: string,
+    pub subtotal: double,
+}

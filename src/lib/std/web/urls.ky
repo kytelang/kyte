@@ -1,0 +1,64 @@
+//! URL building for hypermedia targets, so views stop hand interpolating the URLs that
+//! live inside `hx-get`, `data-on`, and `href` attributes (the most common breakage when a
+//! route is renamed).
+//!
+//! `build(pattern, params)` substitutes `:name` or `{name}` path segments from `params` and
+//! appends any leftover params as a percent-encoded query string. A path parameter that is
+//! not supplied is left as its literal segment rather than silently dropped, so a wrong key
+//! shows up in the URL instead of producing a plausible-but-wrong path.
+
+import string;
+import list;
+import map;
+import web.url;
+
+/// Builds a URL from a path pattern and a parameter map. Path segments written `:name` or
+/// `{name}` are replaced by `params["name"]` (percent-encoded); every remaining param becomes
+/// a query parameter. Example: `build("/products/:id/reviews", p)` with `p = {id: "7", sort:
+/// "new"}` gives `/products/7/reviews?sort=new`.
+pub fn build(pattern: string, params: Map<string, string>): string {
+    let used = Map<string, string>(8, string.hash);
+    let segs = string.split(pattern, "/");
+    let out = "";
+    let i = 0;
+    while (i < segs.size()) {
+        let seg = segs.get(i) ?? "";
+        let key = paramKey(seg);
+        if (key != "") {
+            let v = params.get(key);
+            if (v != undefined) {
+                out = out + url.encode(v ?? "");
+                used.set(key, "1");
+            } else {
+                out = out + seg;
+            }
+        } else {
+            out = out + seg;
+        }
+        if (i < segs.size() - 1) { out = out + "/"; }
+        i = i + 1;
+    }
+
+    let qkeys = params.keys();
+    let q = "";
+    let j = 0;
+    while (j < qkeys.size()) {
+        let k = qkeys.get(j) ?? "";
+        if (used.get(k) == undefined) {
+            if (q == "") { q = "?"; } else { q = q + "&"; }
+            q = q + url.encode(k) + "=" + url.encode(params.get(k) ?? "");
+        }
+        j = j + 1;
+    }
+    return out + q;
+}
+
+/// Returns the parameter name a path segment names (`:id` or `{id}` -> `id`), or "" when the
+/// segment is a literal.
+fn paramKey(seg: string): string {
+    if (string.startsWith(seg, ":")) { return string.substring(seg, 1, seg.length); }
+    if (string.startsWith(seg, "{") && string.endsWith(seg, "}")) {
+        return string.substring(seg, 1, seg.length - 1);
+    }
+    return "";
+}

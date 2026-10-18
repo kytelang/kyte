@@ -1,0 +1,13 @@
+import assert;
+
+fn byteAt(s: string, i: int): int { return s[i]; }
+fn firstByte(s: string): int { return s[0]; }
+fn sumFirst3(s: string): int { return s[0] + s[1] + s[2]; }
+
+@test
+fn test_string_byte_index(): void {
+    assert.equalInt(firstByte("A"), 65);
+    assert.equalInt(byteAt("ABC", 1), 66);
+    assert.equalInt(byteAt("ABC", 2), 67);
+    assert.equalInt(sumFirst3("abc"), 294);
+}

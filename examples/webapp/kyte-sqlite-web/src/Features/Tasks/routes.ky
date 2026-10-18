@@ -1,0 +1,133 @@
+// Tasks feature: list, add, and toggle tasks stored in SQLite. One vertical
+// slice following the framework (RouteHandler per endpoint, routes registered
+// here, the shared Db pool injected). HTML is built as plain strings to keep
+// the example small; a larger app would use .kyx views.
+import web.app;
+import web.routing;
+import web.response;
+import web.status;
+import data.db;
+import list;
+import string;
+import Shared.Db;
+
+// A row of the tasks table, bound by the micro-ORM from column names. It is
+// @serializable so the framework generates the wire binders db.query<T> needs.
+@serializable
+pub struct Task {
+    pub id: long,
+    pub title: string,
+    pub done: int,
+    init() { self.id = 0; self.title = ""; self.done = 0; }
+}
+
+// The add form; the framework binds title from the POST body (or query).
+@serializable
+pub struct TaskForm {
+    pub title: string,
+    init() { self.title = ""; }
+}
+
+// A toggle request carries the task id.
+@serializable
+pub struct ToggleForm {
+    pub id: long,
+    init() { self.id = 0; }
+}
+
+pub fn registerTasks(app: App, database: Db): void {
+    app.get("/healthz", HealthHandler(database));
+    app.get("/", ListHandler(database));
+    app.post("/tasks", AddHandler(database));
+    app.post("/tasks/toggle", ToggleHandler(database));
+}
+
+// Escape the few characters that matter for safe HTML text.
+fn esc(s: string): string {
+    let a = string.replace(s, "&", "&amp;");
+    a = string.replace(a, "<", "&lt;");
+    a = string.replace(a, ">", "&gt;");
+    return a;
+}
+
+fn page(inner: string): string {
+    return string.concat("<!doctype html><html><head><meta charset=\"utf-8\"><title>Tasks on SQLite</title></head><body><h1>Tasks (SQLite via kynator)</h1>", string.concat(inner, "</body></html>"));
+}
+
+// Render the whole page: the add form plus the current task list.
+async fn renderList(database: Db): string {
+    let conn = await database.pool.acquire();
+    let p = list.List<DbValue>();
+    let res = await db.query<Task>(conn, "SELECT id, title, done FROM tasks ORDER BY id DESC", p);
+    database.pool.release(conn);
+
+    let items = "";
+    let i = 0;
+    while (i < res.items.size()) {
+        let t = res.items.get(i) ?? Task { id: 0, title: "", done: 0 };
+        let mark = if (t.done != 0) "[x] " else "[ ] ";
+        let line = string.concat(mark, esc(t.title));
+        let toggle = string.concat(string.concat("<form method=\"post\" action=\"/tasks/toggle\" style=\"display:inline\"><input type=\"hidden\" name=\"id\" value=\"", `${t.id}`), "\"><button type=\"submit\">toggle</button></form>");
+        items = string.concat(items, string.concat(string.concat("<li>", string.concat(line, string.concat(" ", toggle))), "</li>"));
+        i = i + 1;
+    }
+
+    let form = "<form method=\"post\" action=\"/tasks\"><input name=\"title\" placeholder=\"new task\" required><button type=\"submit\">add</button></form>";
+    return page(string.concat(form, string.concat("<ul>", string.concat(items, "</ul>"))));
+}
+
+pub struct ListHandler impl RouteHandler {
+    db: Db,
+    init(db: Db) { self.db = db; }
+    async fn serve(self: ListHandler, ctx: routing.Context): response.Response {
+        let html = await renderList(self.db);
+        return response.Response(Status.Ok, html);
+    }
+}
+
+// A tiny health endpoint for the orchestrator's health check (one cheap query).
+pub struct HealthHandler impl RouteHandler {
+    db: Db,
+    init(db: Db) { self.db = db; }
+    async fn serve(self: HealthHandler, ctx: routing.Context): response.Response {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        let _ = await conn.query("SELECT 1", p);
+        self.db.pool.release(conn);
+        return response.Response(Status.Ok, "{\"ok\":true}");
+    }
+}
+
+pub struct AddHandler impl RouteHandler {
+    db: Db,
+    init(db: Db) { self.db = db; }
+    async fn serve(self: AddHandler, ctx: routing.Context): response.Response {
+        let f = ctx.bind<TaskForm>();
+        if (!string.eql(f.title, "")) {
+            let conn = await self.db.pool.acquire();
+            let p = list.List<DbValue>();
+            p.push(db.dbText(f.title));
+            let _ = await conn.exec("INSERT INTO tasks (title) VALUES ($1)", p);
+            self.db.pool.release(conn);
+        }
+        let html = await renderList(self.db);
+        return response.Response(Status.Ok, html);
+    }
+}
+
+pub struct ToggleHandler impl RouteHandler {
+    db: Db,
+    init(db: Db) { self.db = db; }
+    async fn serve(self: ToggleHandler, ctx: routing.Context): response.Response {
+        let f = ctx.bind<ToggleForm>();
+        if (f.id > 0) {
+            let conn = await self.db.pool.acquire();
+            let p = list.List<DbValue>();
+            p.push(db.dbLong(f.id));
+            let _ = await conn.exec("UPDATE tasks SET done = 1 - done WHERE id = $1", p);
+            self.db.pool.release(conn);
+        }
+        let html = await renderList(self.db);
+        return response.Response(Status.Ok, html);
+    }
+}

@@ -1,0 +1,56 @@
+// AuthRepository: user data access over the shared Db pool. Reads return the
+// User entity (which carries password_hash for server-side verification); the
+// handlers map it to a UserDto that omits the hash before anything leaves the
+// server. Writes take a User entity built by the handler (with the password
+// already hashed). See DESIGN.md section 10.
+import list;
+import string;
+import data.db;
+import data.repository;
+import Shared.Db;
+import Domain.Entities.User;
+
+pub struct AuthRepository {
+    db: Db,
+    init(db: Db) { self.db = db; }
+
+    // Inserts a new user from the entity; returns true on success, false if the
+    // email already exists. Explicit INSERT (not Repository.add) because the
+    // table fills id/created_at/updated_at by DEFAULT.
+    pub async fn createUser(self: AuthRepository, u: User): bool {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(u.email));
+        p.push(db.dbText(u.password_hash));
+        p.push(db.dbText(u.full_name));
+        p.push(db.dbText(u.role));
+        let r = await conn.exec("INSERT INTO users (email, password_hash, full_name, role) VALUES ($1, $2, $3, $4)", p);
+        self.db.pool.release(conn);
+        return r.ok() && r.rows_affected > 0;
+    }
+
+    // The role of the user with this id, or "" if not found. Used to gate the
+    // kitchen/delivery operations console and the advance action.
+    pub async fn roleOf(self: AuthRepository, uid: string): string {
+        if (string.eql(uid, "")) { return ""; }
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(uid));
+        let rows = await Repository<User>(conn, "users").query("SELECT * FROM users WHERE id = $1::uuid", p);
+        self.db.pool.release(conn);
+        let u = rows.items.get(0);
+        if (u == undefined) { return ""; }
+        return (u ?? User{ id: "", email: "", password_hash: "", full_name: "", phone: "", address: "", role: "", created_at: "", updated_at: "" }).role;
+    }
+
+    // The user with this email as a full entity (including password_hash for the
+    // login handler to verify against), or an empty Rows if none.
+    pub async fn findByEmail(self: AuthRepository, email: string): Rows<User> {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(email));
+        let rows = await Repository<User>(conn, "users").query("SELECT * FROM users WHERE email = $1", p);
+        self.db.pool.release(conn);
+        return rows;
+    }
+}

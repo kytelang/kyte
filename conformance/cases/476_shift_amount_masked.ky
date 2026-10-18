@@ -1,0 +1,42 @@
+import assert;
+
+// Acceptance (last-bit-of-hardening C1): a shift amount at or above the operand
+// width is defined as a wrapping shift (the amount is masked to `width-1`, as on x86
+// and in Java/JS), NOT undefined behaviour. The dangerous case is a `long` shift by
+// >= 64, which was LLVM poison before the fix. `int` is 32-bit, so its amount masks
+// by 31. See STABILITY.md "Shift amount".
+
+@test
+fn shift_in_range(): void {
+    let x: int = 1;
+    assert.equalInt(x << 4, 16);
+    assert.equalInt(x << 10, 1024);
+    let y: long = 1;
+    assert.isTrue((y << 40) == 1099511627776);
+}
+
+@test
+fn int_shift_amount_masks_by_31(): void {
+    let x: int = 1;
+    // 32 & 31 == 0  ->  x << 0 == 1 (Java/JS semantics, not the old truncate-to-0)
+    assert.equalInt(x << 32, 1);
+    // 33 & 31 == 1  ->  x << 1 == 2
+    assert.equalInt(x << 33, 2);
+}
+
+@test
+fn long_shift_amount_masks_by_63(): void {
+    let y: long = 1;
+    // 64 & 63 == 0  ->  y << 0 == 1. Before the fix this was LLVM poison (UB).
+    assert.isTrue((y << 64) == 1);
+    // 65 & 63 == 1  ->  y << 1 == 2.
+    assert.isTrue((y << 65) == 2);
+}
+
+@test
+fn right_shift_amount_masked(): void {
+    let y: long = 1099511627776;   // 1 << 40
+    assert.isTrue((y >> 40) == 1);
+    // 104 & 63 == 40  ->  same result as >> 40.
+    assert.isTrue((y >> 104) == 1);
+}

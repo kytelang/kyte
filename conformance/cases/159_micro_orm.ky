@@ -1,0 +1,73 @@
+import assert;
+import data.orm;
+import data.db;
+import serde.source;
+import list;
+import string;
+
+@serializable struct UserDto { pub id: int, pub name: string, pub active: bool }
+
+fn row(id: int, name: string, active: bool): Row {
+    let r = Row();
+    r.cells.push(db.dbInt(id));
+    r.cells.push(db.dbText(name));
+    r.cells.push(db.dbBool(active));
+    return r;
+}
+
+struct MockConn impl Connection {
+    async fn queryWire(self, sql: string, params: List<DbValue>): WireRows { return wireRowsFromResultSet(await self.query(sql, params)); }
+    async fn exec(self: MockConn, sql: string, params: List<DbValue>): ExecResult {
+        return ExecResult(0, "MOCK");
+    }
+    async fn query(self: MockConn, sql: string, params: List<DbValue>): ResultSet {
+        let rs = ResultSet();
+        rs.columns.push(Column("id", DbType.Int4));
+        rs.columns.push(Column("name", DbType.Text));
+        rs.columns.push(Column("active", DbType.Bool));
+        rs.rows.push(row(7, "Ada", true));
+        rs.rows.push(row(0, "Zero", false));
+        return rs;
+    }
+    fn close(self: MockConn): void {}
+    fn setTimeout(self: MockConn, ms: int): int { return 0; }
+    async fn prepare(self: MockConn, sql: string): int { return 0; }
+    async fn queryPrepared(self: MockConn, stmt: int, params: List<DbValue>): ResultSet {
+        return await self.query("", params);
+    }
+    async fn execPrepared(self: MockConn, stmt: int, params: List<DbValue>): ExecResult {
+        return ExecResult(0, "MOCK");
+    }
+    async fn begin(self: MockConn): ExecResult { return ExecResult(0, "MOCK"); }
+    async fn commit(self: MockConn): ExecResult { return ExecResult(0, "MOCK"); }
+    async fn rollback(self: MockConn): ExecResult { return ExecResult(0, "MOCK"); }
+}
+
+@test
+fn test_query_materializes_typed_rows(): void {
+    let conn = MockConn{};
+    let params = List<DbValue>();
+    params.push(db.dbInt(1));
+    let users = orm.queryAsBlocking<UserDto>(conn, "SELECT id, name, active FROM users WHERE tenant = $1", params);
+
+    assert.equalInt(users.size(), 2);
+    let u0 = users.get(0) ?? UserDto{ id: -1, name: "", active: false };
+    assert.equalInt(u0.id, 7);
+    assert.equalStr(u0.name, "Ada");
+    assert.isTrue(u0.active);
+
+    let u1 = users.get(1) ?? UserDto{ id: -1, name: "", active: false };
+    assert.equalInt(u1.id, 0);
+    assert.equalStr(u1.name, "Zero");
+    assert.isFalse(u1.active);
+}
+
+@test
+fn test_query_one(): void {
+    let conn = MockConn{};
+    let one = orm.queryOneBlocking<UserDto>(conn, "SELECT id, name, active FROM users LIMIT 1", List<DbValue>());
+    assert.isTrue(one != undefined);
+    let u = one ?? UserDto{ id: -1, name: "", active: false };
+    assert.equalInt(u.id, 7);
+    assert.equalStr(u.name, "Ada");
+}

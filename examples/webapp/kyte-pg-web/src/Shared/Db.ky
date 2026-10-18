@@ -1,0 +1,17 @@
+// Db: the shared connection pool to Postgres, registered as a DI singleton.
+// Repositories take it by constructor injection and acquire/release connections
+// from its pool, so the whole app shares one pool. See DESIGN.md section 6.
+import postgres;
+import pool;
+
+pub struct Db {
+    pub pool: Pool,
+
+    // Pool size comes from config (manifest `DB_POOL_SIZE` -> db.poolSize), not an ad-hoc env var, so
+    // all configuration has one source. A caller passing 0 or less gets a sane floor of 1.
+    init(dsn: string, poolSize: int) {
+        let sz = if (poolSize < 1) 1 else poolSize;
+        self.pool = pool.Pool(postgres.PgDriver(), dsn, sz);
+        self.pool.configure(sz, 0, false);
+    }
+}

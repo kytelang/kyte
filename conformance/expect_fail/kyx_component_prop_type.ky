@@ -1,0 +1,6 @@
+// EXPECT-FAIL: typecheck
+// A prop whose value type does not match the parameter type is rejected by the
+// ordinary call type-check (props lower to call arguments).
+component Counter(n: int) { <b>{n}</b> }
+fn f(): string { return <Counter n="notint"/>; }
+fn main(): void { let _ = f(); }

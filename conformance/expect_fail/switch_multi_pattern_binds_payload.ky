@@ -1,0 +1,10 @@
+// EXPECT-FAIL: typecheck
+// A case matching several variant patterns cannot bind a payload: codegen would
+// extract and retain every pattern's payload in one shared block, reading a
+// non-matching variant's layout. Must be rejected.
+import list;
+enum M { A(int, List<int>), B(List<int>) }
+fn handle(m: M): int {
+    switch (m) { case M.A(i, xs), M.B(xs): { return xs.size(); } }
+}
+fn main(): void { console.log(`${handle(M.B(List<int>()))}`); }

@@ -1,0 +1,8 @@
+fn f(): string {
+    return 42;
+}
+
+@test
+fn t(): void {
+    let s = f();
+}

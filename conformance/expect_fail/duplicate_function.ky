@@ -1,0 +1,10 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+fn dup(x: int): int { return x + 1; }
+fn dup(x: int): int { return x + 2; }
+
+@test
+fn run(): void {
+    assert.equalInt(dup(1), 2);
+}

@@ -1,0 +1,40 @@
+
+import assert;
+
+exception E {
+    NotFound,
+    fn message(self: E): string { return "not found"; }
+}
+
+fn inner(fail: bool): int | E {
+    if (fail) { return E.NotFound; }
+    return 7;
+}
+
+fn outer(fail: bool): int | E {
+    let x = try inner(fail);
+    return x + 1;
+}
+
+@test
+fn test_try_ok_path(): void {
+    let r = outer(false) catch (e) -1;
+    assert.equalInt(r, 8);
+}
+
+@test
+fn test_try_error_propagates(): void {
+    let r = outer(true) catch (e) -1;
+    assert.equalInt(r, -1);
+}
+
+fn middle(fail: bool): int | E {
+    let x = try outer(fail);
+    return x * 2;
+}
+
+@test
+fn test_try_two_frames(): void {
+    assert.equalInt(middle(false) catch (e) -1, 16);
+    assert.equalInt(middle(true) catch (e) -1, -1);
+}

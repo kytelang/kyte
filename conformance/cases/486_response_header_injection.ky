@@ -1,0 +1,45 @@
+// S4: response and Set-Cookie header injection (response splitting). Header
+// names/values and cookie fields carrying CR, LF or NUL must be stripped at
+// serialisation so no injected header or split response is emitted.
+
+import web.response;
+import web.cookie;
+import assert;
+import string;
+
+// A header value carrying CRLF cannot inject a second header line: there must
+// be no CRLF before the "Injected" token (it stays part of the one value).
+@test
+fn t_header_value_crlf_stripped(): void {
+    let s = response.Response.ok("hi")
+        .setHeader("X-Test", "a\r\nInjected: 1")
+        .serialize();
+    assert.isTrue(!string.contains(s, "\r\nInjected: 1"));
+    // The value survives with the control bytes removed.
+    assert.contains(s, "X-Test: aInjected: 1\r\n");
+}
+
+// A Location redirect target with CRLF is stripped (no split response).
+@test
+fn t_redirect_location_crlf_stripped(): void {
+    let s = response.Response.redirect("/next\r\nSet-Cookie: admin=1").serialize();
+    assert.isTrue(!string.contains(s, "\r\nSet-Cookie: admin=1"));
+    assert.contains(s, "Location: /nextSet-Cookie: admin=1\r\n");
+}
+
+// A full cookie value with CRLF cannot inject a second Set-Cookie.
+@test
+fn t_cookie_value_crlf_stripped(): void {
+    let c = cookie.Cookie{ name: "sid", value: "z\r\nSet-Cookie: admin=1", path: "/",
+                           domain: "", maxAge: 0 - 1, secure: false, httpOnly: true, sameSite: "" };
+    let s = response.Response.ok("x").setCookieFull(c).serialize();
+    // Exactly one Set-Cookie line, with the control bytes stripped from the value.
+    assert.contains(s, "Set-Cookie: sid=zSet-Cookie: admin=1; Path=/; HttpOnly\r\n");
+}
+
+// Ordinary headers are unaffected.
+@test
+fn t_plain_header_unchanged(): void {
+    let s = response.Response.ok("hi").setHeader("X-Plain", "value").serialize();
+    assert.contains(s, "X-Plain: value\r\n");
+}

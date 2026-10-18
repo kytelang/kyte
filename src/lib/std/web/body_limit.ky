@@ -1,0 +1,59 @@
+//! Request body size guard for the web framework's middleware pipeline.
+//!
+//! `BodyLimitMiddleware` inspects the incoming request's `Content-Length`
+//! header before the handler runs and rejects oversized requests early with
+//! a `413 Payload Too Large` response, so a handler never has to defend
+//! itself against an unbounded body. It only checks the declared length: it
+//! does not stream-count actual bytes read, so a request that lies about (or
+//! omits) `Content-Length` is not caught here. Register it via `app.use`.
+
+import web.routing;
+import web.response;
+import web.status;
+
+/// Middleware that rejects requests whose declared `Content-Length` exceeds
+/// a configured maximum, before the request reaches the route handler.
+pub struct BodyLimitMiddleware impl RouteMiddleware {
+    /// Maximum allowed body size in bytes, as declared by `Content-Length`.
+    pub maxSize: int,
+
+    init(maxSize: int) {
+        self.maxSize = maxSize;
+    }
+
+    /// Checks the request's `Content-Length` header against `maxSize`.
+    ///
+    /// If the header is present (checked case-sensitively as `Content-Length`,
+    /// then falling back to lower-case `content-length`) and its numeric value
+    /// exceeds `maxSize`, short-circuits with a `413` JSON error and never calls
+    /// the rest of the chain. Otherwise the chain proceeds normally. A missing or
+    /// non-numeric header is treated as unbounded and allowed through.
+    async fn handle(self: BodyLimitMiddleware, ctx: routing.Context, next: routing.Chain): Response {
+        let len_str = ctx.request.headers.get("Content-Length") ?? ctx.request.headers.get("content-length") ?? "";
+        if (len_str != "") {
+            let len = parseNumber(len_str);
+            if (len > self.maxSize) {
+                return response.Response(Status.PayloadTooLarge, "{\"error\":\"Payload Too Large\"}");
+            }
+        }
+        return await next.proceed(ctx);
+    }
+}
+
+// Parses a leading run of ASCII digits into an int, stopping at the first non-digit and returning 0 for an empty or non-numeric string.
+fn parseNumber(s: string): int {
+    let len = s.length;
+    if (len == 0) return 0;
+    let res = 0;
+    let i = 0;
+    while (i < len) {
+        let c = s[i];
+        if (c >= 48 && c <= 57) {
+            res = res * 10 + (c - 48);
+        } else {
+            break;
+        }
+        i = i + 1;
+    }
+    return res;
+}

@@ -1,0 +1,56 @@
+import assert;
+import list;
+
+fn takeOwned(s: string): int { return s.length; }
+
+struct Box {
+    pub x: string,
+    init() { self.x = ""; }
+}
+
+fn retCast(): string { let h: Html = <span>ret</span>; return h as string; }
+
+@test
+fn ctx_call_arg(): void {
+    let h: Html = <span>arg</span>;
+    let n = takeOwned(h as string);
+    assert.equalInt(n, 16);
+}
+
+@test
+fn ctx_field_store(): void {
+    let h: Html = <span>fld</span>;
+    let b = Box();
+    b.x = h as string;
+    assert.contains(b.x, "fld");
+}
+
+@test
+fn ctx_container(): void {
+    let h: Html = <span>lst</span>;
+    let xs = List<string>();
+    xs.push(h as string);
+    assert.equalInt(xs.len, 1);
+    assert.contains(xs.getOr(0, ""), "lst");
+}
+
+@test
+fn ctx_reassign(): void {
+    let h: Html = <span>rea</span>;
+    let s = "init";
+    s = h as string;
+    assert.contains(s, "rea");
+}
+
+@test
+fn ctx_return(): void {
+    let r = retCast();
+    assert.contains(r, "ret");
+}
+
+@test
+fn ctx_let(): void {
+    let h: Html = <span>let</span>;
+    let s: string = h as string;
+    assert.contains(s, "let");
+}

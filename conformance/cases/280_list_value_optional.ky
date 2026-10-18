@@ -1,0 +1,31 @@
+import assert;
+import list;
+
+@test
+fn test_mixed_present_and_undefined(): void {
+    let xs = List<int | undefined>();
+    xs.push(7);
+    xs.push(undefined);
+    xs.push(9);
+    assert.equalInt(xs.size(), 3);
+    assert.equalInt(xs.at(0) ?? -1, 7);
+    assert.equalInt(xs.at(1) ?? -1, -1);
+    assert.equalInt(xs.at(2) ?? -1, 9);
+}
+
+@test
+fn test_all_present(): void {
+    let xs = List<int | undefined>();
+    let i = 0;
+    while (i < 5) { xs.push(i * 10); i = i + 1; }
+    assert.equalInt(xs.at(3) ?? -1, 30);
+}
+
+@test
+fn test_plain_int_list_unaffected(): void {
+    let xs = List<int>();
+    xs.push(1);
+    xs.push(2);
+    assert.equalInt(xs.at(0), 1);
+    assert.equalInt(xs.at(1), 2);
+}

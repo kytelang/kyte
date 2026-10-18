@@ -1,0 +1,16 @@
+// Notes feature registration: builds its handlers over the shared store from
+// `ctx.store` and maps them onto the verb methods. Mirrors the shop's per-feature
+// `registerX(ctx)`, so main.ky stays a thin composition root. The route names are
+// unique because Nova flattens imported names (no `import ... as`).
+import Shared.AppContext;
+import Features.Notes.handlers;
+
+pub fn registerNotes(ctx: AppContext): void {
+    let store = ctx.store;
+    ctx.app.get("/notes", ListNotesHandler(store));
+    ctx.app.get("/notes/{id:int}", GetNoteHandler(store));
+    ctx.app.post("/notes", CreateNoteHandler(store));
+    ctx.app.put("/notes/{id:int}", ReplaceNoteHandler(store));
+    ctx.app.patch("/notes/{id:int}", PatchNoteHandler(store));
+    ctx.app.delete("/notes/{id:int}", DeleteNoteHandler(store));
+}

@@ -1,0 +1,43 @@
+import assert;
+
+fn find(x: int): int? {
+    if (x > 0) { return x; }
+    return undefined;
+}
+
+fn unwrapUnion(o: int | undefined): int {
+    return o ?? -1;
+}
+
+struct Box {
+    pub v: string?,
+}
+
+@test
+fn optional_sugar_roundtrip(): void {
+    let a = find(5);
+    assert.isTrue(a != undefined);
+    assert.equalInt(a ?? 0, 5);
+    let b = find(-1);
+    assert.isTrue(b == undefined);
+    assert.equalInt(b ?? 99, 99);
+}
+
+@test
+fn optional_sugar_equals_union(): void {
+    let r7 = find(7);
+    assert.equalInt(unwrapUnion(r7), 7);
+    let rn = find(-1);
+    assert.equalInt(unwrapUnion(rn), -1);
+    let miss: int | undefined = undefined;
+    let x: int? = miss;
+    assert.equalInt(x ?? 42, 42);
+}
+
+@test
+fn optional_sugar_field(): void {
+    let present = Box { v: "hi" };
+    assert.equalStr(present.v ?? "none", "hi");
+    let absent = Box { v: undefined };
+    assert.equalStr(absent.v ?? "none", "none");
+}

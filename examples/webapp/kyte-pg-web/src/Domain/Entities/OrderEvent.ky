@@ -1,0 +1,10 @@
+// Persistence entity: one row of the `order_events` table. `id` is BIGSERIAL, so
+// it is a `long` (the high-water mark the SSE feed tails). Each row is one
+// pre-rendered status fragment.
+@serializable
+pub struct OrderEvent {
+    pub id: long,
+    pub order_id: string,
+    pub fragment: string,
+    pub created_at: string,
+}

@@ -1,0 +1,37 @@
+import assert;
+
+@test
+fn test_long_to_int(): void {
+    let big: long = 4294967303;
+    assert.equalInt(big as int, 7);
+}
+
+@test
+fn test_int_to_byte_unsigned(): void {
+    let x: int = 511;
+    assert.equalInt((x as byte) as int, 255);
+}
+
+@test
+fn test_int_to_sbyte_signed(): void {
+    let x: int = 511;
+    assert.equalInt((x as sbyte) as int, -1);
+}
+
+@test
+fn test_int_to_short(): void {
+    let x: int = 65537;
+    assert.equalInt((x as short) as int, 1);
+}
+
+@test
+fn test_long_to_short_negative(): void {
+    let x: long = 65535;
+    assert.equalInt((x as short) as int, -1);
+}
+
+@test
+fn test_widening_is_identity(): void {
+    let x: int = 42;
+    assert.equalInt((x as long) as int, 42);
+}

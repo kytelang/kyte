@@ -1,0 +1,28 @@
+import assert;
+
+fn tag(s: string | undefined): int {
+    if (s == undefined) { return -1; }
+    return len(s);
+}
+
+fn firstNonEmpty(a: string | undefined, b: string | undefined): int {
+    if (a != undefined) { return len(a); }
+    if (b != undefined) { return len(b); }
+    return 0;
+}
+
+fn clamp(v: int | undefined): int {
+    if (v == undefined) { return 0; }
+    return v;
+}
+
+@test
+fn test_ref_optional(): void {
+    assert.equalInt(tag("hello"), 5);
+    assert.equalInt(tag(undefined), -1);
+    assert.equalInt(firstNonEmpty(undefined, "bc"), 2);
+    assert.equalInt(firstNonEmpty("abcd", "z"), 4);
+    assert.equalInt(firstNonEmpty(undefined, undefined), 0);
+    assert.equalInt(clamp(7), 7);
+    assert.equalInt(clamp(undefined), 0);
+}

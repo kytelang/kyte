@@ -1,0 +1,46 @@
+
+import assert;
+
+trait Shape {
+    fn area(self: Shape): int;
+    fn label(self: Shape): string;
+}
+
+struct Cell<T> impl Shape {
+    pub v: T,
+    init(x: T) { self.v = x; }
+    fn area(self: Cell<T>): int { return 7; }
+    fn label(self: Cell<T>): string { return "cell"; }
+}
+
+fn describe(s: Shape): int { return s.area(); }
+
+@test
+fn test_let_widen_and_dispatch(): void {
+    let c = Cell<int>(3);
+    let s: Shape = c;
+    assert.equalInt(7, s.area());
+    assert.equalStr("cell", s.label());
+}
+
+@test
+fn test_arg_widen(): void {
+    let c = Cell<int>(9);
+    assert.equalInt(7, describe(c));
+}
+
+@test
+fn test_owned_type_param(): void {
+    let c = Cell<string>("payload");
+    let s: Shape = c;
+    assert.equalInt(7, s.area());
+    assert.equalStr("cell", s.label());
+}
+
+@test
+fn test_two_instantiations(): void {
+    let a: Shape = Cell<int>(1);
+    let b: Shape = Cell<string>("x");
+    assert.equalInt(7, a.area());
+    assert.equalInt(7, b.area());
+}

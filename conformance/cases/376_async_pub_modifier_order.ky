@@ -1,0 +1,25 @@
+
+struct Counter {
+    n: int,
+    init() { self.n = 0; }
+
+    async pub fn bump(self: Counter): int {
+        self.n = self.n + 1;
+        return self.n;
+    }
+
+    pub async fn twice(self: Counter): int {
+        return self.n * 2;
+    }
+}
+
+async pub fn make(): Counter {
+    return Counter();
+}
+
+@test
+fn test_modifier_orders(): void {
+    let c = Counter();
+    c.n = 5;
+    assert.equalInt(c.n, 5);
+}

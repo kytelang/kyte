@@ -1,0 +1,39 @@
+import str;
+import web.response;
+import collections.string_builder;
+import assert;
+
+@test
+fn str_whole_escape() {
+    let s = "a<b>c&d\"e'f";
+    let sb = string_builder.StringBuilder();
+    response.escapeHtmlIntoView(sb, str.of(s));
+    assert.equalStr(sb.toString(), "a&lt;b&gt;c&amp;d&quot;e&#39;f");
+}
+
+@test
+fn str_slice_borrow() {
+    let s = "XXhello<worldYY";
+    let v = str.sub(s, 2, 13);
+    assert.equalInt(v.size(), 11);
+    let sb = string_builder.StringBuilder();
+    response.escapeHtmlIntoView(sb, v);
+    assert.equalStr(sb.toString(), "hello&lt;world");
+}
+
+@test
+fn str_clean_passthrough() {
+    let s = "no metachars here, just plain product description text";
+    let sb = string_builder.StringBuilder();
+    response.escapeHtmlIntoView(sb, str.of(s));
+    assert.equalStr(sb.toString(), s);
+}
+
+@test
+fn str_to_owned() {
+    let s = "borrowed-then-owned";
+    let v = str.sub(s, 0, 19);
+    let owned = v.toOwned();
+    assert.equalStr(owned, "borrowed-then-owned");
+    assert.equalInt(v.size(), 19);
+}

@@ -1,0 +1,82 @@
+import net.dns;
+import net.dial;
+import bytes;
+import assert;
+
+fn b(buf: ptr, i: int): int { return bytes.read_byte(buf, i); }
+
+@test
+fn test_parse_loopback(): void {
+    let out = bytes.alloc(16);
+    assert.isTrue(dns.parseIPv6("::1", out));
+    let i = 0; while (i < 15) { assert.equalInt(0, b(out, i)); i = i + 1; }
+    assert.equalInt(1, b(out, 15));
+}
+
+@test
+fn test_parse_full(): void {
+    let out = bytes.alloc(16);
+    assert.isTrue(dns.parseIPv6("2001:db8::1", out));
+    assert.equalInt(0x20, b(out, 0)); assert.equalInt(0x01, b(out, 1));
+    assert.equalInt(0x0d, b(out, 2)); assert.equalInt(0xb8, b(out, 3));
+    let i = 4; while (i < 15) { assert.equalInt(0, b(out, i)); i = i + 1; }
+    assert.equalInt(1, b(out, 15));
+}
+
+@test
+fn test_parse_uncompressed(): void {
+    let out = bytes.alloc(16);
+    assert.isTrue(dns.parseIPv6("fe80:0:0:0:1ff:fe23:4567:890a", out));
+    assert.equalInt(0xfe, b(out, 0)); assert.equalInt(0x80, b(out, 1));
+    assert.equalInt(0x01, b(out, 8)); assert.equalInt(0xff, b(out, 9));
+    assert.equalInt(0x45, b(out, 12)); assert.equalInt(0x67, b(out, 13));
+    assert.equalInt(0x89, b(out, 14)); assert.equalInt(0x0a, b(out, 15));
+}
+
+@test
+fn test_parse_all_zero(): void {
+    let out = bytes.alloc(16);
+    assert.isTrue(dns.parseIPv6("::", out));
+    let i = 0; while (i < 16) { assert.equalInt(0, b(out, i)); i = i + 1; }
+}
+
+@test
+fn test_parse_rejects_bad(): void {
+    let out = bytes.alloc(16);
+    assert.isFalse(dns.parseIPv6("2001:db8", out));
+    assert.isFalse(dns.parseIPv6("xyz::1", out));
+    assert.isFalse(dns.parseIPv6("12345::1", out));
+}
+
+@test
+fn test_dns_cache(): void {
+    let c = dns.newDnsCache();
+    assert.isFalse(c.has("example.com"));
+    c.put("example.com", 12345);
+    assert.isTrue(c.has("example.com"));
+    assert.equalInt(12345, (c.get("example.com") ?? 0) as int);
+    assert.isTrue(c.get("other.com") == undefined);
+}
+
+@test
+fn test_sockaddr_in6(): void {
+    let addr = bytes.alloc(16);
+    dns.parseIPv6("2001:db8::1", addr);
+    let sa = dns.makeSockaddrIn6(10, 8080, addr, false);
+    assert.equalInt(10, b(sa, 0)); assert.equalInt(0, b(sa, 1));
+    assert.equalInt(0x1f, b(sa, 2)); assert.equalInt(0x90, b(sa, 3));
+    assert.equalInt(0x20, b(sa, 8)); assert.equalInt(0x01, b(sa, 9));
+    assert.equalInt(1, b(sa, 23));
+    let sb = dns.makeSockaddrIn6(30, 443, addr, true);
+    assert.equalInt(28, b(sb, 0));
+    assert.equalInt(30, b(sb, 1));
+    assert.equalInt(0x01, b(sb, 2)); assert.equalInt(0xbb, b(sb, 3));
+}
+
+@test
+fn test_dial_family_detection(): void {
+    assert.isTrue(dial.isIPv6Literal("::1"));
+    assert.isTrue(dial.isIPv6Literal("2001:db8::1"));
+    assert.isFalse(dial.isIPv6Literal("127.0.0.1"));
+    assert.isFalse(dial.isIPv6Literal("example.com"));
+}

@@ -1,0 +1,9 @@
+// EXPECT-FAIL: typecheck
+import assert;
+@test
+fn t(): void {
+    let x: string | undefined = "hi";
+    if (x) {
+        assert.isTrue(true);
+    }
+}

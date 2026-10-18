@@ -1,0 +1,23 @@
+
+import assert;
+
+@test
+fn test_string_branches(): void {
+    let x = 5;
+    assert.equalStr(`${if (x > 3) "big" else "small"}`, "big");
+    let y = 1;
+    assert.equalStr(`${if (y > 3) "big" else "small"}`, "small");
+}
+
+@test
+fn test_embedded_in_surrounding_text(): void {
+    let n = 7;
+    assert.equalStr(`n = ${if (n > 3) "big" else "small"}!`, "n = big!");
+}
+
+@test
+fn test_numeric_branches(): void {
+    let x = 5;
+    assert.equalStr(`${if (x == 5) x else 0}`, "5");
+    assert.equalStr(`${if (x == 5) x * 2 else 0}`, "10");
+}

@@ -1,0 +1,48 @@
+import serde.json;
+import serde.yaml;
+import map;
+import list;
+import string;
+import assert;
+
+@test
+fn test_json_nested_roundtrip(): void {
+    let obj = Map<string, json.JsonValue>(8, string.hash);
+    obj.set("name", json.str("Alice"));
+    let tags = List<json.JsonValue>();
+    tags.push(json.str("dev"));
+    tags.push(json.str("qa"));
+    obj.set("tags", json.array(tags));
+    let text = json.stringify(json.object(obj));
+    let back = json.parse(text);
+    assert.equalStr(json.asString(json.get(back, "name")) ?? "", "Alice");
+}
+
+@test
+fn test_yaml_nested_roundtrip(): void {
+    let root_map = Map<string, YamlValue>(16, string.hash);
+    root_map.set("name", yaml.str("Alice"));
+    let tags = List<YamlValue>();
+    tags.push(yaml.str("dev"));
+    tags.push(yaml.str("qa"));
+    root_map.set("tags", yaml.array(tags));
+    let addr = Map<string, YamlValue>(16, string.hash);
+    addr.set("city", yaml.str("Paris"));
+    root_map.set("address", yaml.object(addr));
+    let root = yaml.object(root_map);
+
+    let text = yaml.stringify(root);
+    let parsed = yaml.parse(text);
+    assert.isTrue(parsed != YamlValue.Null);
+    let tags_arr = yaml.asArray(yaml.get(parsed, "tags"));
+    assert.isTrue(tags_arr != undefined);
+    if (tags_arr != undefined) { assert.equalInt(2, tags_arr.size()); }
+}
+
+@test
+fn test_both_modules_coexist(): void {
+    let jv = json.number(42);
+    let yv = yaml.number(42);
+    assert.equalInt((json.asNumber(jv) ?? 0) as int, 42);
+    assert.equalInt((yaml.asNumber(yv) ?? 0) as int, 42);
+}

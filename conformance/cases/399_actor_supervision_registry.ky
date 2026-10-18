@@ -1,0 +1,44 @@
+import concurrency.actor;
+import assert;
+
+struct Counter impl SupervisedBehavior<int> {
+    pub total: int,
+    init() { self.total = 0; }
+    fn receive(self: Counter, msg: int): bool {
+        if (msg < 0) { return false; }
+        self.total = self.total + msg;
+        return true;
+    }
+    fn reset(self: Counter): void { self.total = 0; }
+}
+
+@test
+fn supervisor_restarts_on_fault(): void {
+    let c = Counter{ total: 0 };
+    let sup = actor.Supervisor<int>(c, 2);
+    assert.isTrue(sup.deliver(5));
+    assert.equalInt(c.total, 5);
+    assert.isTrue(sup.deliver(-1));
+    assert.equalInt(sup.restartCount(), 1);
+    assert.equalInt(c.total, 0);
+    assert.isTrue(sup.deliver(7));
+    assert.equalInt(c.total, 7);
+    assert.isTrue(sup.deliver(-1));
+    assert.isTrue(!sup.deliver(-1));
+    assert.isTrue(sup.isStopped());
+    assert.isTrue(!sup.deliver(1));
+}
+
+@test
+fn registry_resolves_by_name(): void {
+    let reg = actor.ActorRegistry();
+    reg.register("logger", 4242);
+    reg.register("db", 9001);
+    assert.equalInt(reg.count(), 2);
+    assert.isTrue(reg.has("logger"));
+    assert.equalInt(reg.lookup("logger") as int, 4242);
+    assert.equalInt(reg.lookup("db") as int, 9001);
+    reg.unregister("logger");
+    assert.isTrue(!reg.has("logger"));
+    assert.equalInt(reg.count(), 1);
+}

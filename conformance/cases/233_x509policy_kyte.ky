@@ -1,0 +1,129 @@
+import crypto.x509;
+import bytes;
+import assert;
+
+fn hexNib(c: int): int {
+    if (c >= 48 && c <= 57) { return c - 48; }
+    if (c >= 97 && c <= 102) { return c - 87; }
+    return 0;
+}
+fn hexBuf(hex: string): ptr {
+    let n = hex.length / 2;
+    let b = bytes.alloc(n);
+    let i = 0;
+    while (i < n) { bytes.write_byte(b, i, hexNib(hex[i * 2]) * 16 + hexNib(hex[i * 2 + 1])); i = i + 1; }
+    return b;
+}
+
+const ROOT: string = "3082014d3081f5a003020102020101300a06082a8648ce3d04030230173115301306035504030c0c4b79746520526f6f74204341301e170d3236303130313030303030305a170d3336303130313030303030305a30173115301306035504030c0c4b79746520526f6f742043413059301306072a8648ce3d020106082a8648ce3d030107034200044a4dc99ee965e1f3e93c9a7103f4b10c66dad15a0806537343da1d8c4304358b4da987509117b322b39ab9c7ec12bacadf09486f48127dbeb2ca2054e61bd4bea3323030300f0603551d130101ff040530030101ff301d0603551d0e0416041463448161da32bf004224c4001b091a6d8f698ccf300a06082a8648ce3d0403020347003044022065d6baebbadbbca853c73b4d7a52d3e2b03a67e051dc653a6249c4ff060ba2a102203a460fb6a92937d653215468cc4e7cf22cfda2d127cc9bfe1f67c204306d0a3e";
+const INT: string = "308201793082011ea003020102020102300a06082a8648ce3d04030230173115301306035504030c0c4b79746520526f6f74204341301e170d3236303130313030303030305a170d3336303130313030303030305a301f311d301b06035504030c144b79746520496e7465726d6564696174652043413059301306072a8648ce3d020106082a8648ce3d03010703420004ef0e0334898ea758fbc1e0ec3462b22745beaee99f641bf40c95b594bf9d5c200d38e420d6229ec074cc68d3706235f415a36383ea7d60f28f8726fe9f5fd6a3a3533051300f0603551d130101ff040530030101ff301d0603551d0e04160414b7a89c93e82a96d2627354777682ce7c23c23d6d301f0603551d2304183016801463448161da32bf004224c4001b091a6d8f698ccf300a06082a8648ce3d0403020349003046022100f0cca95a8f3a7354d25d971a4eebf88dccf15fedcf0b5f47268103a849f59bb5022100e9e5af8d9b9218add5c6f02e7af99a5617c54864cc13a71ef1a124a0cf9d5151";
+const LEAF: string = "308201a43082014aa003020102020103300a06082a8648ce3d040302301f311d301b06035504030c144b79746520496e7465726d656469617465204341301e170d3236303130313030303030305a170d3336303130313030303030305a30193117301506035504030c0e6c6561662e6b7974652e746573743059301306072a8648ce3d020106082a8648ce3d03010703420004fa33dc4b90762d3ca5be920718865c6555ef2540a27550a77e1f5f39a1b29f09b3676c66cb770c4dfd42af60db3e98ddea1bc9cb47399d5ba8f66dae455a88a7a37d307b300c0603551d130101ff04023000301d0603551d0e04160414a69e57bf1fe68f6a057899ad64405b1bd287b4c5301f0603551d23041830168014b7a89c93e82a96d2627354777682ce7c23c23d6d302b0603551d1104243022820e6c6561662e6b7974652e7465737482102a2e77696c642e6b7974652e74657374300a06082a8648ce3d0403020348003045022100faa5ff665ac91d010bb073455feabe68aec17f0bfea62f584ffb53e73c19f77f0220090a660fcf11995951600c75c50e4b87d6fcb0ea7326bfc7ba1eb304c7f61025";
+
+const NOW: long = 20270101000000;
+
+
+@test
+fn chain_valid(): void {
+    let root = x509.parseCert(hexBuf(ROOT), 337);
+    let inter = x509.parseCert(hexBuf(INT), 381);
+    let leaf = x509.parseCert(hexBuf(LEAF), 424);
+    assert.isTrue(root.ok && inter.ok && leaf.ok);
+    assert.isTrue(x509.verifyChain3(leaf, inter, root, "leaf.kyte.test", NOW));
+}
+
+@test
+fn ca_constraints(): void {
+    let root = x509.parseCert(hexBuf(ROOT), 337);
+    let inter = x509.parseCert(hexBuf(INT), 381);
+    let leaf = x509.parseCert(hexBuf(LEAF), 424);
+    assert.isTrue(x509.isCA(root));
+    assert.isTrue(x509.isCA(inter));
+    assert.isTrue(!x509.isCA(leaf));
+}
+
+@test
+fn hostname_matching(): void {
+    let leaf = x509.parseCert(hexBuf(LEAF), 424);
+    assert.isTrue(x509.matchHostname(leaf, "leaf.kyte.test"));
+    assert.isTrue(x509.matchHostname(leaf, "anything.wild.kyte.test"));
+    assert.isTrue(!x509.matchHostname(leaf, "wild.kyte.test"));
+    assert.isTrue(!x509.matchHostname(leaf, "a.b.wild.kyte.test"));
+    assert.isTrue(!x509.matchHostname(leaf, "evil.com"));
+}
+
+@test
+fn wrong_hostname_rejected(): void {
+    let root = x509.parseCert(hexBuf(ROOT), 337);
+    let inter = x509.parseCert(hexBuf(INT), 381);
+    let leaf = x509.parseCert(hexBuf(LEAF), 424);
+    assert.isTrue(!x509.verifyChain3(leaf, inter, root, "evil.com", NOW));
+}
+
+@test
+fn validity_window(): void {
+    let leaf = x509.parseCert(hexBuf(LEAF), 424);
+    assert.isTrue(x509.checkValidity(leaf, NOW));
+    assert.isTrue(!x509.checkValidity(leaf, 20200101000000));
+    assert.isTrue(!x509.checkValidity(leaf, 20400101000000));
+    let root = x509.parseCert(hexBuf(ROOT), 337);
+    let inter = x509.parseCert(hexBuf(INT), 381);
+    assert.isTrue(!x509.verifyChain3(leaf, inter, root, "leaf.kyte.test", 20400101000000));
+}
+
+@test
+fn broken_chain_rejected(): void {
+    let root = x509.parseCert(hexBuf(ROOT), 337);
+    let leaf = x509.parseCert(hexBuf(LEAF), 424);
+    assert.isTrue(!x509.verifyChain2(leaf, root, "leaf.kyte.test", NOW));
+}
+
+fn w3(buf: ptr, off: int, v: int): void {
+    bytes.write_byte(buf, off, (v >> 16) & 0xff);
+    bytes.write_byte(buf, off + 1, (v >> 8) & 0xff);
+    bytes.write_byte(buf, off + 2, v & 0xff);
+}
+fn addEntry(list: ptr, p: int, certHex: string, certLen: int): int {
+    w3(list, p, certLen); p = p + 3;
+    let der = hexBuf(certHex);
+    let i = 0;
+    while (i < certLen) { bytes.write_byte(list, p + i, bytes.read_byte(der, i)); i = i + 1; }
+    p = p + certLen;
+    bytes.write_byte(list, p, 0); bytes.write_byte(list, p + 1, 0); p = p + 2;
+    return p;
+}
+
+@test
+fn cert_list_chain(): void {
+    let list = bytes.alloc(1024);
+    let p = addEntry(list, 0, LEAF, 424);
+    p = addEntry(list, p, INT, 381);
+    assert.isTrue(x509.verifyCertList(list, p, hexBuf(ROOT), 337, "leaf.kyte.test", NOW));
+    assert.isTrue(!x509.verifyCertList(list, p, hexBuf(ROOT), 337, "evil.com", NOW));
+
+    let solo = bytes.alloc(512);
+    let q = addEntry(solo, 0, LEAF, 424);
+    assert.isTrue(!x509.verifyCertList(solo, q, hexBuf(ROOT), 337, "leaf.kyte.test", NOW));
+}
+
+fn addEntry12(list: ptr, p: int, certHex: string, certLen: int): int {
+    w3(list, p, certLen); p = p + 3;
+    let der = hexBuf(certHex);
+    let i = 0;
+    while (i < certLen) { bytes.write_byte(list, p + i, bytes.read_byte(der, i)); i = i + 1; }
+    return p + certLen;
+}
+
+@test
+fn cert_list12_chain(): void {
+    let list = bytes.alloc(1024);
+    let p = addEntry12(list, 0, LEAF, 424);
+    p = addEntry12(list, p, INT, 381);
+    assert.isTrue(x509.verifyCertList12(list, p, hexBuf(ROOT), 337, "leaf.kyte.test", NOW));
+    assert.isTrue(!x509.verifyCertList12(list, p, hexBuf(ROOT), 337, "evil.com", NOW));
+
+    assert.isTrue(!x509.verifyCertList(list, p, hexBuf(ROOT), 337, "leaf.kyte.test", NOW));
+
+    let solo = bytes.alloc(512);
+    let q = addEntry12(solo, 0, LEAF, 424);
+    assert.isTrue(!x509.verifyCertList12(solo, q, hexBuf(ROOT), 337, "leaf.kyte.test", NOW));
+}

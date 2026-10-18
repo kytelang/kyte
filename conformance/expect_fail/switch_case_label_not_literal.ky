@@ -1,0 +1,8 @@
+// EXPECT-FAIL: typecheck
+// A named constant as an integer-switch case label previously lowered silently
+// to 0 (wrong branch); it must be rejected as a non-literal case label.
+const A: int = 5;
+fn classify(x: int): string {
+    switch (x) { case A: { return "five"; } default: { return "other"; } }
+}
+fn main(): void { console.log(classify(5)); }

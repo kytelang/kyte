@@ -1,0 +1,62 @@
+// KYX components: `component Name(props) { <kyx> }` with typed props matched by
+// name at the usage site and one `<slot/>` for children. A usage `<Name .../>` with
+// an uppercase tag lowers to an ordinary call, so props are type-checked by name and
+// the slot receives the children. Components compose and nest.
+import assert;
+import string;
+
+component Badge(label: string) {
+    <span class="badge">{label}</span>
+}
+
+component Card(title: string, tone: string) {
+    <section class={tone}><h3>{title}</h3><slot/></section>
+}
+
+// A component may take non-string props, and may interpolate them.
+component Counter(n: int) {
+    <b>{n}</b>
+}
+
+fn page(name: string): string {
+    return <div>
+        <Card title={name} tone="warn">
+            <p>body</p>
+            <Badge label="new"/>
+        </Card>
+    </div>;
+}
+
+@test
+fn test_slot_and_nesting(): void {
+    // Props land by name regardless of attribute order; the slot holds both children;
+    // the nested Badge renders inside the slot.
+    assert.equalStr(page("Ada"),
+        "<div><section class=\"warn\"><h3>Ada</h3><p>body</p><span class=\"badge\">new</span></section></div>");
+}
+
+@test
+fn test_props_by_name_any_order(): void {
+    let a = <Card tone="x" title="T"><i>k</i></Card>;
+    let b = <Card title="T" tone="x"><i>k</i></Card>;
+    assert.equalStr(a, b);
+}
+
+@test
+fn test_slotless_component(): void {
+    assert.isTrue(string.contains(<div><Badge label="hi"/></div>, "<span class=\"badge\">hi</span>"));
+}
+
+@test
+fn test_non_string_prop(): void {
+    assert.isTrue(string.contains(<div><Counter n={41 + 1}/></div>, "<b>42</b>"));
+}
+
+// Forward reference: a component may be used above its declaration in the file.
+fn usesBelow(): string { return <div><Below/></div>; }
+component Below() { <i>below</i> }
+
+@test
+fn test_forward_reference(): void {
+    assert.isTrue(string.contains(usesBelow(), "<i>below</i>"));
+}

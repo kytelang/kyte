@@ -1,0 +1,36 @@
+import list;
+import assert;
+
+async fn makeList(n: int): list.List<int> {
+    let out = list.List<int>();
+    let i = 0;
+    while (i < n) { out.push(i); i = i + 1; }
+    return out;
+}
+
+fn sink(a: list.List<int>, b: list.List<int>): int { return a.size() + b.size(); }
+
+async fn inlineArgs(): int {
+    return sink(await makeList(3), await makeList(4));
+}
+
+async fn nestedInline(): int {
+    let base = await makeList(5);
+    return sink(await makeList(2), base);
+}
+
+@test
+fn test_inline_await_arg_released(): void {
+    let acc = 0;
+    let i = 0;
+    while (i < 50) { acc = acc + inlineArgs(); i = i + 1; }
+    assert.equalInt(acc, 350);
+}
+
+@test
+fn test_nested_inline_await_released(): void {
+    let acc = 0;
+    let i = 0;
+    while (i < 20) { acc = acc + nestedInline(); i = i + 1; }
+    assert.equalInt(acc, (2 + 5) * 20);
+}

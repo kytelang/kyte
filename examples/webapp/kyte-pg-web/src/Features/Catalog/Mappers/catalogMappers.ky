@@ -1,0 +1,35 @@
+// Catalogue mappers: entity -> read DTO. This is the hand-written stand-in for an
+// AutoMapper Profile (CreateMap<Product, ProductDto>()). Every line is either a
+// convention copy (same field, e.g. name -> name) or an explicit rename the
+// convention cannot guess (image_url -> imageUrl, is_vegetarian -> veg), exactly
+// like AutoMapper's ForMember. A future compiler `...from(entity)` spread would
+// generate the convention copies and leave only the renames/derived fields here.
+//
+// Mapping happens here (called from the handler), never in the repository: the
+// repository returns entities, the handler projects them to DTOs for the view.
+import list;
+import data.mapper;
+import Domain.Entities.Product;
+import Domain.Entities.Category;
+import Features.Catalog.Dtos.catalog;
+
+pub fn toProductDto(p: Product): catalog.ProductDto {
+    // Fully attribute-driven now: id/name/description/price/imageUrl fill by
+    // convention and veg via @from("is_vegetarian") on the DTO, so the whole
+    // projection is the generic mapper call (AutoMapper's Map<ProductDto>(p)).
+    return mapper.mapTo<catalog.ProductDto, Product>(p);
+}
+
+pub fn toProductDtos(ps: list.List<Product>): list.List<catalog.ProductDto> {
+    // Collection mapping: the element mapper over the list.
+    return ps.map(toProductDto);
+}
+
+pub fn toCategoryDto(c: Category): catalog.CategoryDto {
+    // Every CategoryDto field matches a Category column by name.
+    return mapper.mapTo<catalog.CategoryDto, Category>(c);
+}
+
+pub fn toCategoryDtos(cs: list.List<Category>): list.List<catalog.CategoryDto> {
+    return cs.map(toCategoryDto);
+}

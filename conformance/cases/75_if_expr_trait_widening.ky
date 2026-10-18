@@ -1,0 +1,20 @@
+import assert;
+
+trait G { fn v(self: G): int; }
+struct A impl G { fn v(self: A): int { return 3; } }
+struct B impl G { fn v(self: B): int { return 7; } }
+
+@test
+fn test_annotated_let_if_expr(): void {
+    let ha: G = if (true) A{} else B{};
+    let hb: G = if (false) A{} else B{};
+    assert.equalInt(ha.v(), 3);
+    assert.equalInt(hb.v(), 7);
+}
+
+fn pick(hit: bool): G { return if (hit) A{} else B{}; }
+@test
+fn test_return_if_expr(): void {
+    assert.equalInt(pick(true).v(), 3);
+    assert.equalInt(pick(false).v(), 7);
+}

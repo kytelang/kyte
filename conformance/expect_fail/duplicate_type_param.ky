@@ -1,0 +1,9 @@
+struct Bad<A, A> {
+    pub x: A,
+    init(v: A) { self.x = v; }
+}
+
+@test
+fn t(): void {
+    let b = Bad<int, int>(1);
+}

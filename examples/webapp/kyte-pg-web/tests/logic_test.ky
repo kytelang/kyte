@@ -1,0 +1,95 @@
+// Offline unit tests for the app's pure domain logic: the order lifecycle and
+// role rules in Shared.orderstatus, and money formatting in Shared.fmt. These
+// need no database and no web server, so they run anywhere `kyte test` runs.
+import assert;
+import string;
+import Shared.orderstatus;
+import Shared.fmt;
+
+@test
+fn test_stage_order_and_steps(): void {
+    let s = orderstatus.stages();
+    assert.equalInt(s.size(), 7);
+    assert.equalStr(s.get(0) ?? "", "pending");
+    assert.equalStr(s.get(6) ?? "", "delivered");
+    // step is the 0-based position; unknown falls back to 0.
+    assert.equalInt(orderstatus.step("pending"), 0);
+    assert.equalInt(orderstatus.step("ready"), 3);
+    assert.equalInt(orderstatus.step("delivered"), 6);
+    assert.equalInt(orderstatus.step("nonsense"), 0);
+}
+
+@test
+fn test_next_advances_and_stops_at_terminal(): void {
+    assert.equalStr(orderstatus.next("pending"), "accepted");
+    assert.equalStr(orderstatus.next("ready"), "picked_up");
+    assert.equalStr(orderstatus.next("on_the_way"), "delivered");
+    // delivered is terminal: no next.
+    assert.equalStr(orderstatus.next("delivered"), "");
+}
+
+@test
+fn test_is_terminal(): void {
+    assert.isTrue(orderstatus.isTerminal("delivered"));
+    assert.isTrue(orderstatus.isTerminal("cancelled"));
+    assert.isTrue(!orderstatus.isTerminal("pending"));
+    assert.isTrue(!orderstatus.isTerminal("ready"));
+}
+
+@test
+fn test_role_for_status(): void {
+    assert.equalStr(orderstatus.roleForStatus("pending"), "kitchen");
+    assert.equalStr(orderstatus.roleForStatus("preparing"), "kitchen");
+    assert.equalStr(orderstatus.roleForStatus("ready"), "delivery");
+    assert.equalStr(orderstatus.roleForStatus("on_the_way"), "delivery");
+    assert.equalStr(orderstatus.roleForStatus("delivered"), "admin");
+}
+
+@test
+fn test_can_advance_permissions(): void {
+    // Admin may advance anything that is not terminal.
+    assert.isTrue(orderstatus.canAdvance("admin", "pending"));
+    assert.isTrue(!orderstatus.canAdvance("admin", "delivered"));
+    // Kitchen may only advance kitchen-stage orders.
+    assert.isTrue(orderstatus.canAdvance("kitchen", "preparing"));
+    assert.isTrue(!orderstatus.canAdvance("kitchen", "ready"));
+    // Delivery may only advance delivery-stage orders.
+    assert.isTrue(orderstatus.canAdvance("delivery", "ready"));
+    assert.isTrue(!orderstatus.canAdvance("delivery", "pending"));
+    // No one advances a terminal order.
+    assert.isTrue(!orderstatus.canAdvance("kitchen", "cancelled"));
+}
+
+@test
+fn test_signup_roles_and_labels(): void {
+    assert.isTrue(orderstatus.isValidSignupRole("customer"));
+    assert.isTrue(orderstatus.isValidSignupRole("kitchen"));
+    assert.isTrue(orderstatus.isValidSignupRole("delivery"));
+    assert.isTrue(!orderstatus.isValidSignupRole("admin"));      // admin is not self-registerable
+    assert.isTrue(!orderstatus.isValidSignupRole("hacker"));
+
+    assert.equalStr(orderstatus.roleLabel("kitchen"), "Kitchen operator");
+    assert.equalStr(orderstatus.roleLabel("delivery"), "Delivery partner");
+    assert.equalStr(orderstatus.roleLabel("admin"), "Administrator");
+    assert.equalStr(orderstatus.roleLabel("customer"), "Customer");
+    assert.equalStr(orderstatus.roleLabel("anything else"), "Customer"); // default
+}
+
+@test
+fn test_status_labels(): void {
+    assert.equalStr(orderstatus.label("pending"), "Order placed");
+    assert.equalStr(orderstatus.label("on_the_way"), "On the way");
+    assert.equalStr(orderstatus.label("cancelled"), "Cancelled");
+    assert.equalStr(orderstatus.label("unknown-code"), "unknown-code"); // passthrough
+}
+
+@test
+fn test_money_formatting(): void {
+    assert.equalStr(fmt.money(0.0), "0.00");
+    assert.equalStr(fmt.money(1.0), "1.00");
+    assert.equalStr(fmt.money(1.5), "1.50");          // frac < 10 gets a leading zero
+    assert.equalStr(fmt.money(1.05), "1.05");
+    assert.equalStr(fmt.money(12.99), "12.99");
+    assert.equalStr(fmt.money(0.005), "0.01");        // rounds half up
+    assert.equalStr(fmt.money(-2.5), "-2.50");        // negative keeps the sign
+}

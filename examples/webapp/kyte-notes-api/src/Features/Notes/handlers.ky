@@ -1,0 +1,134 @@
+// The six Notes handlers, one per REST operation. Each is a plain struct that holds
+// the shared NoteStore and implements RouteHandler.serve. Together they exercise the
+// whole verb set (GET list, GET one, POST, PUT, PATCH, DELETE), JSON body binding
+// (ctx.bind<Note>), path params (ctx.param("id")), and query params (ctx.query("tag")).
+//
+// Error handling uses the return-based pattern: `run(ctx)` returns `Response | ApiError`
+// and propagates domain failures with `try`; `serve` converts any ApiError into a JSON
+// response with `catch (e) JsonResponse.fromError(e)`. This keeps the happy path linear
+// and the error rendering in exactly one place per handler.
+import web.routing;
+import web.response;
+import web.status;
+import string;
+import list;
+import Domain.Note;
+import Features.Notes.NoteStore;
+import Shared.JsonResponse;
+import Shared.ApiError;
+
+fn idOf(ctx: routing.Context): int {
+    // The route pattern is `{id:int}`, so the value is already all-digits.
+    return string.parseI64(ctx.param("id")) as int;
+}
+
+// Looks up a note or fails with a NotFound domain error. `try requireNote(...)` in a
+// handler's `run` short-circuits straight to the 404 rendering.
+fn requireNote(store: NoteStore, id: int): Note | ApiError {
+    let n = store.get(id);
+    if (n == undefined) { return ApiError.NotFound("no such note"); }
+    return n ?? Note();
+}
+
+// GET /notes            -> all notes, or ?tag=work filtered by tag.
+pub struct ListNotesHandler impl RouteHandler {
+    store: NoteStore,
+    init(store: NoteStore) { self.store = store; }
+    async fn serve(self: ListNotesHandler, ctx: routing.Context): Response {
+        let all = self.store.all();
+        let tag = ctx.query("tag");
+        if (string.eql(tag, "")) { return JsonResponse.notes(all); }
+        let filtered = List<Note>();
+        let i = 0;
+        while (i < all.size()) {
+            let n = all.at(i);
+            if (string.eql(n.tag, tag)) { filtered.push(n); }
+            i = i + 1;
+        }
+        return JsonResponse.notes(filtered);
+    }
+}
+
+// GET /notes/{id:int}   -> one note or 404 via ApiError.NotFound.
+pub struct GetNoteHandler impl RouteHandler {
+    store: NoteStore,
+    init(store: NoteStore) { self.store = store; }
+    async fn serve(self: GetNoteHandler, ctx: routing.Context): Response {
+        return self.run(ctx) catch (e) JsonResponse.fromError(e);
+    }
+    fn run(self: GetNoteHandler, ctx: routing.Context): Response | ApiError {
+        let found = try requireNote(self.store, idOf(ctx));
+        return JsonResponse.note(Status.Ok, found);
+    }
+}
+
+// POST /notes           -> create from a JSON body, 201; missing title -> 400 ApiError.
+pub struct CreateNoteHandler impl RouteHandler {
+    store: NoteStore,
+    init(store: NoteStore) { self.store = store; }
+    async fn serve(self: CreateNoteHandler, ctx: routing.Context): Response {
+        return self.run(ctx) catch (e) JsonResponse.fromError(e);
+    }
+    fn run(self: CreateNoteHandler, ctx: routing.Context): Response | ApiError {
+        let incoming = ctx.bind<Note>();
+        if (string.eql(incoming.title, "")) {
+            return ApiError.BadRequest("title is required");
+        }
+        let created = self.store.create(incoming);
+        return JsonResponse.note(Status.Created, created);
+    }
+}
+
+// PUT /notes/{id:int}   -> full replace of an existing note, 200 or 404.
+pub struct ReplaceNoteHandler impl RouteHandler {
+    store: NoteStore,
+    init(store: NoteStore) { self.store = store; }
+    async fn serve(self: ReplaceNoteHandler, ctx: routing.Context): Response {
+        return self.run(ctx) catch (e) JsonResponse.fromError(e);
+    }
+    fn run(self: ReplaceNoteHandler, ctx: routing.Context): Response | ApiError {
+        let id = idOf(ctx);
+        let existing = try requireNote(self.store, id);
+        let incoming = ctx.bind<Note>();
+        self.store.replace(id, incoming);
+        let updated = try requireNote(self.store, id);
+        return JsonResponse.note(Status.Ok, updated);
+    }
+}
+
+// PATCH /notes/{id:int} -> partial update. Non-empty string fields overwrite; `done`
+// is always applied (a bool cannot distinguish "absent" from false in a flat bind).
+pub struct PatchNoteHandler impl RouteHandler {
+    store: NoteStore,
+    init(store: NoteStore) { self.store = store; }
+    async fn serve(self: PatchNoteHandler, ctx: routing.Context): Response {
+        return self.run(ctx) catch (e) JsonResponse.fromError(e);
+    }
+    fn run(self: PatchNoteHandler, ctx: routing.Context): Response | ApiError {
+        let id = idOf(ctx);
+        let merged = try requireNote(self.store, id);
+        let patch = ctx.bind<Note>();
+        merged.id = id;
+        if (!string.eql(patch.title, "")) { merged.title = patch.title; }
+        if (!string.eql(patch.body, "")) { merged.body = patch.body; }
+        if (!string.eql(patch.tag, "")) { merged.tag = patch.tag; }
+        merged.done = patch.done;
+        self.store.store(merged);
+        return JsonResponse.note(Status.Ok, merged);
+    }
+}
+
+// DELETE /notes/{id:int} -> 200 on success, 404 if it was not there.
+pub struct DeleteNoteHandler impl RouteHandler {
+    store: NoteStore,
+    init(store: NoteStore) { self.store = store; }
+    async fn serve(self: DeleteNoteHandler, ctx: routing.Context): Response {
+        return self.run(ctx) catch (e) JsonResponse.fromError(e);
+    }
+    fn run(self: DeleteNoteHandler, ctx: routing.Context): Response | ApiError {
+        let id = idOf(ctx);
+        let existing = try requireNote(self.store, id);
+        self.store.remove(id);
+        return JsonResponse.message(Status.Ok, "deleted");
+    }
+}

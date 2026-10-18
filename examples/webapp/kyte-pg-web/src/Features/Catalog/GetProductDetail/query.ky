@@ -1,0 +1,9 @@
+
+@serializable
+pub struct GetProductDetail {
+    pub id: string,
+
+    init() {
+        self.id = "";
+    }
+}

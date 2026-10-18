@@ -1,0 +1,25 @@
+import assert;
+import web.response;
+
+// Response.parse must FAIL CLOSED on a malformed status line rather than
+// returning a misleading 200 OK. A client that reads garbage as success is a
+// security/correctness hazard.
+@test
+fn malformed_no_terminator_is_502(): void {
+    // No CR anywhere: not a valid status line.
+    let r = response.Response.parse("garbage with no crlf");
+    assert.equalInt(502, r.status.toCode());
+}
+
+@test
+fn malformed_no_space_in_status_line_is_502(): void {
+    // Has a CRLF but the status line has no space before a code.
+    let r = response.Response.parse("HTTP/1.1\r\n\r\n");
+    assert.equalInt(502, r.status.toCode());
+}
+
+@test
+fn wellformed_still_parses(): void {
+    let r = response.Response.parse("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    assert.equalInt(200, r.status.toCode());
+}

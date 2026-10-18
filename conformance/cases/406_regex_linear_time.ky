@@ -1,0 +1,52 @@
+import text.regex;
+import assert;
+
+@test
+fn captures_preserved(): void {
+    let m = regex.compile("(a+)(b+)").exec("xxaaabbbyy");
+    assert.isTrue(m.matched);
+    assert.equalStr(m.group(0), "aaabbb");
+    assert.equalStr(m.group(1), "aaa");
+    assert.equalStr(m.group(2), "bbb");
+}
+
+@test
+fn alternation_leftmost_first(): void {
+    assert.equalStr(regex.compile("a|ab").exec("ab").group(0), "a");
+    assert.equalStr(regex.compile("ab|a").exec("ab").group(0), "ab");
+}
+
+@test
+fn lazy_quantifier_preserved(): void {
+    assert.equalStr(regex.compile("<(.+?)>").exec("<a><b>").group(1), "a");
+}
+
+@test
+fn catastrophic_backtracking_terminates(): void {
+    let re = regex.compile("(a*)*c");
+    let s = "";
+    let i = 0;
+    while (i < 60) { s = s + "a"; i = i + 1; }
+    assert.isTrue(!re.test(s));
+    assert.isTrue(re.test(s + "c"));
+}
+
+@test
+fn nested_ambiguous_terminates(): void {
+    let re = regex.compile("(a+)+$");
+    let s = "";
+    let i = 0;
+    while (i < 50) { s = s + "a"; i = i + 1; }
+    assert.isTrue(re.test(s));
+    assert.isTrue(!re.test(s + "b"));
+}
+
+@test
+fn find_all_and_anchors_still_work(): void {
+    let all = regex.compile("[0-9]+").findAll("a12b3c456");
+    assert.equalInt(all.size(), 3);
+    assert.equalStr(all.at(0), "12");
+    assert.equalStr(all.at(2), "456");
+    assert.isTrue(regex.compile("^\\d{3}$").test("415"));
+    assert.isTrue(!regex.compile("^\\d{3}$").test("41"));
+}

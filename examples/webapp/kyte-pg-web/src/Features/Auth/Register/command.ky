@@ -1,0 +1,9 @@
+@serializable
+pub struct Register {
+    pub email: string,
+    pub password: string,
+    pub name: string,
+    pub role: string,
+    pub csrf: string,
+    init() { self.email = ""; self.password = ""; self.name = ""; self.role = "customer"; self.csrf = ""; }
+}

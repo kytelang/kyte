@@ -1,0 +1,28 @@
+import assert;
+
+async fn getOpt(v: int): int | undefined {
+    if (v > 0) { return v; }
+    return undefined;
+}
+
+async fn viaLet(): int {
+    let a = await getOpt(7);
+    let b = await getOpt(0);
+    if (a == undefined) { return -999; }
+    return (a ?? 0) * 10 + (b ?? 5);
+}
+
+async fn viaDirect(v: int): int {
+    return (await getOpt(v)) ?? -1;
+}
+
+@test
+fn test_await_optional_via_let(): void {
+    assert.equalInt(viaLet(), 75);
+}
+
+@test
+fn test_await_optional_direct(): void {
+    assert.equalInt(viaDirect(3), 3);
+    assert.equalInt(viaDirect(0), -1);
+}

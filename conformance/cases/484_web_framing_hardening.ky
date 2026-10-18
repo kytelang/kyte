@@ -1,0 +1,97 @@
+// S1 + S3: HTTP request framing must be hardened against integer overflow in
+// Content-Length and chunk-size parsing, and against Transfer-Encoding
+// smuggling obfuscation and duplicate/conflicting Content-Length.
+
+import assert;
+import web.request;
+import string;
+
+fn asBuf(s: string): long { return s as long; }
+
+// A normal Content-Length parses to its value.
+@test
+fn test_content_length_normal(): void {
+    let s = "GET / HTTP/1.1\r\nContent-Length: 5\r\n\r\n";
+    let n = request.bufContentLength(asBuf(s), 0, s.length);
+    assert.isTrue(n == 5);
+}
+
+// A value that just fits past the 32-bit range still parses as a long (the
+// connection loop then rejects it against maxBodyBytes).
+@test
+fn test_content_length_above_int_range(): void {
+    let s = "GET / HTTP/1.1\r\nContent-Length: 2147483648\r\n\r\n";
+    let n = request.bufContentLength(asBuf(s), 0, s.length);
+    assert.isTrue(n == 2147483648);
+}
+
+// A value that would overflow a 64-bit accumulator is rejected as -1.
+@test
+fn test_content_length_overflow_rejected(): void {
+    let s = "GET / HTTP/1.1\r\nContent-Length: 999999999999999999999999999\r\n\r\n";
+    let n = request.bufContentLength(asBuf(s), 0, s.length);
+    assert.isTrue(n == 0 - 1);
+}
+
+// A non-digit in the value (not just trailing whitespace) is rejected.
+@test
+fn test_content_length_junk_rejected(): void {
+    let s = "GET / HTTP/1.1\r\nContent-Length: 12x\r\n\r\n";
+    let n = request.bufContentLength(asBuf(s), 0, s.length);
+    assert.isTrue(n == 0 - 1);
+}
+
+// Chunked detection is robust to missing space, mixed case, and a trailing
+// comma token.
+@test
+fn test_chunked_no_space(): void {
+    let s = "POST / HTTP/1.1\r\nTransfer-Encoding:chunked\r\n\r\n";
+    assert.isTrue(request.bufIsChunked(asBuf(s), 0, s.length));
+}
+
+@test
+fn test_chunked_mixed_case_and_padding(): void {
+    let s = "POST / HTTP/1.1\r\nTrAnSfEr-EnCoDiNg:   CHUNKED  \r\n\r\n";
+    assert.isTrue(request.bufIsChunked(asBuf(s), 0, s.length));
+}
+
+@test
+fn test_chunked_last_comma_token(): void {
+    let s = "POST / HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n";
+    assert.isTrue(request.bufIsChunked(asBuf(s), 0, s.length));
+}
+
+// `chunked` not in the final position does not frame the body as chunked.
+@test
+fn test_chunked_not_last_token(): void {
+    let s = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked, gzip\r\n\r\n";
+    assert.isTrue(!request.bufIsChunked(asBuf(s), 0, s.length));
+}
+
+// Duplicate Content-Length headers are counted (the loop rejects count > 1).
+@test
+fn test_duplicate_content_length_counted(): void {
+    let s = "GET / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\n";
+    assert.equalInt(2, request.bufCountHeaderLines(asBuf(s), 0, s.length, "content-length:"));
+}
+
+// A header name appearing inside a request target is not miscounted (the match
+// is anchored to the start of a header line).
+@test
+fn test_header_count_not_in_target(): void {
+    let s = "GET /x?content-length:9 HTTP/1.1\r\nHost: a\r\n\r\n";
+    assert.equalInt(0, request.bufCountHeaderLines(asBuf(s), 0, s.length, "content-length:"));
+}
+
+// Chunk-size hex parse: normal and overflow.
+@test
+fn test_parse_hex_normal(): void {
+    let s = "ff";
+    assert.isTrue(request.bufParseHex(asBuf(s), 0, s.length) == 255);
+}
+
+@test
+fn test_parse_hex_overflow_rejected(): void {
+    let s = "FFFFFFFFFFFFFFFFFF";
+    assert.isTrue(request.bufParseHex(asBuf(s), 0, s.length) == 0 - 1);
+}

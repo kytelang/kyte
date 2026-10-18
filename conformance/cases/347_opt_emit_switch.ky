@@ -1,0 +1,71 @@
+import assert;
+
+fn classify(x: int): int {
+    switch (x) {
+        case 0: { return 100; }
+        case 1, 2, 3: { return 200; }
+        case 4: { return 400; }
+        default: { return -1; }
+    }
+    return -999;
+}
+
+fn parity(x: int): int {
+    switch (x % 2) {
+        case 0: { return 1; }
+        default: { return 0; }
+    }
+    return -1;
+}
+
+fn noDefault(x: int): int {
+    switch (x) {
+        case 7: { return 70; }
+        case 8, 9: { return 89; }
+    }
+    return -5;
+}
+
+fn sign(n: long): int {
+    switch (n) {
+        case -1: { return -10; }
+        case 0: { return 0; }
+        case 1: { return 10; }
+    }
+    return 99;
+}
+
+fn nested(x: int, y: int): int {
+    switch (x) {
+        case 0: {
+            switch (y) {
+                case 0: { return 1; }
+                default: { return 2; }
+            }
+        }
+        default: { return 3; }
+    }
+    return 0;
+}
+
+@test
+fn test_switch(): void {
+    assert.equalInt(classify(0), 100);
+    assert.equalInt(classify(2), 200);
+    assert.equalInt(classify(3), 200);
+    assert.equalInt(classify(4), 400);
+    assert.equalInt(classify(9), -1);
+    assert.equalInt(parity(6), 1);
+    assert.equalInt(parity(7), 0);
+    assert.equalInt(noDefault(7), 70);
+    assert.equalInt(noDefault(8), 89);
+    assert.equalInt(noDefault(9), 89);
+    assert.equalInt(noDefault(2), -5);
+    assert.equalInt(sign(-1), -10);
+    assert.equalInt(sign(0), 0);
+    assert.equalInt(sign(1), 10);
+    assert.equalInt(sign(42), 99);
+    assert.equalInt(nested(0, 0), 1);
+    assert.equalInt(nested(0, 5), 2);
+    assert.equalInt(nested(9, 9), 3);
+}

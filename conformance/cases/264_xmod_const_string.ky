@@ -1,0 +1,24 @@
+import assert;
+import string;
+import xmod_const_helper;
+
+@test
+fn test_xmod_const_left_literal_right(): void {
+    assert.equalStr(xmod_const_helper.GREETING + "there", "hello there");
+}
+
+@test
+fn test_xmod_two_consts(): void {
+    assert.equalStr(xmod_const_helper.GREETING + xmod_const_helper.WORLD, "hello world");
+}
+
+@test
+fn test_xmod_const_unannotated_local(): void {
+    let g = xmod_const_helper.GREETING;
+    assert.equalStr(g + xmod_const_helper.WORLD, "hello world");
+}
+
+@test
+fn test_xmod_int_const_still_numeric(): void {
+    assert.equalInt(xmod_const_helper.COUNT + 4, 7);
+}

@@ -1,0 +1,38 @@
+// The domain error type for the API. This is how expected, recoverable errors are
+// modelled in Nova: a return-based `exception` (a tagged union that carries a
+// payload and has methods), NOT a thrown/unwound exception. A fallible operation
+// returns `T | ApiError`; callers propagate with `try` and the handler boundary
+// converts it to a Response with `catch (e) JsonResponse.fromError(e)`.
+//
+// It deliberately does NOT cover programming bugs (out-of-bounds, nil deref): those
+// `nova: panic` and abort the process, and are handled by writing panic-free code
+// (`.get` + `?? default`, never `.at` on untrusted input) plus running behind the
+// orchestrator so a crashed replica is restarted. See the README.
+pub exception ApiError {
+    NotFound(string),
+    BadRequest(string),
+    Unauthorized(string),
+    Conflict(string),
+
+    // The HTTP status this error maps to.
+    pub fn code(self: ApiError): int {
+        switch (self) {
+            case ApiError.NotFound(m): { return 404; }
+            case ApiError.BadRequest(m): { return 400; }
+            case ApiError.Unauthorized(m): { return 401; }
+            case ApiError.Conflict(m): { return 409; }
+        }
+        return 500;
+    }
+
+    // The human-readable message carried into the response body.
+    pub fn message(self: ApiError): string {
+        switch (self) {
+            case ApiError.NotFound(m): { return m; }
+            case ApiError.BadRequest(m): { return m; }
+            case ApiError.Unauthorized(m): { return m; }
+            case ApiError.Conflict(m): { return m; }
+        }
+        return "internal error";
+    }
+}

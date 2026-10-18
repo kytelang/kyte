@@ -1,0 +1,48 @@
+import web.app;
+import web.request;
+import net.aio;
+import datastar;
+import Features.Orders.Shared.OrderRepository;
+import Features.Orders.views.orders;
+import Domain.Entities.OrderEvent;
+
+// The live order-status SSE route (app.sse("/orders/{id}/events")). It seeds the
+// current status, then tails the shared order_events table, patching each new
+// fragment into the viewer's page. Delivery is database-neutral: any replica's
+// advance INSERTs a row that every replica's poll sees, so live status works
+// across replicas without a Postgres-only LISTEN/NOTIFY. See DESIGN.md section 9.
+pub class OrderEventsSse impl SseHandler {
+    repo: OrderRepository,
+    init(repo: OrderRepository) { self.repo = repo; }
+
+    async fn stream(self: OrderEventsSse, req: request.Request, io: aio.AsyncIO): void {
+        let ds = datastar.Sse.overStreamIO(io);
+        let _h = await ds.writeHeaders();
+        let id = req.query.get("id") ?? "";
+
+        // Seed the current status so the viewer sees where the order is right now.
+        let ord = await self.repo.order(id);
+        let onum = "S-?";
+        let o0 = ord.items.get(0);
+        if (o0 != undefined) { onum = o0.order_number; }
+        let cur = await self.repo.status(id);
+        let _s = await ds.patchElementsSimple(orders.statusView(id, onum, cur));
+
+        // Tail the shared feed from the current high-water mark, so we forward
+        // only advances that happen after this connection opened.
+        let lastId = await self.repo.latestEventId(id);
+        let alive = true;
+        while (alive) {
+            let evs = await self.repo.pollEvents(id, lastId);
+            let i = 0;
+            while (i < evs.items.size()) {
+                let e = evs.items.get(i) ?? OrderEvent{ id: 0 as long, order_id: "", fragment: "", created_at: "" };
+                lastId = e.id;
+                let w = await ds.patchElementsSimple(e.fragment);
+                if (w < 0) { alive = false; }
+                i = i + 1;
+            }
+            if (alive) { await aio.delay(1000); }
+        }
+    }
+}

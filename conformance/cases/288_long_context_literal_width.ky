@@ -1,0 +1,45 @@
+
+import assert;
+
+@test
+fn test_shift_in_long_context(): void {
+    let x: long = 1 << 40;
+    assert.isTrue(x == 1099511627776);
+}
+
+@test
+fn test_multiply_overflowing_int(): void {
+    let x: long = 1000000 * 1000000;
+    assert.isTrue(x == 1000000000000);
+}
+
+@test
+fn test_add_overflowing_int(): void {
+    let x: long = 2000000000 + 2000000000;
+    assert.isTrue(x == 4000000000);
+}
+
+@test
+fn test_nested_literal_arithmetic(): void {
+    let x: long = (1 << 20) * (1 << 20);
+    assert.isTrue(x == 1099511627776);
+}
+
+fn shl40(): long { return 1 << 40; }
+fn takesLong(x: long): long { return x; }
+
+@test
+fn test_return_and_call_arg_contexts(): void {
+    assert.isTrue(shl40() == 1099511627776);
+    assert.isTrue(takesLong(1 << 40) == 1099511627776);
+}
+
+@test
+fn test_plain_int_default_unchanged(): void {
+    let x = 2 + 3;
+    assert.isTrue(x == 5);
+    let a: long = 5000000000;
+    let b: int = 3;
+    assert.isTrue(a + b == 5000000003);
+    assert.isTrue(b + a == 5000000003);
+}

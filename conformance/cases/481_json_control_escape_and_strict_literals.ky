@@ -1,0 +1,29 @@
+// JSON serde correctness: (1) control characters in a quoted string are
+// escaped as JSON requires (short escapes for \b\t\n\f\r, \u00XX for the rest),
+// so output is always valid JSON; (2) the bare literals true/false/null are
+// validated byte-for-byte, so a truncated or trailing-garbage literal
+// (`tru`, `fals`, `nul`, `truex`) is REJECTED instead of silently accepted.
+import serde.json;
+import string;
+import assert;
+
+@test
+fn test_json_control_char_escaping(): void {
+    let s = "a\tb\nc";
+    let q = json.quote(s);
+    assert.equalInt(9, q.length);
+    assert.isTrue(string.eql(q, "\"a\\tb\\nc\""));
+}
+
+@test
+fn test_json_strict_literal_validation(): void {
+    // Valid literals round-trip via tryParse (which surfaces p.failed).
+    assert.isTrue(json.tryParse("true") != undefined);
+    assert.isTrue(json.tryParse("false") != undefined);
+    assert.isTrue(json.tryParse("null") != undefined);
+    // Malformed literals must be REJECTED (not silently accepted as true/null).
+    assert.isTrue(json.tryParse("tru") == undefined);
+    assert.isTrue(json.tryParse("fals") == undefined);
+    assert.isTrue(json.tryParse("nul") == undefined);
+    assert.isTrue(json.tryParse("truex") == undefined);
+}

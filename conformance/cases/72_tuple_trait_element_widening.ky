@@ -1,0 +1,29 @@
+import assert;
+
+trait G { fn v(self: G): int; }
+struct A impl G { fn v(self: A): int { return 3; } }
+struct B impl G { fn v(self: B): int { return 7; } }
+
+fn pair(): (int, G) { return (1, A{}); }
+
+@test
+fn test_trait_tuple_return_position(): void {
+    let (n, g) = pair();
+    assert.equalInt(g.v(), 3);
+    assert.equalInt(n, 1);
+}
+
+@test
+fn test_trait_tuple_annotated_local(): void {
+    let p: (int, G) = (1, B{});
+    let (n, g) = p;
+    assert.equalInt(g.v(), 7);
+    assert.equalInt(n, 1);
+}
+
+@test
+fn test_tuple_of_two_traits(): void {
+    let (a, b): (G, G) = (A{}, B{});
+    assert.equalInt(a.v(), 3);
+    assert.equalInt(b.v(), 7);
+}

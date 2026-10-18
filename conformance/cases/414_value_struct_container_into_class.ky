@@ -1,0 +1,38 @@
+import assert;
+import list;
+
+struct Holder {
+    pub items: list.List<int>,
+    init() { self.items = list.List<int>(); }
+}
+
+class Box {
+    pub h: Holder,
+    init(h: Holder) { self.h = h; }
+}
+
+fn makeBox(): Box {
+    let hh = Holder();
+    hh.items.push(10);
+    hh.items.push(20);
+    hh.items.push(30);
+    return Box(hh);
+}
+
+@test
+fn value_struct_container_survives_source_drop(): void {
+    let b = makeBox();
+    assert.equalInt(b.h.items.size(), 3);
+    assert.equalInt(b.h.items.get(0) ?? -1, 10);
+    assert.equalInt(b.h.items.get(2) ?? -1, 30);
+}
+
+@test
+fn value_struct_container_copy_is_independent(): void {
+    let src = Holder();
+    src.items.push(1);
+    let b = Box(src);
+    src.items.push(2);
+    assert.equalInt(b.h.items.size(), 1);
+    assert.equalInt(src.items.size(), 2);
+}

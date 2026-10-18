@@ -1,0 +1,31 @@
+import assert;
+
+// Acceptance (last-bit-of-hardening B3): reassigning an owned captured variable inside
+// a closure must release the capture slot's previous referent and retain the new one.
+// Before the fix the env-slot store wrote the new value with no release of the old and
+// no retain, leaking the old referent (and aliasing a borrowed RHS). Repeated reassign
+// in a loop must stay leak-free and crash-free under `KYTE_ASAN=1`.
+
+@test
+fn closure_reassign_captured_string_no_leak(): void {
+    let acc = "seed";
+    let bump = () => { acc = acc + "-x"; return acc; };
+    let i = 0;
+    let last = "";
+    while (i < 60) {
+        last = bump();
+        i = i + 1;
+    }
+    assert.isTrue(last.length > 0);
+}
+
+@test
+fn closure_reassign_captured_from_borrow(): void {
+    let cur = "a";
+    let other = "borrowed-value";
+    let setIt = () => { cur = other; return cur; };
+    let r = setIt();
+    assert.equalStr(r, "borrowed-value");
+    // `other` must still be valid afterwards (the reassign retained, did not move).
+    assert.equalStr(other, "borrowed-value");
+}

@@ -1,0 +1,55 @@
+// The domain error type for the shop, plus the hypermedia rendering of it. Errors in
+// a hypermedia app are not JSON: they are an HTML FRAGMENT the client swaps into the
+// page, so the user sees the problem in place. A fallible operation returns
+// `T | ShopError`; a handler's `run` propagates with `try` and `serve` converts any
+// ShopError into a datastar patch with `catch (e) await renderShopError(e)`.
+//
+// Like the API's ApiError, this covers EXPECTED errors only. Programming bugs
+// (out-of-bounds, nil deref) `kyte: panic` and abort the replica; the defence there
+// is panic-free handler code plus the orchestrator restarting a crashed replica.
+import ds_response;
+import web.response;
+import web.status;
+import string;
+
+pub exception ShopError {
+    NotFound(string),
+    Forbidden(string),
+    BadRequest(string),
+
+    pub fn message(self: ShopError): string {
+        switch (self) {
+            case ShopError.NotFound(m): { return m; }
+            case ShopError.Forbidden(m): { return m; }
+            case ShopError.BadRequest(m): { return m; }
+        }
+        return "Something went wrong.";
+    }
+
+    fn title(self: ShopError): string {
+        switch (self) {
+            case ShopError.NotFound(m): { return "Not found"; }
+            case ShopError.Forbidden(m): { return "Not allowed"; }
+            case ShopError.BadRequest(m): { return "Please check your input"; }
+        }
+        return "Something went wrong";
+    }
+}
+
+// The error banner fragment. Same shape as the auth banner (a red card inside the
+// `#content` region datastar targets), so an error renders in place. The message is
+// HTML-escaped since it may carry user or data text.
+pub fn errorFragment(title: string, message: string): string {
+    return "<div id=\"content\" class=\"flex-1 overflow-y-auto p-6 max-w-lg\">"
+        + "<div class=\"p-4 rounded-lg bg-red-50 text-red-700\">"
+        + "<p class=\"font-semibold\">" + response.escapeHtml(title) + "</p>"
+        + "<p class=\"text-sm mt-1\">" + response.escapeHtml(message) + "</p>"
+        + "</div>"
+        + "<button class=\"mt-4 text-sm text-emerald-700\" data-on:click=\"@get('/products')\">Back to the menu</button>"
+        + "</div>";
+}
+
+// The single conversion point handlers use: `serve = await run(ctx) catch (e) await renderShopError(e)`.
+pub async fn renderShopError(e: ShopError): Response {
+    return await ds_response.patch(errorFragment(e.title(), e.message()));
+}

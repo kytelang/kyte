@@ -1,0 +1,39 @@
+import assert;
+
+@test
+fn test_int_add_overflow_wraps(): void {
+    let max: int = 2147483647;
+    let wrapped = max + 1;
+    assert.equalInt(wrapped, -2147483648);
+}
+
+@test
+fn test_int_mul_overflow_wraps(): void {
+    let a: int = 100000;
+    let b: int = 100000;
+    let p = a * b;
+    assert.equalInt(p, 1410065408);
+}
+
+@test
+fn test_long_does_not_wrap_at_32(): void {
+    let a: long = 100000;
+    let b: long = 100000;
+    let p = a * b;
+    assert.isTrue(p > 9999999999);
+    assert.isTrue(p < 10000000001);
+}
+
+@test
+fn test_int_sub_underflow_wraps(): void {
+    let min: int = -2147483648;
+    let wrapped = min - 1;
+    assert.equalInt(wrapped, 2147483647);
+}
+
+@test
+fn test_unsigned_compare(): void {
+    let big: uint = 4000000000;
+    let small: uint = 1;
+    assert.isTrue(big > small);
+}

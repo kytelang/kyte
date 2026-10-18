@@ -1,0 +1,57 @@
+// kyte-sqlite-web: a minimal Kyte web app on SQLite, deployable by kynator.
+//
+// It follows the web framework: typed config bound from app.yaml (web.config),
+// a shared connection pool over the kyte-sqlite driver, and one RouteHandler per
+// endpoint. The only differences from the Postgres example are this file's DSN
+// and Shared/Db.ky choosing SqliteDriver.
+//
+// `--migrate` runs the schema once and exits (the step kynator's migrate gate
+// invokes before a rollout); otherwise the server runs. `main` returns the
+// process exit code so a failed migration aborts the rollout.
+import web.app;
+import env;
+import string;
+import sqlite;
+import Shared.Db;
+import Shared.AppConfig;
+import Features.Tasks.routes;
+
+fn hasFlag(flag: string): bool {
+    let a = env.args();
+    let i = 0;
+    while (i < a.size()) {
+        if (string.eql(a.get(i) ?? "", flag)) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+// Apply the schema synchronously via the low-level sqlite handle (no reactor),
+// so `--migrate` is a plain one-shot the orchestrator can gate a rollout on.
+fn runMigrate(dsn: string): int {
+    let h = sqlite.open(dsn);
+    let ok = h.exec("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')))");
+    h.close();
+    if (ok) {
+        console.log("migrate: schema applied to " + dsn);
+        return 0;
+    }
+    console.log("migrate: FAILED on " + dsn);
+    return 1;
+}
+
+fn main(): int {
+    let app = App();
+    let dbCfg = app.config.bind<DbConfig>("db");
+
+    if (hasFlag("--migrate")) {
+        return runMigrate(dbCfg.dsn);
+    }
+
+    let database = Db(dbCfg.dsn, dbCfg.poolSize);
+    registerTasks(app, database);
+    let port = app.config.port(8099);
+    console.log("kyte-sqlite-web on http://127.0.0.1:" + `${port}`);
+    app.run(port);
+    return 0;
+}

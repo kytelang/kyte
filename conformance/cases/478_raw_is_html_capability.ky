@@ -1,0 +1,36 @@
+import assert;
+import string;
+
+// Acceptance (last-bit-of-hardening C2): `raw(...)` disables KYX escaping only when the
+// call genuinely returns the nominal `Html` type. A function NAMED `raw` that returns a
+// plain `string` must NOT bypass escaping (it is not the trusted-markup capability), so
+// its result is HTML-escaped like any other interpolated string. A genuine `Html`-typed
+// value stays raw.
+
+// A local `raw` that returns a plain string (the shadowing / look-alike case).
+fn raw(s: string): string { return s; }
+
+// A trusted-markup helper that genuinely returns Html.
+fn trusted(): Html { return <b>ok</b>; }
+
+fn shadowed_view(evil: string): Html {
+    return <div>{raw(evil)}</div>;
+}
+fn trusted_view(): Html {
+    return <div>{trusted()}</div>;
+}
+
+@test
+fn shadowed_raw_is_escaped(): void {
+    let out = shadowed_view("<script>x</script>") as string;
+    // The look-alike `raw` returns string, so its result is escaped: the live tag is
+    // gone and the escaped entity form is present.
+    assert.contains(out, "&lt;script&gt;");
+    assert.isTrue(string.indexOf(out, "<script>") == -1);
+}
+
+@test
+fn genuine_html_stays_raw(): void {
+    let out = trusted_view() as string;
+    assert.contains(out, "<b>ok</b>");
+}

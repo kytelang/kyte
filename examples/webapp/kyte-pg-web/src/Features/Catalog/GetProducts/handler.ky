@@ -1,0 +1,22 @@
+import web.routing;
+import Features.Catalog.GetProducts.query;
+import Features.Catalog.Shared.CatalogRepository;
+import Features.Catalog.Mappers.catalogMappers;
+import Features.Catalog.views.catalog;
+import ds_response;
+import web.response;
+
+pub struct GetProductsHandler impl RouteHandler {
+    repo: CatalogRepository,
+
+    init(repo: CatalogRepository) {
+        self.repo = repo;
+    }
+
+    async fn serve(self: GetProductsHandler, ctx: Context): Response {
+        let q = ctx.bind<GetProducts>();
+        let rows = await self.repo.products(q.category, q.q, q.veg);
+        let dtos = catalogMappers.toProductDtos(rows.items);
+        return await ds_response.patch(catalog.productGrid(dtos));
+    }
+}

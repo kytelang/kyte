@@ -1,0 +1,72 @@
+import list;
+import assert;
+import data.db;
+import data.orm;
+
+@serializable
+pub struct Product {
+    pub id: int,
+    pub name: string,
+}
+
+fn buildParams(): List<DbValue> {
+    let params = List<DbValue>();
+    params.push(db.dbInt(42));
+    params.push(db.dbText("Keyboard"));
+    return params;
+}
+
+fn sampleRows(): ResultSet {
+    let rs = ResultSet();
+    rs.columns.push(Column("id", DbType.Int4));
+    rs.columns.push(Column("name", DbType.Text));
+    let a = Row();
+    a.cells.push(db.dbInt(1));
+    a.cells.push(db.dbText("Keyboard"));
+    rs.rows.push(a);
+    let b = Row();
+    b.cells.push(db.dbInt(2));
+    b.cells.push(db.dbText("Mouse"));
+    rs.rows.push(b);
+    return rs;
+}
+
+@test
+fn typed_parameters(): void {
+    let p = buildParams();
+    assert.equalInt(p.size(), 2);
+    assert.equalInt((p.get(0) ?? db.dbNull()).asInt(), 42);
+    assert.equalStr((p.get(1) ?? db.dbNull()).asText(), "Keyboard");
+}
+
+@test
+fn bind_all_rows(): void {
+    let rows = sampleRows();
+    let products = orm.bindAll<Product>(rows);
+    assert.equalInt(products.size(), 2);
+    assert.equalInt((products.get(0) ?? Product()).id, 1);
+    assert.equalStr((products.get(0) ?? Product()).name, "Keyboard");
+    assert.equalStr((products.get(1) ?? Product()).name, "Mouse");
+}
+
+@test
+fn bind_one_or_undefined(): void {
+    let one = orm.bindOne<Product>(sampleRows());
+    if (one == undefined) {
+        assert.isTrue(false);
+    } else {
+        assert.equalInt(one.id, 1);
+    }
+    let empty = ResultSet();
+    empty.columns.push(Column("id", DbType.Int4));
+    empty.columns.push(Column("name", DbType.Text));
+    let none = orm.bindOne<Product>(empty);
+    assert.isTrue(none == undefined);
+}
+
+@test
+fn positional_read(): void {
+    let r = sampleRows().row(0);
+    assert.equalInt(r.getInt(0), 1);
+    assert.equalStr(r.getText(1), "Keyboard");
+}

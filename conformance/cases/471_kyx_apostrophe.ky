@@ -1,0 +1,22 @@
+// An apostrophe in KYX text used to open a char literal in the lexer, swallowing
+// the element's own structure and crashing the parser with no location. The lexer
+// now lexes only well-formed char literals and treats a stray quote as a lone
+// byte, and KYX text is rebuilt from the raw source, so apostrophes survive in
+// copy. Closes bug 4 of the KYX parser fixes plan.
+import assert;
+import string;
+
+fn copy(): string { return <p>Don't ship the user's data</p>; }
+fn possessive(name: string): string { return <span>{name}'s cart</span>; }
+
+@test
+fn test_apostrophes_survive(): void {
+    let h = copy();
+    assert.isTrue(string.contains(h, "Don't ship the user's data"));
+}
+
+@test
+fn test_apostrophe_after_expr(): void {
+    // The `'s` text after the interpolated name is preserved.
+    assert.isTrue(string.contains(possessive("Ada"), "Ada's cart"));
+}

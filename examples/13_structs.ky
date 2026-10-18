@@ -1,0 +1,47 @@
+
+struct Account {
+    pub owner: string,
+    balance: int,
+
+    init(owner: string, opening: int) {
+        self.owner = owner;
+        self.balance = opening;
+    }
+
+    pub fn newAccount(owner: string): Account {
+        return Account(owner, 0);
+    }
+
+    pub fn deposit(self: Account, amount: int): void {
+        self.balance = self.balance + amount;
+    }
+
+    pub fn withdraw(self: Account, amount: int): bool {
+        if (amount > self.balance) { return false; }
+        self.balance = self.balance - amount;
+        return true;
+    }
+
+    pub fn statement(self: Account): string {
+        return `${self.owner}: ${self.balance}`;
+    }
+}
+
+fn main(): void {
+    let a = Account("Ada", 100);
+    console.log(a.statement());
+
+    a.deposit(50);
+    console.log(`after deposit: ${a.statement()}`);
+
+    let ok = a.withdraw(30);
+    console.log(`withdraw 30 ok=${ok}, ${a.statement()}`);
+
+    let tooMuch = a.withdraw(1000);
+    console.log(`withdraw 1000 ok=${tooMuch}, ${a.statement()}`);
+
+    let b = Account.newAccount("Bob");
+    console.log(b.statement());
+
+    console.log(`owner of b = ${b.owner}`);
+}

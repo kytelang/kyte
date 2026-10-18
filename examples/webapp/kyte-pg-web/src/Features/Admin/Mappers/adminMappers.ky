@@ -1,0 +1,21 @@
+// Admin mappers: Product entity -> ProductEditDto for the edit form. The reverse
+// direction (form command -> entity) lives in the save handler, because it needs
+// the existing entity to preserve the fields the form does not touch.
+import data.mapper;
+import Domain.Entities.Product;
+import Features.Admin.Dtos.admin;
+
+// A zero-value Product for the `?? ...` unwrap after an emptiness check.
+pub fn emptyProduct(): Product {
+    return Product{
+        id: "", category_id: "", name: "", description: "", price: 0.0,
+        image_url: "", is_available: false, is_vegetarian: false,
+        stock_quantity: 0, created_at: "", updated_at: "",
+    };
+}
+
+pub fn toProductEditDto(p: Product): admin.ProductEditDto {
+    // Every ProductEditDto field matches a Product column by convention
+    // (imageUrl <- image_url); the rest are id/name/description/price.
+    return mapper.mapTo<admin.ProductEditDto, Product>(p);
+}

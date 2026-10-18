@@ -1,0 +1,72 @@
+import crypto.tls.12.client12;
+import crypto.tls.13.handshake;
+import crypto.ecc.p256;
+import crypto.hash.sha256;
+import bytes;
+import assert;
+
+fn fillPattern(buf: ptr, n: int, seed: int): void {
+    let i = 0;
+    while (i < n) { bytes.write_byte(buf, i, (i * 7 + seed) & 0xff); i = i + 1; }
+}
+
+@test
+fn test_certverify12_signs_transcript_hash(): void {
+    let priv = bytes.alloc(32); fillPattern(priv, 32, 3); bytes.write_byte(priv, 0, 0x11);
+    let pubKey = bytes.alloc(65); p256.derivePublic(pubKey, priv);
+
+    let c = client12.newClient12();
+    let msgs = bytes.alloc(120); fillPattern(msgs, 120, 5);
+    c.addTr(msgs, 120);
+
+    let cv = bytes.alloc(128);
+    let cvLen = c.buildCertVerify12(priv, cv);
+    assert.equalInt(0x0f, bytes.read_byte(cv, 0));
+    assert.equalInt(0x04, bytes.read_byte(cv, 4));
+    assert.equalInt(0x03, bytes.read_byte(cv, 5));
+    let sigLen = (bytes.read_byte(cv, 6) << 8) | bytes.read_byte(cv, 7);
+
+    let sigPtr = (cv as long + 8) as ptr;
+    let r = bytes.alloc(32); let s = bytes.alloc(32);
+    handshake.decodeEcdsaSigDer(sigPtr, r, s);
+    let digest = bytes.alloc(32); sha256.hashInto(msgs, 120, digest);
+    assert.isTrue(p256.ecdsaVerify(digest, pubKey, r, s));
+}
+
+@test
+fn test_certverify12_tamper_fails(): void {
+    let priv = bytes.alloc(32); fillPattern(priv, 32, 3); bytes.write_byte(priv, 0, 0x11);
+    let pubKey = bytes.alloc(65); p256.derivePublic(pubKey, priv);
+    let c = client12.newClient12();
+    let msgs = bytes.alloc(120); fillPattern(msgs, 120, 5);
+    c.addTr(msgs, 120);
+    let cv = bytes.alloc(128);
+    let cvLen = c.buildCertVerify12(priv, cv);
+    let sigPtr = (cv as long + 8) as ptr;
+    let r = bytes.alloc(32); let s = bytes.alloc(32);
+    handshake.decodeEcdsaSigDer(sigPtr, r, s);
+    let bad = bytes.alloc(120); fillPattern(bad, 120, 5); bytes.write_byte(bad, 7, bytes.read_byte(bad, 7) ^ 0xff);
+    let digestBad = bytes.alloc(32); sha256.hashInto(bad, 120, digestBad);
+    assert.isFalse(p256.ecdsaVerify(digestBad, pubKey, r, s));
+}
+
+@test
+fn test_client_certificate12_message(): void {
+    let certLen = 50;
+    let cert = bytes.alloc(certLen); fillPattern(cert, certLen, 200);
+    let out = bytes.alloc(128);
+    let n = client12.buildClientCertificate12(cert, certLen, out);
+    assert.equalInt(0x0b, bytes.read_byte(out, 0));
+    let listLen = (bytes.read_byte(out, 4) << 16) | (bytes.read_byte(out, 5) << 8) | bytes.read_byte(out, 6);
+    assert.equalInt(3 + certLen, listLen);
+    let cLen = (bytes.read_byte(out, 7) << 16) | (bytes.read_byte(out, 8) << 8) | bytes.read_byte(out, 9);
+    assert.equalInt(certLen, cLen);
+    let i = 0;
+    while (i < certLen) { assert.equalInt(bytes.read_byte(cert, i), bytes.read_byte(out, 10 + i)); i = i + 1; }
+
+    let e = bytes.alloc(16);
+    let en = client12.buildClientCertificate12(bytes.alloc(1), 0, e);
+    let ebody = (bytes.read_byte(e, 1) << 16) | (bytes.read_byte(e, 2) << 8) | bytes.read_byte(e, 3);
+    assert.equalInt(3, ebody);
+    assert.equalInt(7, en);
+}

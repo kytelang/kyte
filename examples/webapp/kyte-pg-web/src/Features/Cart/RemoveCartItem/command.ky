@@ -1,0 +1,7 @@
+@serializable
+pub struct RemoveCartItem {
+    pub item: string,
+    pub cartid: string,
+    pub csrf: string,
+    init() { self.item = ""; self.cartid = ""; self.csrf = ""; }
+}

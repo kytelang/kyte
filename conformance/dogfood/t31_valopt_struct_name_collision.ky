@@ -1,0 +1,35 @@
+// Regression: a function returning `ValueStruct | undefined` must NOT box its return
+// value. Deciding whether an optional return is a boxed value-optional used the declared
+// type's NAME, and `enums.contains("Framework")` matched the stdlib `web.hyper.enum
+// Framework` that this import brings into scope -- colliding with the app's `struct
+// Framework`. The producer then boxed the value struct AND released it, while the caller's
+// `??` read a plain pointer -> use-after-free of the struct's owned string fields (surfaced
+// in an async web handler; here the `web.hyper` import alone reproduces the collision).
+// Fix: cross-check the RETURNED VALUE's own TypeId (a struct is a pointer optional, never
+// boxed). This program must compile and exit 0 under ASAN.
+import web.hyper;
+
+pub struct Framework {
+    pub slug: string,
+    pub label: string,
+    pub version: string,
+}
+
+fn optFw(present: bool): Framework | undefined {
+    if (present) {
+        return Framework{ slug: "gdpr", label: "GDPR", version: "1" };
+    }
+    return undefined;
+}
+
+fn main(): void {
+    let fw = optFw(true) ?? Framework{ slug: "x", label: "y", version: "z" };
+    console.log(fw.slug + "/" + fw.label + "/" + fw.version);
+
+    let fo = optFw(true);
+    let fw2 = fo ?? Framework{ slug: "a", label: "b", version: "c" };
+    console.log(fw2.slug);
+
+    let fb = optFw(false) ?? Framework{ slug: "fallback", label: "FB", version: "0" };
+    console.log(fb.slug + "/" + fb.label);
+}

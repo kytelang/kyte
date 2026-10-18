@@ -1,0 +1,45 @@
+import assert;
+import data.db;
+
+@test
+fn test_uuid_json_values(): void {
+    let u = db.dbUuid("33221100-5544-7766-8899-aabbccddeeff");
+    assert.isTrue(u.kind == DbType.Uuid);
+    assert.equalStr(u.asUuid(), "33221100-5544-7766-8899-aabbccddeeff");
+    let j = db.dbJson("{\"a\":1}");
+    assert.isTrue(j.kind == DbType.Json);
+    assert.equalStr(j.asJson(), "{\"a\":1}");
+}
+
+@test
+fn test_null_aware_accessors(): void {
+    let n = db.dbNull();
+    assert.equalInt(n.asIntOr(-1), -1);
+    assert.equalStr(n.asTextOr("none"), "none");
+    assert.isTrue(n.asBoolOr(true));
+    let z = db.dbInt(0);
+    assert.equalInt(z.asIntOr(-1), 0);
+}
+
+@test
+fn test_rowstream_cursor(): void {
+    let rs = ResultSet();
+    let r0 = Row(); r0.cells.push(db.dbInt(10)); rs.rows.push(r0);
+    let r1 = Row(); r1.cells.push(db.dbInt(20)); rs.rows.push(r1);
+
+    let cur = db.streamRows(rs);
+    assert.isTrue(cur.ok());
+    assert.equalInt(cur.remaining(), 2);
+    assert.isTrue(cur.hasNext());
+    let a = cur.next() ?? Row();
+    assert.equalInt(a.getInt(0), 10);
+    assert.equalInt(cur.remaining(), 1);
+    let b = cur.next() ?? Row();
+    assert.equalInt(b.getInt(0), 20);
+    assert.isFalse(cur.hasNext());
+    assert.isTrue(cur.next() == undefined);
+    cur.reset();
+    assert.equalInt(cur.remaining(), 2);
+    let a2 = cur.next() ?? Row();
+    assert.equalInt(a2.getInt(0), 10);
+}

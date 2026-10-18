@@ -1,0 +1,49 @@
+import assert;
+import bytes;
+import io.slab;
+
+@test
+fn test_slab_acquire_recycle(): void {
+    let pool = slab.SlabPool(64, 4);
+    let a = pool.acquire();
+    let b = pool.acquire();
+    assert.isTrue(a != 0);
+    assert.isTrue(b != 0);
+    assert.isTrue(a != b);
+    assert.equalInt(pool.available(), 2);
+
+    bytes.write_i32(a, 0, 12345);
+    bytes.write_i32(a, 60, 678);
+    assert.equalInt(bytes.read_i32(a, 0) as int, 12345);
+    assert.equalInt(bytes.read_i32(a, 60) as int, 678);
+
+    assert.equalInt(pool.refcount(a), 1);
+    pool.retain(a);
+    assert.equalInt(pool.refcount(a), 2);
+    pool.release(a);
+    assert.equalInt(pool.refcount(a), 1);
+    assert.equalInt(pool.available(), 2);
+    pool.release(a);
+    assert.equalInt(pool.available(), 3);
+
+    let c = pool.acquire();
+    assert.isTrue(c == a);
+    pool.destroy();
+}
+
+@test
+fn test_slab_exhaustion(): void {
+    let pool = slab.SlabPool(32, 2);
+    let x = pool.acquire();
+    let y = pool.acquire();
+    assert.isTrue(x != 0);
+    assert.isTrue(y != 0);
+    let z = pool.acquire();
+    assert.equalInt(z as int, 0);
+    assert.equalInt(pool.available(), 0);
+
+    pool.release(x);
+    let w = pool.acquire();
+    assert.isTrue(w == x);
+    pool.destroy();
+}

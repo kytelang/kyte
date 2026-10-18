@@ -1,0 +1,29 @@
+import assert;
+
+fn addF(x: f32, y: f32): f32 { return x + y; }
+fn mulF(x: f32): f32 { return x * 2.0; }
+fn poly(x: f32): f32 { return x * x - 2.0 * x + 1.0; }
+fn negF(x: f32): f32 { return -x; }
+fn lessThan(x: f32, y: f32): bool { return x < y; }
+fn divF(a: f32, b: f32): f32 { return a / b; }
+fn locals(a: f32): f32 { let t: f32 = a * 2.0; let u: f32 = t + 1.0; return u; }
+fn mixed(a: f32, b: f64): f64 { return a + b; }
+
+@test
+fn test_f32_arithmetic(): void {
+    assert.isTrue(addF(1.5, 2.5) == 4.0);
+    assert.isTrue(mulF(3.5) == 7.0);
+    assert.isTrue(poly(3.0) == 4.0);
+    assert.isTrue(poly(1.0) == 0.0);
+    assert.isTrue(negF(2.0) == 0.0 - 2.0);
+    assert.isTrue(divF(10.0, 4.0) == 2.5);
+    assert.isTrue(locals(3.0) == 7.0);
+    assert.isTrue(mixed(1.5, 2.5) == 4.0);
+}
+
+@test
+fn test_f32_compare(): void {
+    assert.isTrue(lessThan(1.0, 2.0));
+    assert.isTrue(!lessThan(2.0, 1.0));
+    assert.isTrue(!lessThan(2.0, 2.0));
+}

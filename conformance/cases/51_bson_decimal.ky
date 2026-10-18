@@ -1,0 +1,25 @@
+import assert;
+import bytes;
+import list;
+import serde.bson;
+
+@test
+fn test_decimal_bytes_roundtrip(): void {
+    let a: decimal = 3.14159m;
+    let buf: ptr = bytes.alloc(32);
+    bytes.write_decimal(buf, 4, a);
+    let b: decimal = bytes.read_decimal(buf, 4);
+    assert.equalStr(`${b}`, "3.14159");
+    bytes.free(buf);
+}
+
+@test
+fn test_bson_document_decimal(): void {
+    let doc: bson.BsonDocument = bson.BsonDocument{ entries: List<bson.BsonEntry>() };
+    doc.entries.push(bson.entryDecimal("price", 9.99m));
+    let wire: ptr = bson.serialize(doc);
+    assert.equalInt(bytes.read_byte(wire, 4), 19);
+    let back: decimal = bytes.read_decimal(wire, 11);
+    assert.equalStr(`${back}`, "9.99");
+    bytes.free(wire);
+}

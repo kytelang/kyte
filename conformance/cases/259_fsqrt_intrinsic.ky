@@ -1,0 +1,24 @@
+import math;
+import assert;
+
+@test
+fn fsqrt_exact_values(): void {
+    assert.equalStr(`${math.fsqrt(2.0)}`, "1.4142135623730951");
+    assert.equalStr(`${math.fsqrt(25.0)}`, "5");
+    assert.equalStr(`${math.fsqrt(1.0)}`, "1");
+    let big = math.fsqrt(1000000.0);
+    assert.isTrue(big > 999.9999 && big < 1000.0001);
+}
+
+@test
+fn fsqrt_nonpositive_is_zero(): void {
+    assert.equalStr(`${math.fsqrt(0.0)}`, "0");
+    assert.equalStr(`${math.fsqrt(0.0 - 4.0)}`, "0");
+}
+
+@test
+fn fsqrt_roundtrip(): void {
+    let s = math.fsqrt(144.0);
+    assert.isTrue(s * s > 143.9999 && s * s < 144.0001);
+    assert.equalStr(`${s}`, "12");
+}

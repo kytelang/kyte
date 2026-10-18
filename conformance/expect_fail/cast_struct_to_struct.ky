@@ -1,0 +1,19 @@
+// EXPECT-FAIL: codegen
+//
+// last-bit-of-hardening A1: `as` between two unrelated struct layouts is a raw
+// reinterpret of one memory layout as another (garbage field reads / memory-unsafety),
+// with no static check and no runtime trap before the fix. It must be rejected. The
+// legal `as` shapes (numeric, any-unbox, trait downcast, Html/string) are covered by
+// cases/477_cast_legal_shapes.ky.
+
+struct A { pub x: int, pub y: int, init(a: int, b: int) { self.x = a; self.y = b; } }
+struct B { pub name: string, init(n: string) { self.name = n; } }
+
+@test
+fn reinterpret_struct(): void {
+    let a = A(1, 2);
+    let b = a as B;        // must be rejected: A and B are unrelated layouts
+    assert_unreachable(b.name);
+}
+
+fn assert_unreachable(s: string): void { }

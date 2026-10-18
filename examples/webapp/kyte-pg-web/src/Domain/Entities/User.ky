@@ -1,0 +1,16 @@
+// Persistence entity: one row of the `users` table. Fields mirror the columns
+// (snake_case) so the micro-ORM binds them by name. Owned `string` (not the
+// zero-copy str.Str used by read DTOs) so an entity outlives the result buffer
+// and is safe to mutate and write back.
+@serializable
+pub struct User {
+    pub id: string,
+    pub email: string,
+    pub password_hash: string,
+    pub full_name: string,
+    pub phone: string,
+    pub address: string,
+    pub role: string,
+    pub created_at: string,
+    pub updated_at: string,
+}

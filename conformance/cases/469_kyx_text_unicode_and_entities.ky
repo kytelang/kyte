@@ -1,0 +1,47 @@
+// KYX text is reconstructed verbatim from the raw source, so a stray byte the
+// general lexer does not tokenise (emoji, other non-ASCII, `#`) still reaches the
+// output, and no "Unexpected character" is printed. Separately, a `\u{...}` (or
+// `\uXXXX`) escape inside a string LITERAL decodes to its UTF-8 bytes. Together
+// these close bugs 1 and 2 of the KYX parser fixes plan.
+import assert;
+import string;
+
+// Emoji and non-ASCII directly in static KYX text.
+fn glyphs(): string { return <div>💻 flight ✈ café</div>; }
+
+// A numeric entity in static text is left undecoded (the browser decodes it).
+fn entity(): string { return <span>&#128187;</span>; }
+
+// `\u{...}` and `\uXXXX` in a string-literal `{expr}` child decode to real bytes.
+fn uEscBraced(): string { return <p>{"\u{1F4BB}"}</p>; }
+fn uEscAccent(): string { return <p>{"caf\u{00e9}"}</p>; }
+fn uEscFixed(): string { return <p>{"caf\u00e9!"}</p>; }
+
+@test
+fn test_emoji_and_nonascii_survive(): void {
+    let h = glyphs();
+    assert.isTrue(string.contains(h, "💻"));
+    assert.isTrue(string.contains(h, "✈"));
+    assert.isTrue(string.contains(h, "café"));
+    assert.isTrue(string.contains(h, "flight"));
+}
+
+@test
+fn test_numeric_entity_undecoded(): void {
+    assert.isTrue(string.contains(entity(), "&#128187;"));
+}
+
+@test
+fn test_u_escape_braced(): void {
+    assert.isTrue(string.contains(uEscBraced(), "💻"));
+}
+
+@test
+fn test_u_escape_accent(): void {
+    assert.isTrue(string.contains(uEscAccent(), "café"));
+}
+
+@test
+fn test_u_escape_fixed_four(): void {
+    assert.isTrue(string.contains(uEscFixed(), "é"));
+}

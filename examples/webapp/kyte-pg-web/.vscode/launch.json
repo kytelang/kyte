@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb-dap",
+      "request": "launch",
+      "name": "kyte: build (debug)",
+      "program": "${workspaceFolder}/build/debug/bin/nova-pg-web",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "nova-pg-web",
+      "initCommands": [
+        "command script import ~/.kyte/std/debug/kyte_formatters.py"
+      ]
+    }
+  ]
+}

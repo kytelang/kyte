@@ -1,0 +1,45 @@
+import web.routing;
+
+import Features.Catalog.GetProductDetail.query;
+
+import Features.Catalog.Shared.CatalogRepository;
+
+import Features.Catalog.Mappers.catalogMappers;
+
+import Domain.Entities.Product;
+
+import Features.Catalog.views.catalog;
+
+import ds_response;
+
+import web.response;
+
+import Shared.ShopError;
+
+pub struct GetProductDetailHandler impl RouteHandler {
+    repo: CatalogRepository,
+
+    init(repo: CatalogRepository) {
+        self.repo = repo;
+    }
+
+    // The boundary: run the happy path, and convert any ShopError raised inside it
+    // into the hypermedia error banner. One place, every error kind.
+    async fn serve(self: GetProductDetailHandler, ctx: Context): Response {
+        return await self.run(ctx) catch (e) await renderShopError(e);
+    }
+
+    // The happy path returns `Response | ShopError`; a missing product short-circuits
+    // to ShopError.NotFound via `try`, which `serve` renders as the error fragment.
+    async fn run(self: GetProductDetailHandler, ctx: Context): Response | ShopError {
+        let q = ctx.bind<GetProductDetail>();
+        let prod = await self.repo.product(q.id);
+        let p0 = prod.items.get(0);
+        if (p0 == undefined) {
+            return ShopError.NotFound("We couldn't find that item on the menu.");
+        }
+        let dto = catalogMappers.toProductDto(p0 ?? Product {id: "", category_id: "", name: "", description: "", price: 0.0, image_url: "", is_available: false, is_vegetarian: false, stock_quantity: 0, created_at: "", updated_at: ""});
+        let mods = await self.repo.modifiers(q.id);
+        return await ds_response.patch(catalog.productDetail(dto, mods.items));
+    }
+}

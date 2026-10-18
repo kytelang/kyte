@@ -1,0 +1,5 @@
+// EXPECT-FAIL: parse
+// A component usage with an unknown prop is rejected with a location.
+component Badge(label: string) { <span>{label}</span> }
+fn f(): string { return <Badge label="x" bogus="y"/>; }
+fn main(): void { let _ = f(); }

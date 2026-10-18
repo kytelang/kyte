@@ -1,0 +1,30 @@
+// Acceptance for KYX dynamic attributes (enhancements item 8): a bare `{expr}` attribute
+// emits a whole attribute token (e.g. hx-swap-oob or a conditional), and hyper.classList
+// composes a class string from conditional entries.
+import assert;
+import web.hyper;
+import list;
+import string;
+
+fn view(cls: string, extra: string, on: bool): Html {
+    return <button class={cls} {extra} {on ? "disabled" : ""}>Go</button>;
+}
+
+@test
+fn t_bare_and_conditional_attrs(): void {
+    let s = view("btn", "hx-post=\"/x\"", true) as string;
+    assert.contains(s, "class=\"btn\"");
+    assert.contains(s, "hx-post=\"/x\"");
+    assert.contains(s, "disabled");
+    let s2 = view("btn", "", false) as string;
+    assert.isTrue(string.indexOf(s2, "disabled") == -1);
+}
+
+@test
+fn t_classlist(): void {
+    let items = List<string>();
+    items.push("card");
+    items.push("");
+    items.push("active");
+    assert.isTrue(hyper.classList(items) == "card active");
+}

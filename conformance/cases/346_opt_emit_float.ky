@@ -1,0 +1,25 @@
+import assert;
+
+fn addD(x: double, y: double): double { return x + y; }
+fn mulD(x: double): double { return x * 2.0; }
+fn poly(x: double): double { return x * x - 2.0 * x + 1.0; }
+fn negD(x: double): double { return -x; }
+fn lessThan(x: double, y: double): bool { return x < y; }
+fn divD(a: double, b: double): double { return a / b; }
+
+@test
+fn test_float_arithmetic(): void {
+    assert.isTrue(addD(1.5, 2.5) == 4.0);
+    assert.isTrue(mulD(3.5) == 7.0);
+    assert.isTrue(poly(3.0) == 4.0);
+    assert.isTrue(poly(1.0) == 0.0);
+    assert.isTrue(negD(2.0) == 0.0 - 2.0);
+    assert.isTrue(divD(10.0, 4.0) == 2.5);
+}
+
+@test
+fn test_float_compare(): void {
+    assert.isTrue(lessThan(1.0, 2.0));
+    assert.isTrue(!lessThan(2.0, 1.0));
+    assert.isTrue(!lessThan(2.0, 2.0));
+}

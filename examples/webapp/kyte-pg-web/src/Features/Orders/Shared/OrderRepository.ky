@@ -1,0 +1,257 @@
+// OrderRepository: places orders from a cart in one transaction, reads and
+// advances them, and lists a user's history. Money maths stays in SQL. See
+// DESIGN.md section 8.
+import list;
+import string;
+import str;
+import data.db;
+import data.repository;
+import Shared.Db;
+import Domain.Contracts.orders;
+import Domain.Entities.Order;
+import Domain.Entities.OrderEvent;
+
+pub struct OrderRepository {
+    db: Db,
+
+    init(db: Db) {
+        self.db = db;
+    }
+
+    // Copies cart `cartId` into a new order inside a transaction: create the
+    // order (attributing it to `uid` if the user is logged in), snapshot each
+    // cart line into order_items, compute totals and a human-readable order
+    // number, then clear that cart. Returns the new order id, or "" if the cart
+    // was empty (rolled back).
+    pub async fn placeOrder(self: OrderRepository, cartId: string, uid: string, deliveryType: string): string {
+        let conn = await self.db.pool.acquire();
+        let _b = await conn.begin();
+
+        let dp = list.List<DbValue>();
+        dp.push(db.dbText(deliveryType));
+        dp.push(db.dbText(uid));
+        let idr = await Repository<IdDto>(conn, "orders").query("INSERT INTO orders (order_number, status, delivery_type, user_id) VALUES ('PENDING', 'pending', $1, NULLIF($2, '')::uuid) RETURNING id", dp);
+        if (idr.items.size() == 0) {
+            let _r0 = await conn.rollback();
+            self.db.pool.release(conn);
+            return "";
+        }
+        let oid = (idr.items.get(0) ?? IdDto{ id: str.of("") }).id.toOwned();
+
+        let ip = list.List<DbValue>();
+        ip.push(db.dbText(oid));
+        ip.push(db.dbText(cartId));
+        let ins = await conn.exec(
+            "INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, modifiers) SELECT $1::uuid, ci.product_id, p.name, ci.unit_price, ci.quantity, ci.modifiers FROM cart_items ci JOIN products p ON p.id = ci.product_id WHERE ci.cart_id = $2", ip);
+        if (ins.rows_affected == 0) {
+            let _r1 = await conn.rollback();
+            self.db.pool.release(conn);
+            return "";
+        }
+
+        let up = list.List<DbValue>();
+        up.push(db.dbText(oid));
+        let _u = await conn.exec(
+            "UPDATE orders SET subtotal = (SELECT COALESCE(SUM(subtotal),0) FROM order_items WHERE order_id = $1::uuid), tax = ROUND((SELECT COALESCE(SUM(subtotal),0) FROM order_items WHERE order_id = $1::uuid) * 0.08, 2), total_amount = ROUND((SELECT COALESCE(SUM(subtotal),0) FROM order_items WHERE order_id = $1::uuid) * 1.08, 2), order_number = 'S-' || upper(substr($1::text, 1, 8)) WHERE id = $1::uuid", up);
+
+        let cp = list.List<DbValue>();
+        cp.push(db.dbText(cartId));
+        let _d = await conn.exec("DELETE FROM cart_items WHERE cart_id = $1", cp);
+
+        let _c = await conn.commit();
+        self.db.pool.release(conn);
+        return oid;
+    }
+
+    // A single order as an Order entity; the handler maps it to an OrderDto.
+    pub async fn order(self: OrderRepository, id: string): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(id));
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders WHERE id = $1::uuid", p);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // A logged-in user's past orders as Order entities, most recent first.
+    pub async fn history(self: OrderRepository, uid: string): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(uid));
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders WHERE user_id = $1::uuid ORDER BY created_at DESC LIMIT 50", p);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Orders currently at a kitchen stage (pending/accepted/preparing), oldest
+    // first: the kitchen operator's work queue.
+    pub async fn kitchenQueue(self: OrderRepository): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders WHERE status IN ('pending','accepted','preparing') ORDER BY created_at ASC LIMIT 50", list.List<DbValue>());
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Orders currently at a delivery stage (ready/picked_up/on_the_way): the
+    // delivery partner's work queue.
+    pub async fn deliveryQueue(self: OrderRepository): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders WHERE status IN ('ready','picked_up','on_the_way') ORDER BY created_at ASC LIMIT 50", list.List<DbValue>());
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    pub async fn advanceStatus(self: OrderRepository, id: string): string {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(id));
+        let r = await Repository<StatusDto>(conn, "orders").query("UPDATE orders SET status = CASE status WHEN 'pending' THEN 'accepted' WHEN 'accepted' THEN 'preparing' WHEN 'preparing' THEN 'ready' WHEN 'ready' THEN 'picked_up' WHEN 'picked_up' THEN 'on_the_way' WHEN 'on_the_way' THEN 'delivered' ELSE status END, assigned_to = CASE WHEN status = 'preparing' THEN NULL ELSE assigned_to END, updated_at = now() WHERE id = $1::uuid RETURNING status", p);
+        self.db.pool.release(conn);
+        if (r.items.size() == 0) { return ""; }
+        return (r.items.get(0) ?? StatusDto{ status: str.of("") }).status.toOwned();
+    }
+
+    // --- Kitchen / delivery boards (claim-based dashboards) -----------------------------------------
+    // Each board splits its phase into "Available" (unclaimed) and "Mine" (claimed by the acting staff
+    // member). A claim is an ATOMIC update that only succeeds while the order is still unassigned and in
+    // the right phase, so two operators racing to pick the same order cannot both win. Advancing an order
+    // out of the kitchen phase (preparing -> ready) clears assigned_to (see advanceStatus / advanceOwned),
+    // so it re-enters the delivery pool unclaimed for a courier to pick up.
+
+    // Kitchen-phase orders nobody has claimed yet, oldest first.
+    pub async fn kitchenAvailable(self: OrderRepository): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders WHERE status IN ('pending','accepted','preparing') AND assigned_to IS NULL ORDER BY created_at ASC LIMIT 50", list.List<DbValue>());
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Kitchen-phase orders claimed by staff member `uid`, oldest first.
+    pub async fn kitchenMine(self: OrderRepository, uid: string): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(uid));
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders WHERE status IN ('pending','accepted','preparing') AND assigned_to = NULLIF($1,'')::uuid ORDER BY created_at ASC LIMIT 50", p);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Delivery-phase orders nobody has claimed yet, oldest first.
+    pub async fn deliveryAvailable(self: OrderRepository): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders WHERE status IN ('ready','picked_up','on_the_way') AND assigned_to IS NULL ORDER BY created_at ASC LIMIT 50", list.List<DbValue>());
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Delivery-phase orders claimed by courier `uid`, oldest first.
+    pub async fn deliveryMine(self: OrderRepository, uid: string): Rows<Order> {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(uid));
+        let rows = await Repository<Order>(conn, "orders").query("SELECT * FROM orders WHERE status IN ('ready','picked_up','on_the_way') AND assigned_to = NULLIF($1,'')::uuid ORDER BY created_at ASC LIMIT 50", p);
+        self.db.pool.release(conn);
+        return rows;
+    }
+
+    // Atomically claim a kitchen-phase order for `uid`. Succeeds (returns true) only if it was still
+    // unassigned and in a kitchen stage, so a race between two operators has exactly one winner.
+    pub async fn claimKitchen(self: OrderRepository, id: string, uid: string): bool {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(id));
+        p.push(db.dbText(uid));
+        let r = await Repository<IdDto>(conn, "orders").query("UPDATE orders SET assigned_to = NULLIF($2,'')::uuid, updated_at = now() WHERE id = $1::uuid AND assigned_to IS NULL AND status IN ('pending','accepted','preparing') RETURNING id", p);
+        self.db.pool.release(conn);
+        return r.items.size() > 0;
+    }
+
+    // Atomically claim a delivery-phase order for courier `uid`.
+    pub async fn claimDelivery(self: OrderRepository, id: string, uid: string): bool {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(id));
+        p.push(db.dbText(uid));
+        let r = await Repository<IdDto>(conn, "orders").query("UPDATE orders SET assigned_to = NULLIF($2,'')::uuid, updated_at = now() WHERE id = $1::uuid AND assigned_to IS NULL AND status IN ('ready','picked_up','on_the_way') RETURNING id", p);
+        self.db.pool.release(conn);
+        return r.items.size() > 0;
+    }
+
+    // Release an order the acting staff member `uid` holds, returning it to the Available pool. Guarded by
+    // assigned_to = uid so a member can only release their own claim.
+    pub async fn releaseOrder(self: OrderRepository, id: string, uid: string): bool {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(id));
+        p.push(db.dbText(uid));
+        let r = await Repository<IdDto>(conn, "orders").query("UPDATE orders SET assigned_to = NULL, updated_at = now() WHERE id = $1::uuid AND assigned_to = NULLIF($2,'')::uuid RETURNING id", p);
+        self.db.pool.release(conn);
+        return r.items.size() > 0;
+    }
+
+    // Advance an order one stage, but ONLY if `uid` is the staff member who claimed it -- so a board's
+    // Advance button acts on the actor's own orders, never someone else's. Clears assigned_to at the
+    // kitchen->delivery handoff, same as advanceStatus. Returns the new status, or "" if `uid` did not
+    // own the order (no-op).
+    pub async fn advanceOwned(self: OrderRepository, id: string, uid: string): string {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(id));
+        p.push(db.dbText(uid));
+        let r = await Repository<StatusDto>(conn, "orders").query("UPDATE orders SET status = CASE status WHEN 'pending' THEN 'accepted' WHEN 'accepted' THEN 'preparing' WHEN 'preparing' THEN 'ready' WHEN 'ready' THEN 'picked_up' WHEN 'picked_up' THEN 'on_the_way' WHEN 'on_the_way' THEN 'delivered' ELSE status END, assigned_to = CASE WHEN status = 'preparing' THEN NULL ELSE assigned_to END, updated_at = now() WHERE id = $1::uuid AND assigned_to = NULLIF($2,'')::uuid RETURNING status", p);
+        self.db.pool.release(conn);
+        if (r.items.size() == 0) { return ""; }
+        return (r.items.get(0) ?? StatusDto{ status: str.of("") }).status.toOwned();
+    }
+
+    // Publishes an order-status fragment to the shared order_events feed. This
+    // replaces the earlier Postgres-only pg_notify path: a plain INSERT is
+    // portable across every driver (NovaDB, MySQL, MSSQL, Postgres). Every
+    // replica tails this table (see pollEvents), so an advance on any replica
+    // still reaches a viewer connected to any other replica.
+    pub async fn publishStatus(self: OrderRepository, orderId: string, fragment: string): void {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(orderId));
+        p.push(db.dbText(fragment));
+        let _n = await conn.exec("INSERT INTO order_events (order_id, fragment) VALUES ($1::uuid, $2)", p);
+        self.db.pool.release(conn);
+    }
+
+    // Current high-water mark of an order's event feed. A stream seeds its cursor
+    // with this so it forwards only events newer than the moment it connected,
+    // never replaying history the viewer already saw in the seeded status.
+    pub async fn latestEventId(self: OrderRepository, orderId: string): long {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(orderId));
+        let r = await Repository<EventIdDto>(conn, "order_events").query("SELECT COALESCE(MAX(id), 0) AS eid FROM order_events WHERE order_id = $1::uuid", p);
+        self.db.pool.release(conn);
+        if (r.items.size() == 0) { return 0 as long; }
+        return (r.items.get(0) ?? EventIdDto{ eid: 0 as long }).eid;
+    }
+
+    // Fetches the status fragments published for `orderId` after `afterId`, in
+    // order. A stream polls this on an interval and patches each new fragment;
+    // being plain SQL, it needs no database push primitive.
+    pub async fn pollEvents(self: OrderRepository, orderId: string, afterId: long): Rows<OrderEvent> {
+        let conn = await self.db.pool.acquire();
+        // Injection-safe tagged template: ${orderId}/${afterId} are BOUND as $1/$2
+        // (never concatenated), and the SELECT is coverage- and type-checked against
+        // OrderEvent + schema.sql at build time. The SSE stream consumes the row's
+        // id (cursor) and fragment (pre-rendered markup).
+        let r = await db.querySql<OrderEvent>(conn, `SELECT id, order_id, fragment, created_at FROM order_events WHERE order_id = ${orderId}::uuid AND id > ${afterId} ORDER BY id ASC`);
+        self.db.pool.release(conn);
+        return r;
+    }
+
+    pub async fn status(self: OrderRepository, id: string): string {
+        let conn = await self.db.pool.acquire();
+        let p = list.List<DbValue>();
+        p.push(db.dbText(id));
+        let r = await Repository<StatusDto>(conn, "orders").query("SELECT status FROM orders WHERE id = $1::uuid", p);
+        self.db.pool.release(conn);
+        if (r.items.size() == 0) { return ""; }
+        return (r.items.get(0) ?? StatusDto{ status: str.of("") }).status.toOwned();
+    }
+}

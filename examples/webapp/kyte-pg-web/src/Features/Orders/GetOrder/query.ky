@@ -1,0 +1,5 @@
+@serializable
+pub struct GetOrder {
+    pub id: string,
+    init() { self.id = ""; }
+}

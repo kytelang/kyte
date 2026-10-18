@@ -1,0 +1,65 @@
+import assert;
+
+enum ConfigError {
+    NotFound(string),
+    BadPort(int),
+}
+
+fn readConfig(path: string): string | ConfigError {
+    if (path == "missing.toml") { return ConfigError.NotFound(path); }
+    return "8080";
+}
+
+fn reason(e: ConfigError): string {
+    switch (e) {
+        case ConfigError.NotFound(p): { return "config not found: " + p; }
+        case ConfigError.BadPort(n):  { return "bad port"; }
+    }
+    return "?";
+}
+
+fn loadPort(path: string): string | ConfigError {
+    let raw = try readConfig(path);
+    return "port=" + raw;
+}
+
+@test
+fn test_catch_yields_default_on_error(): void {
+    assert.equalStr(readConfig("missing.toml") catch "fallback", "fallback");
+}
+
+@test
+fn test_catch_passes_ok_through(): void {
+    assert.equalStr(readConfig("app.toml") catch "fallback", "8080");
+}
+
+@test
+fn test_error_side_is_actually_tagged_as_error(): void {
+    assert.notEqualStr(readConfig("missing.toml") catch "fallback", "8080");
+}
+
+@test
+fn test_catch_binds_error_with_message_intact(): void {
+    let msg = readConfig("missing.toml") catch (e) reason(e);
+    assert.equalStr(msg, "config not found: missing.toml");
+}
+
+@test
+fn test_try_propagates_the_error(): void {
+    let msg = loadPort("missing.toml") catch (e) reason(e);
+    assert.equalStr(msg, "config not found: missing.toml");
+}
+
+@test
+fn test_try_unwraps_on_success(): void {
+    assert.equalStr(loadPort("app.toml") catch "fallback", "port=8080");
+}
+
+@test
+fn test_int_payload_round_trips(): void {
+    let e: ConfigError = ConfigError.BadPort(70000);
+    switch (e) {
+        case ConfigError.NotFound(p): { assert.fail("wrong arm"); }
+        case ConfigError.BadPort(n):  { assert.equalInt(n, 70000); }
+    }
+}

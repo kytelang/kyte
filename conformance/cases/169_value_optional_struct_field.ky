@@ -1,0 +1,58 @@
+
+import assert;
+
+enum Flag {
+    Off,
+    On,
+    pub fn b(self: Flag): bool {
+        switch (self) { case Flag.Off: { return false; } case Flag.On: { return true; } }
+        return false;
+    }
+}
+
+struct Counter {
+    pub n: int | undefined,
+    pub f: Flag | undefined,
+    init() { self.n = 0; self.f = Flag.Off; }
+}
+
+struct Lit {
+    pub n: int | undefined,
+    pub f: Flag | undefined,
+}
+
+@test
+fn test_ctor_assign_present_zero(): void {
+    let c = Counter();
+    assert.equalInt(c.n ?? 99, 0);
+    assert.isTrue((c.f ?? Flag.On).b() == false);
+}
+
+@test
+fn test_reassign_zero_then_absent(): void {
+    let c = Counter();
+    c.n = 5;
+    assert.equalInt(c.n ?? 99, 5);
+    c.n = 0;
+    assert.equalInt(c.n ?? 99, 0);
+    c.n = undefined;
+    assert.equalInt(c.n ?? 99, 99);
+    c.f = Flag.On;
+    assert.isTrue((c.f ?? Flag.Off).b() == true);
+    c.f = Flag.Off;
+    assert.isTrue((c.f ?? Flag.On).b() == false);
+}
+
+@test
+fn test_struct_literal_present_zero(): void {
+    let l = Lit { n: 0, f: Flag.Off };
+    assert.equalInt(l.n ?? 99, 0);
+    assert.isTrue((l.f ?? Flag.On).b() == false);
+}
+
+@test
+fn test_struct_literal_absent(): void {
+    let l = Lit { n: undefined, f: undefined };
+    assert.equalInt(l.n ?? 99, 99);
+    assert.isTrue((l.f ?? Flag.On).b() == true);
+}

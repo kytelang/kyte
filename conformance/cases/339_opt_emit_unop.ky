@@ -1,0 +1,32 @@
+import assert;
+
+fn neg(a: int): int { return -a; }
+fn intMin(): int { return -2147483647 - 1; }
+fn bitNot(a: int): int { return ~a; }
+fn lnot(a: bool): bool { return !a; }
+fn dblNeg(a: int): int { return -(-a); }
+fn negExpr(a: int, b: int): int { return -a * b + 10; }
+
+@test
+fn test_negation(): void {
+    assert.equalInt(neg(42), -42);
+    assert.equalInt(neg(-42), 42);
+    assert.equalInt(neg(0), 0);
+    assert.isTrue(intMin() < 0);
+    assert.equalInt(intMin(), -2147483648);
+    assert.equalInt(dblNeg(5), 5);
+    assert.equalInt(negExpr(3, 2), 4);
+}
+
+@test
+fn test_bit_not(): void {
+    assert.equalInt(bitNot(0), -1);
+    assert.equalInt(bitNot(5), -6);
+    assert.equalInt(bitNot(-1), 0);
+}
+
+@test
+fn test_logical_not(): void {
+    assert.isTrue(lnot(false));
+    assert.isTrue(!lnot(true));
+}

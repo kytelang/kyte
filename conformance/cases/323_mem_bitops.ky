@@ -1,0 +1,34 @@
+import assert;
+
+@test
+fn rotate_u32(): void {
+    assert.isTrue(mem.rotl<uint>(1, 1) == 2);
+    assert.isTrue(mem.rotl<uint>(1, 31) == 2147483648);
+    assert.isTrue(mem.rotr<uint>(2, 1) == 1);
+    assert.isTrue(mem.rotr<uint>(1, 1) == 2147483648);
+    assert.isTrue(mem.rotl<uint>(0xdeadbeef, 32) == 0xdeadbeef);
+}
+
+@test
+fn rotate_u64(): void {
+    assert.isTrue(mem.rotl<ulong>(1, 1) == 2);
+    assert.isTrue(mem.rotl<ulong>(1, 63) == 9223372036854775808);
+    assert.isTrue(mem.rotr<ulong>(1, 1) == 9223372036854775808);
+}
+
+@test
+fn count_zeros(): void {
+    assert.equalInt(mem.ctz<uint>(1), 0);
+    assert.equalInt(mem.ctz<uint>(8), 3);
+    assert.equalInt(mem.ctz<ulong>(0x100), 8);
+    assert.equalInt(mem.clz<uint>(1), 31);
+    assert.equalInt(mem.clz<uint>(0x80000000), 0);
+    assert.equalInt(mem.clz<ulong>(1), 63);
+}
+
+@test
+fn byte_swap(): void {
+    assert.isTrue(mem.bswap<uint>(0x01020304) == 0x04030201);
+    assert.isTrue(mem.bswap<ushort>(0x0102) == 0x0201);
+    assert.isTrue(mem.bswap<ulong>(0x0102030405060708) == 0x0807060504030201);
+}

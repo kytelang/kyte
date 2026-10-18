@@ -1,0 +1,74 @@
+import assert;
+import concurrency.atomic;
+
+@test
+fn test_int_load_store(): void {
+    let a = Atomic<int>(10);
+    assert.equalInt(a.load(), 10);
+    a.store(20);
+    assert.equalInt(a.load(), 20);
+    a.delete();
+}
+
+@test
+fn test_int_add_sub(): void {
+    let a = Atomic<int>(20);
+    assert.equalInt(a.add(5), 20);
+    assert.equalInt(a.load(), 25);
+    assert.equalInt(a.sub(3), 25);
+    assert.equalInt(a.load(), 22);
+    a.delete();
+}
+
+@test
+fn test_cas_even_expected_value(): void {
+    let a = Atomic<int>(22);
+    assert.isTrue(a.compareAndSwap(22, 30));
+    assert.equalInt(a.load(), 30);
+    assert.isFalse(a.compareAndSwap(22, 40));
+    assert.equalInt(a.load(), 30);
+    a.delete();
+}
+
+@test
+fn test_cas_odd_expected_value(): void {
+    let a = Atomic<int>(21);
+    assert.isTrue(a.compareAndSwap(21, 99));
+    assert.equalInt(a.load(), 99);
+    assert.isFalse(a.compareAndSwap(21, 7));
+    assert.equalInt(a.load(), 99);
+    a.delete();
+}
+
+@test
+fn test_long_atomics(): void {
+    let a = Atomic<long>(100);
+    assert.equalInt(a.load(), 100);
+    a.store(200);
+    assert.equalInt(a.load(), 200);
+    assert.isTrue(a.compareAndSwap(200, 300));
+    assert.equalInt(a.load(), 300);
+    assert.isFalse(a.compareAndSwap(200, 400));
+    a.delete();
+}
+
+@test
+fn test_long_cas_above_2_31(): void {
+    let a = Atomic<long>(1);
+    assert.isTrue(a.compareAndSwap(1, 5000000000));
+    assert.equalInt(a.load(), 5000000000);
+    a.delete();
+}
+
+@test
+fn test_bool_atomics(): void {
+    let a = Atomic<bool>(false);
+    assert.isFalse(a.load());
+    a.store(true);
+    assert.isTrue(a.load());
+    assert.isTrue(a.compareAndSwap(true, false));
+    assert.isFalse(a.load());
+    assert.isFalse(a.compareAndSwap(true, true));
+    assert.isFalse(a.load());
+    a.delete();
+}

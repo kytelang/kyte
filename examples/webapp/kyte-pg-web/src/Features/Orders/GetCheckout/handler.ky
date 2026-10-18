@@ -1,0 +1,17 @@
+import web.routing;
+import Features.Orders.GetCheckout.query;
+import Features.Cart.Shared.CartRepository;
+import Features.Orders.views.orders;
+import Domain.Contracts.cart;
+import ds_response;
+import web.response;
+
+pub struct GetCheckoutHandler impl RouteHandler {
+    cart: CartRepository,
+    init(cart: CartRepository) { self.cart = cart; }
+    async fn serve(self: GetCheckoutHandler, ctx: routing.Context): Response { let q = ctx.bind<GetCheckout>();
+        let summ = await self.cart.summary(q.cartid);
+        let s = summ.items.get(0) ?? CartSummaryDto{ itemCount: 0, subtotal: 0.0, tax: 0.0, total: 0.0 };
+        return await ds_response.patch(orders.checkoutForm(s));
+    }
+}

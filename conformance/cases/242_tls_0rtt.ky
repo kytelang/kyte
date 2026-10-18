@@ -1,0 +1,74 @@
+import crypto.tls.13.tlsClient;
+import bytes;
+import assert;
+
+fn eqHex(buf: ptr, n: int, hex: string): bool {
+    if (hex.length != n * 2) { return false; }
+    let i = 0;
+    while (i < n) {
+        let hi = hex[i * 2]; let lo = hex[i * 2 + 1];
+        let hv = 0; if (hi >= 97) { hv = hi - 87; } else { hv = hi - 48; }
+        let lv = 0; if (lo >= 97) { lv = lo - 87; } else { lv = lo - 48; }
+        if (bytes.read_byte(buf, i) != hv * 16 + lv) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+fn newRtt(): tlsClient.TlsClient {
+    let psk = bytes.alloc(32);
+    let i = 0; while (i < 32) { bytes.write_byte(psk, i, 0x42); i = i + 1; }
+    let ticket = bytes.alloc(4);
+    bytes.write_byte(ticket, 0, 0xca); bytes.write_byte(ticket, 1, 0xfe);
+    bytes.write_byte(ticket, 2, 0xf0); bytes.write_byte(ticket, 3, 0x0d);
+    return tlsClient.newClientResume(bytes.alloc(32), bytes.alloc(32), bytes.alloc(48), psk, 32, 0, ticket, 4, 0);
+}
+
+fn buildRttCh(c: tlsClient.TlsClient, out: ptr): int {
+    let ticket = bytes.alloc(4);
+    bytes.write_byte(ticket, 0, 0xca); bytes.write_byte(ticket, 1, 0xfe);
+    bytes.write_byte(ticket, 2, 0xf0); bytes.write_byte(ticket, 3, 0x0d);
+    let rnd = bytes.alloc(32); let sid = bytes.alloc(32); let pk = bytes.alloc(32);
+    let pkP = bytes.alloc(65); bytes.write_byte(pkP, 0, 4);
+    let empty = bytes.alloc(1);
+    let n = tlsClient.buildClientHelloEx(rnd, sid, pk, pkP, bytes.alloc(97), "localhost", "", 3, empty, 0, ticket, 4, 0, 32, 1, out);
+    c.fillResumptionBinder(out, n);
+    c.addClientHello(out, n);
+    return n;
+}
+
+@test
+fn early_data_extension_present(): void {
+    let c = newRtt();
+    let out = bytes.alloc(2048);
+    let n = buildRttCh(c, out);
+    let found = false;
+    let i = 0;
+    while (i + 4 <= n) {
+        if (bytes.read_byte(out, i) == 0x00 && bytes.read_byte(out, i + 1) == 0x2a
+            && bytes.read_byte(out, i + 2) == 0x00 && bytes.read_byte(out, i + 3) == 0x00) { found = true; }
+        i = i + 1;
+    }
+    assert.isTrue(found);
+}
+
+@test
+fn early_key_derivation(): void {
+    let c = newRtt();
+    let out = bytes.alloc(2048);
+    buildRttCh(c, out);
+    c.deriveEarlyKeys();
+    assert.isTrue(eqHex(c.eKey, 16, "1a0f99897da291b9ea2edaab697cdd3d"));
+    assert.isTrue(eqHex(c.eIv, 12, "b48a5ca26790918c39ac8dbf"));
+}
+
+@test
+fn end_of_early_data_shape(): void {
+    let c = newRtt();
+    let out = bytes.alloc(2048);
+    buildRttCh(c, out);
+    c.deriveEarlyKeys();
+    let rec = bytes.alloc(64);
+    let n = c.endOfEarlyDataRecord(rec);
+    assert.equalInt(bytes.read_byte(rec, 0), 0x17);
+    assert.equalInt(n, 5 + 4 + 1 + 16);
+}

@@ -1,0 +1,8 @@
+// Persistence entity: one row of the `categories` table.
+@serializable
+pub struct Category {
+    pub id: string,
+    pub name: string,
+    pub description: string,
+    pub sort_order: int,
+}

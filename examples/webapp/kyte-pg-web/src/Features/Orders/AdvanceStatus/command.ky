@@ -1,0 +1,7 @@
+@serializable
+pub struct AdvanceStatus {
+    pub order: string,
+    pub uid: string,     // legacy field: no longer trusted. Identity comes from the server-side session.
+    pub csrf: string,
+    init() { self.order = ""; self.uid = ""; self.csrf = ""; }
+}

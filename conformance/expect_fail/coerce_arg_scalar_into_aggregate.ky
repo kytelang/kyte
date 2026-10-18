@@ -1,0 +1,7 @@
+// EXPECT-FAIL: typecheck
+// Passing a register-scalar where a parameter's declared type is a heap aggregate
+// (List/Map/struct) stores a scalar into a pointer slot and crashes. Guarded in
+// type_checker.zig checkArgTypes (declared-aggregate param + inline-scalar arg).
+fn consume(xs: List<int>): int { return xs.size(); }
+@test
+fn t(): void { let bad = -99; let n = consume(bad); }

@@ -1,0 +1,25 @@
+import assert;
+import string;
+
+fn widen(x: int): long { return (x as long) * 1000000; }
+fn narrow(x: long): int { return (x as int) + 1; }
+fn maskByte(x: long): int { return ((x >> 8) & 255) as int; }
+
+fn litLen(): int { return "hello".len(); }
+fn findIn(s: string): int { return s.indexOf("lo"); }
+
+fn firstPlusLen(s: string): int { let n = s.len(); return (s[0] as int) + n; }
+
+@test
+fn test_casts(): void {
+    assert.isTrue(widen(5) == 5000000);
+    assert.equalInt(narrow(41), 42);
+    assert.equalInt(maskByte(0x1234), 0x12);
+}
+
+@test
+fn test_string_literals_and_combo(): void {
+    assert.equalInt(litLen(), 5);
+    assert.equalInt(findIn("hello"), 3);
+    assert.equalInt(firstPlusLen("Ab"), 67);
+}

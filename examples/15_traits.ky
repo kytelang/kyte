@@ -1,0 +1,58 @@
+
+trait Speaker {
+    fn speak(self: Speaker): string;
+}
+
+struct Dog impl Speaker {
+    pub name: string,
+    pub fn speak(self: Dog): string { return `${self.name} says woof`; }
+}
+
+struct Cat impl Speaker {
+    pub name: string,
+    pub fn speak(self: Cat): string { return `${self.name} says meow`; }
+}
+
+fn make(kind: string): Speaker {
+    if (kind == "dog") { return Dog{ name: "Rex" }; }
+    return Cat{ name: "Milo" };
+}
+
+fn announce(s: Speaker): void {
+    console.log(s.speak());
+}
+
+trait Handler<Q, R> {
+    fn handle(self, req: Q): R;
+}
+
+struct GetUser { pub id: int }
+struct UserDto { pub id: int, pub name: string }
+
+struct GetUserHandler impl Handler<GetUser, UserDto> {
+    fn handle(self, req: GetUser): UserDto {
+        return UserDto{ id: req.id, name: "Ada" };
+    }
+}
+
+struct Doubler impl Handler<int, int> {
+    fn handle(self, n: int): int { return n + n; }
+}
+
+fn main(): void {
+    announce(Dog{ name: "Rex" });
+    announce(Cat{ name: "Milo" });
+
+    let s = make("dog");
+    console.log(`factory: ${s.speak()}`);
+
+    let d = s as Dog;
+    console.log(`downcast name = ${d.name}`);
+
+    let h = GetUserHandler{};
+    let dto = h.handle(GetUser{ id: 7 });
+    console.log(`handler -> id=${dto.id}, name=${dto.name}`);
+
+    let dbl = Doubler{};
+    console.log(`doubler(21) = ${dbl.handle(21)}`);
+}

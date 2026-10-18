@@ -1,0 +1,31 @@
+// S6: SSE frame building must strip CR/LF from the event name and split the
+// payload on CR, LF and CRLF, so a crafted field cannot inject extra SSE
+// fields or events into the stream.
+
+import assert;
+import web.sse;
+import string;
+
+// A newline in the event name is stripped, so the name collapses to a single
+// control-free token and no extra SSE field line is injected.
+@test
+fn test_event_name_crlf_stripped(): void {
+    let f = sse.htmxFrame("msg\r\nevent: evil", "hi");
+    assert.isTrue(string.eql(f, "event: msgevent: evil\ndata: hi\n\n"));
+}
+
+// A multi-line payload (CRLF and bare CR) becomes one data: line per line.
+@test
+fn test_payload_split_on_all_line_endings(): void {
+    let f = sse.htmxFrame("patch", "a\r\nb\rc");
+    assert.isTrue(string.contains(f, "data: a\n"));
+    assert.isTrue(string.contains(f, "data: b\n"));
+    assert.isTrue(string.contains(f, "data: c\n"));
+}
+
+// A normal single-line fragment is unchanged.
+@test
+fn test_plain_fragment(): void {
+    let f = sse.htmxFrame("patch", "<div>ok</div>");
+    assert.isTrue(string.eql(f, "event: patch\ndata: <div>ok</div>\n\n"));
+}

@@ -1,0 +1,7 @@
+// EXPECT-FAIL: codegen
+import assert;
+@test
+fn atomic_string_rejected(): void {
+    let a = Atomic<string>("hi");
+    assert.equalStr(a.load(), "hi");
+}

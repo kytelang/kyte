@@ -1,0 +1,42 @@
+// Optional component props: a prop with a default (`name: Type = <literal>`) may be
+// omitted at the usage site, in which case the default fills it; passing it overrides.
+// Defaults are literals so they also work for cross-module (imported) components.
+import assert;
+import string;
+
+component Button(label: string, cls: string = "btn", size: int = 2) {
+    <button class={cls} data-size={`${size}`}>{label}</button>
+}
+
+@test
+fn test_defaults_fill_when_omitted(): void {
+    assert.equalStr(<Button label="Save"/>, "<button class=\"btn\" data-size=\"2\">Save</button>");
+}
+
+@test
+fn test_defaults_overridden_when_passed(): void {
+    assert.equalStr(<Button label="Go" cls="primary" size={5}/>, "<button class=\"primary\" data-size=\"5\">Go</button>");
+}
+
+@test
+fn test_partial_override_by_name(): void {
+    // Override only cls; size keeps its default. Props match by name, any order.
+    assert.equalStr(<Button cls="c" label="X"/>, "<button class=\"c\" data-size=\"2\">X</button>");
+}
+
+// An enum-valued default works too. (Cross-module enum defaults resolve by the usage
+// site qualifying the default with the module alias; that path is exercised outside
+// the single-file corpus.)
+enum Variant { Plain, Fancy }
+fn variantCls(v: Variant): string {
+    switch (v) { case Variant.Plain: { return "plain"; } case Variant.Fancy: { return "fancy"; } }
+}
+component Box(label: string, variant: Variant = Variant.Plain) {
+    <div class={variantCls(variant)}>{label}</div>
+}
+
+@test
+fn test_enum_default(): void {
+    assert.equalStr(<Box label="a"/>, "<div class=\"plain\">a</div>");
+    assert.equalStr(<Box label="b" variant={Variant.Fancy}/>, "<div class=\"fancy\">b</div>");
+}

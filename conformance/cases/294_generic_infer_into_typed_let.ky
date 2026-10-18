@@ -1,0 +1,36 @@
+
+import assert;
+
+fn id<T>(v: T): T { return v; }
+fn firstOr<T>(v: T, d: T): T { return v; }
+
+@test
+fn test_infer_into_typed_let(): void {
+    let x: int = id(42);
+    assert.equalInt(x, 42);
+}
+
+@test
+fn test_still_works_arg_position(): void {
+    assert.equalInt(id(7), 7);
+}
+
+@test
+fn test_still_works_explicit(): void {
+    let y: int = id<int>(9);
+    assert.equalInt(y, 9);
+}
+
+@test
+fn test_still_works_no_annotation(): void {
+    let z = id(5);
+    assert.equalInt(z, 5);
+}
+
+@test
+fn test_wide_and_bool(): void {
+    let a: long = firstOr(5000000000, 0);
+    assert.isTrue(a == 5000000000);
+    let b: bool = firstOr(true, false);
+    assert.isTrue(b);
+}

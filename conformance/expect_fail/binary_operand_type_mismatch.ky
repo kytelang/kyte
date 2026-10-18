@@ -1,0 +1,19 @@
+// EXPECT-FAIL: typecheck
+//
+// Binary value operators must reject incompatible operand types. `int - string`,
+// `int * bool`, `5 == "x"` and the like used to compile and run on reinterpreted
+// bit patterns (a string pointer subtracted from an int, a struct field read as
+// garbage). This is the shape the tuple gap surfaced: `let (v, e) = f(); v * e`
+// where `v` is int and `e` is string. The type checker now rejects it in
+// `checkExpr`'s `.binary` arm (binOpCatsCompatible).
+//
+// Note `+` with a string operand is CONCATENATION and stays valid (`"n=" + 5`),
+// so this case uses `*`, which has no string meaning.
+
+@test
+fn t(): void {
+    let a: int = 5;
+    let b: string = "x";
+    let n = a * b;      // int * string: no valid meaning -> type error
+    console.log(`${n}`);
+}

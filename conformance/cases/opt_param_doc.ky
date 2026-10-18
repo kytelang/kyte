@@ -1,0 +1,38 @@
+import assert;
+import string;
+import collections.list;
+
+// An OPTIONAL PARAMETER is just a parameter whose type is optional: `T?` or
+// `T | undefined`. The caller always passes an argument, but that argument may
+// be an absent value (`undefined`). Inside the function you read it like any
+// other optional: coalesce with `??`, or narrow with `if (p != undefined)`.
+fn greet(name: string?): string {
+    // Coalesce a default when the caller passed an absent value.
+    return `hello, ${name ?? "stranger"}`;
+}
+
+fn greetNarrowed(name: string | undefined): string {
+    // Or narrow it: inside the guard `name` is a plain `string`.
+    if (name != undefined) {
+        return `hello, ${name} (${name.length} chars)`;
+    }
+    return "hello, stranger";
+}
+
+@test
+fn test_optional_param(): void {
+    // Present argument.
+    assert.equalStr(greet("Ada"), "hello, Ada");
+    // Absent argument: pass `undefined` explicitly.
+    assert.equalStr(greet(undefined), "hello, stranger");
+
+    assert.equalStr(greetNarrowed("Ada"), "hello, Ada (3 chars)");
+    assert.equalStr(greetNarrowed(undefined), "hello, stranger");
+
+    // A natural source of an optional argument: `List.get` returns `T?`, so its
+    // result flows straight into an optional parameter.
+    let xs = list.List<string>();
+    xs.push("Grace");
+    assert.equalStr(greet(xs.get(0)), "hello, Grace");   // present
+    assert.equalStr(greet(xs.get(9)), "hello, stranger"); // out of range -> undefined
+}

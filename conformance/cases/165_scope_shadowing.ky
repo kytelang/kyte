@@ -1,0 +1,35 @@
+import assert;
+import string;
+
+@test
+fn test_rebind_resets_value(): void {
+    let k = 0;
+    while (k < 3) { k = k + 1; }
+    assert.equalInt(k, 3);
+    let k = 0;
+    assert.equalInt(k, 0);
+    while (k < 2) { k = k + 1; }
+    assert.equalInt(k, 2);
+}
+
+@test
+fn test_rebind_reads_new_binding(): void {
+    let v = 10;
+    assert.equalInt(v, 10);
+    let v = v + 5;
+    assert.equalInt(v, 15);
+}
+
+@test
+fn test_nested_block_shadow_unaffected(): void {
+    let x = 1;
+    { let x = 2; assert.equalInt(x, 2); }
+    assert.equalInt(x, 1);
+}
+
+@test
+fn test_string_replace_all_occurrences(): void {
+    assert.equalStr(string.replace("aXbXcX", "X", "-"), "a-b-c-");
+    assert.equalStr(string.replace("hello world", "o", "0"), "hell0 w0rld");
+    assert.equalStr(string.replace("no-match", "Z", "Q"), "no-match");
+}

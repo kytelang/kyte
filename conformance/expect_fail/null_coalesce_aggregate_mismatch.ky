@@ -1,0 +1,22 @@
+// EXPECT-FAIL: typecheck
+//
+// last-bit-of-hardening A2: `(StructA | undefined) ?? StructB`, where A and B are
+// unrelated declared layouts, reinterprets A's heap bytes as B on the present path.
+// The old `??` guard caught only scalar-vs-aggregate; this extends it to two distinct
+// declared aggregates. Compatible and same-type fallbacks (and the int?-?-int? case)
+// are untouched -- see cases/461_coalesce_optional_result.ky.
+
+struct Account { pub id: int, pub balance: int, init(a: int, b: int) { self.id = a; self.balance = b; } }
+struct Profile { pub name: string, init(n: string) { self.name = n; } }
+
+fn maybeAccount(): Account | undefined { return undefined; }
+
+@test
+fn coalesce_aggregate_mismatch(): void {
+    let p = Profile("fallback");
+    let acc = maybeAccount();
+    let a: Account = acc ?? p;   // must be rejected: Account vs Profile
+    use_it(a.id);
+}
+
+fn use_it(n: int): void { }

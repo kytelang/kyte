@@ -1,0 +1,27 @@
+import assert;
+import string;
+
+fn single(s: string): int {
+    let r = `${s}`;
+    return r.len();
+}
+fn wrapped(s: string): int {
+    let r = `<${s}>`;
+    return r.len();
+}
+fn joinTwo(a: string, b: string): int {
+    let r = `[${a}]-[${b}]!`;
+    return r.len();
+}
+
+@test
+fn test_template_string_parts(): void {
+    assert.equalInt(single("hello"), 5);
+    assert.equalInt(wrapped("hi"), 4);
+    assert.equalInt(joinTwo("cat", "dog"), 12);
+    let i = 0;
+    while (i < 500) {
+        assert.equalInt(joinTwo("x", "y"), 8);
+        i = i + 1;
+    }
+}

@@ -1,0 +1,45 @@
+
+import assert;
+
+struct Dto { pub id: int, pub name: string, init(i: int, n: string) { self.id = i; self.name = n; } }
+
+fn idG<T>(v: T): T { return v; }
+fn pickFirst<T>(a: T, b: T): T { return a; }
+async fn idGAsync<T>(v: T): T { return v; }
+
+@test
+fn test_return_struct(): void {
+    let d = Dto(7, "x");
+    let a = idG<Dto>(d);
+    assert.equalInt(7, a.id);
+    assert.equalStr("x", a.name);
+}
+
+@test
+fn test_return_string(): void {
+    let s = "payload";
+    let a = idG<string>(s);
+    assert.equalStr("payload", a);
+}
+
+@test
+fn test_return_int(): void {
+    let a = idG<int>(42);
+    assert.equalInt(42, a);
+}
+
+@test
+fn test_pick_first(): void {
+    let x = Dto(1, "a");
+    let y = Dto(2, "b");
+    let r = pickFirst<Dto>(x, y);
+    assert.equalInt(1, r.id);
+}
+
+@test
+fn test_return_struct_async(): void {
+    let d = Dto(9, "z");
+    let a = idGAsync<Dto>(d);
+    assert.equalInt(9, a.id);
+    assert.equalStr("z", a.name);
+}

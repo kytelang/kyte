@@ -1,0 +1,71 @@
+// A shared, in-memory note store. This is deliberately a `class` (one instance,
+// shared by reference) that is MUTATED across many async requests: create/replace/
+// patch/delete all write the same `notes` map while GET reads it. That shared
+// mutable state across repeated async dispatch is exactly the shape that broke the
+// earlier `any`-boxed handler experiment, so it is the interesting thing to prove
+// the direct RouteHandler path holds up under.
+//
+// Notes are keyed by their id rendered as a string, so the map reuses `string.hash`
+// (there is no built-in int hash helper). The values are `Note` value structs, so
+// `get` returns an independent copy and callers cannot alias the stored row.
+import map;
+import list;
+import string;
+import Domain.Note;
+
+pub class NoteStore {
+    notes: Map<string, Note>,
+    nextId: int,
+
+    init() {
+        self.notes = Map<string, Note>(64, string.hash);
+        self.nextId = 1;
+    }
+
+    fn key(self: NoteStore, id: int): string {
+        return `${id}`;
+    }
+
+    // All notes, ascending by id, so list output is stable regardless of map order.
+    pub fn all(self: NoteStore): List<Note> {
+        let out = List<Note>();
+        let i = 1;
+        while (i < self.nextId) {
+            let n = self.notes.get(self.key(i));
+            if (n != undefined) { out.push(n ?? Note()); }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    pub fn get(self: NoteStore, id: int): Note | undefined {
+        return self.notes.get(self.key(id));
+    }
+
+    // Assigns the next id, stores the note, and returns the stored copy (with id).
+    pub fn create(self: NoteStore, note: Note): Note {
+        let n = note;
+        n.id = self.nextId;
+        self.notes.set(self.key(n.id), n);
+        self.nextId = self.nextId + 1;
+        return n;
+    }
+
+    // Full replace: only touches an existing id. Returns whether it existed.
+    pub fn replace(self: NoteStore, id: int, note: Note): bool {
+        if (self.notes.get(self.key(id)) == undefined) { return false; }
+        let n = note;
+        n.id = id;
+        self.notes.set(self.key(id), n);
+        return true;
+    }
+
+    pub fn store(self: NoteStore, note: Note): void {
+        self.notes.set(self.key(note.id), note);
+    }
+
+    pub fn remove(self: NoteStore, id: int): bool {
+        if (!self.notes.has(self.key(id))) { return false; }
+        return self.notes.delete_key(self.key(id));
+    }
+}

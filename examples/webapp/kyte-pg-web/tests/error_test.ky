@@ -1,0 +1,42 @@
+// Error-handling gate for the hypermedia app: errors are rendered as an HTML fragment
+// (a red banner inside #content) that datastar swaps into the page, not as JSON. This
+// exercises the ShopError exception, the errorFragment view, and renderShopError end to
+// end offline (no database), including HTML-escaping of the message.
+import assert;
+import web.status;
+import string;
+import Shared.ShopError;
+
+@test
+fn test_error_fragment_is_html_banner(): void {
+    let html = errorFragment("Not found", "That item is not on the menu.");
+    // It targets the #content region datastar patches, and is styled as an error.
+    assert.isTrue(string.contains(html, "id=\"content\""));
+    assert.isTrue(string.contains(html, "bg-red-50"));
+    assert.isTrue(string.contains(html, "Not found"));
+    assert.isTrue(string.contains(html, "That item is not on the menu."));
+}
+
+@test
+fn test_error_message_is_html_escaped(): void {
+    // A message carrying markup must be escaped, not injected into the page.
+    let html = errorFragment("Bad", "<script>alert(1)</script>");
+    assert.isTrue(!string.contains(html, "<script>"));
+    assert.isTrue(string.contains(html, "&lt;script&gt;"));
+}
+
+@test
+fn test_render_shop_error_is_datastar_patch(): void {
+    let resp = renderShopError(ShopError.NotFound("nope"));
+    // A datastar patch response is an SSE stream carrying the fragment.
+    assert.equalInt(resp.status.toCode(), 200);
+    assert.equalStr(resp.getHeader("Content-Type") ?? "", "text/event-stream");
+    assert.isTrue(string.contains(resp.body, "nope"));
+}
+
+@test
+fn test_shop_error_variants_carry_message(): void {
+    assert.equalStr(ShopError.NotFound("a").message(), "a");
+    assert.equalStr(ShopError.Forbidden("b").message(), "b");
+    assert.equalStr(ShopError.BadRequest("c").message(), "c");
+}

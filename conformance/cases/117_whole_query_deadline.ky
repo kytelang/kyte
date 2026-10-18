@@ -1,0 +1,65 @@
+import assert;
+import list;
+import concurrency.async_util;
+import concurrency.asyncchan;
+
+async fn fast(v: int): int { return v; }
+async fn gated(ch: long): int { return await asyncchan.chanRecv(ch); }
+
+async fn scenarioCompletes(): int {
+    let f = spawn fast(123);
+    let r = await async_util.withTimeout<int>(f, 10000);
+    if (r != 0) { return -100; }
+    return await f;
+}
+
+async fn scenarioTimesOut(): int {
+    let gate = asyncchan.chanNew();
+    let f = spawn gated(gate);
+    let r = await async_util.withTimeout<int>(f, 60);
+    asyncchan.chanSend(gate, 9);
+    let d = await f;
+    asyncchan.chanFree(gate);
+    return r;
+}
+
+async fn scenarioSelectWinner(): int {
+    let gate = asyncchan.chanNew();
+    let fs = List<future<int>>();
+    fs.push(spawn gated(gate));
+    fs.push(spawn fast(55));
+    fs.push(spawn gated(gate));
+    let idx = await async_util.selectTimeout<int>(fs, 5000);
+    asyncchan.chanSend(gate, 0);
+    asyncchan.chanSend(gate, 0);
+    let a = await fs.at(0);
+    let b = await fs.at(2);
+    asyncchan.chanFree(gate);
+    return idx;
+}
+
+async fn scenarioSelectTimesOut(): int {
+    let gate = asyncchan.chanNew();
+    let fs = List<future<int>>();
+    fs.push(spawn gated(gate));
+    fs.push(spawn gated(gate));
+    let idx = await async_util.selectTimeout<int>(fs, 60);
+    asyncchan.chanSend(gate, 0);
+    asyncchan.chanSend(gate, 0);
+    let a = await fs.at(0);
+    let b = await fs.at(1);
+    asyncchan.chanFree(gate);
+    return idx;
+}
+
+@test
+fn test_completes_within_deadline(): void { assert.equalInt(scenarioCompletes(), 123); }
+
+@test
+fn test_times_out(): void { assert.equalInt(scenarioTimesOut(), -2); }
+
+@test
+fn test_selectTimeout_winner(): void { assert.equalInt(scenarioSelectWinner(), 1); }
+
+@test
+fn test_selectTimeout_all_slow(): void { assert.equalInt(scenarioSelectTimesOut(), -2); }

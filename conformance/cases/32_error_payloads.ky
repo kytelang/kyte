@@ -1,0 +1,52 @@
+import assert;
+
+enum ResolveError {
+    NotRegistered(string),
+    Timeout(int),
+}
+
+fn reason(e: ResolveError): string {
+    switch (e) {
+        case ResolveError.NotRegistered(k): { return "service not registered: " + k; }
+        case ResolveError.Timeout(ms):      { return "timed out"; }
+    }
+    return "unknown";
+}
+
+fn payload(e: ResolveError): string {
+    switch (e) {
+        case ResolveError.NotRegistered(k): { return k; }
+        case ResolveError.Timeout(ms):      { return "?"; }
+    }
+    return "?";
+}
+
+@test
+fn test_string_payload_survives_concat(): void {
+    assert.equalStr(reason(ResolveError.NotRegistered("Logger")), "service not registered: Logger");
+}
+
+@test
+fn test_string_payload_direct(): void {
+    assert.equalStr(payload(ResolveError.NotRegistered("Logger")), "Logger");
+}
+
+@test
+fn test_int_payload_is_not_a_pointer(): void {
+    let e: ResolveError = ResolveError.Timeout(250);
+    switch (e) {
+        case ResolveError.NotRegistered(k): { assert.fail("wrong arm"); }
+        case ResolveError.Timeout(ms):      { assert.equalInt(ms, 250); }
+    }
+}
+
+@test
+fn test_caller_learns_what_happened(): void {
+    let e: ResolveError = ResolveError.NotRegistered("Logger");
+    switch (e) {
+        case ResolveError.NotRegistered(k): {
+            assert.equalStr("[DI] service not registered: " + k, "[DI] service not registered: Logger");
+        }
+        case ResolveError.Timeout(ms): { assert.fail("wrong arm"); }
+    }
+}

@@ -1,0 +1,8 @@
+@serializable
+pub struct Login {
+    pub email: string,
+    pub password: string,
+    // CSRF token echoed back from the rendered page (datastar `csrf` signal).
+    pub csrf: string,
+    init() { self.email = ""; self.password = ""; self.csrf = ""; }
+}

@@ -1,0 +1,110 @@
+import assert;
+import list;
+
+fn makeList(n: int): List<int> {
+    let l = List<int>();
+    l.push(n);
+    return l;
+}
+
+@test
+fn reassign_straight_line(): void {
+    let a = makeList(1);
+    a = makeList(2);
+    a = makeList(3);
+    assert.equalInt(a.size(), 1);
+    assert.equalInt(a.get(0), 3);
+}
+
+@test
+fn reassign_branch_local(): void {
+    let cond = true;
+    if (cond) {
+        let b = makeList(10);
+        b = makeList(20);
+        assert.equalInt(b.get(0), 20);
+    }
+}
+
+@test
+fn reassign_outer_in_then(): void {
+    let c = makeList(1);
+    let cond = true;
+    if (cond) {
+        c = makeList(2);
+    }
+    assert.equalInt(c.size(), 1);
+    assert.equalInt(c.get(0), 2);
+}
+
+@test
+fn reassign_outer_both_branches(): void {
+    let d = makeList(0);
+    let cond = false;
+    if (cond) {
+        d = makeList(7);
+    } else {
+        d = makeList(9);
+    }
+    assert.equalInt(d.get(0), 9);
+}
+
+@test
+fn reassign_in_loop_body(): void {
+    let acc = makeList(0);
+    let i = 0;
+    while (i < 3) {
+        acc = makeList(i);
+        i = i + 1;
+    }
+    assert.equalInt(acc.get(0), 2);
+}
+
+@test
+fn reassign_in_loop_conditional(): void {
+    let cur = makeList(0);
+    let i = 0;
+    while (i < 4) {
+        if (i > 1) {
+            cur = makeList(i);
+        }
+        i = i + 1;
+    }
+    assert.equalInt(cur.get(0), 3);
+}
+
+@test
+fn reassign_in_switch(): void {
+    let s = makeList(0);
+    let k = 2;
+    switch (k) {
+        case 1: { s = makeList(11); }
+        case 2: { s = makeList(22); }
+        default: { s = makeList(99); }
+    }
+    assert.equalInt(s.get(0), 22);
+}
+
+@test
+fn reassign_in_loop_with_break(): void {
+    let x = makeList(0);
+    let i = 0;
+    while (i < 10) {
+        x = makeList(i);
+        if (i == 3) { break; }
+        i = i + 1;
+    }
+    assert.equalInt(x.get(0), 3);
+}
+
+@test
+fn reassign_in_loop_with_continue(): void {
+    let y = makeList(0);
+    let i = 0;
+    while (i < 5) {
+        i = i + 1;
+        if (i == 2) { continue; }
+        y = makeList(i);
+    }
+    assert.equalInt(y.get(0), 5);
+}

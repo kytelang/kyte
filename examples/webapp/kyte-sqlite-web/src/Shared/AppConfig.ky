@@ -1,0 +1,8 @@
+// Typed configuration sections bound from app.yaml by the framework loader
+// (web.config). The orchestrator ignores this block; the app reads it itself.
+@serializable
+pub struct DbConfig {
+    pub dsn: string,
+    pub poolSize: int,
+    init() { self.dsn = "data/tasks.db"; self.poolSize = 4; }
+}

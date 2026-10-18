@@ -1,0 +1,8 @@
+
+// Request for the staff operations console. `uid` is bound from the session
+// cookie; the handler resolves it to a role and shows the matching work queue.
+@serializable
+pub struct GetOps {
+    pub uid: string,
+    init() { self.uid = ""; }
+}

@@ -1,0 +1,54 @@
+import assert;
+import list;
+import string;
+
+struct Bag { pub id: int, pub tags: List<string>, pub nums: List<int> }
+struct Box<T> { pub items: List<T> }
+struct Seeded { pub xs: List<string>, init() { self.xs = List<string>(); self.xs.push("seed"); } }
+struct Named { pub label: string, pub items: List<string> }
+struct Inner { pub x: int, pub tag: string }
+struct Outer { pub id: int, pub inner: Inner }
+
+@test
+fn test_default_ctor_fills_lists(): void {
+    let b = Bag();
+    b.tags.push("a");
+    b.tags.push("b");
+    b.nums.push(9);
+    assert.equalInt(b.tags.size(), 2);
+    assert.equalStr(b.tags.get(0) ?? "", "a");
+    assert.equalInt(b.nums.size(), 1);
+    assert.equalInt(b.id, 0);
+}
+
+@test
+fn test_generic_default_ctor(): void {
+    let bx = Box<int>();
+    bx.items.push(42);
+    assert.equalInt(bx.items.get(0) ?? -1, 42);
+}
+
+@test
+fn test_explicit_init_unchanged(): void {
+    let s = Seeded();
+    assert.equalInt(s.xs.size(), 1);
+    assert.equalStr(s.xs.get(0) ?? "", "seed");
+}
+
+@test
+fn test_default_ctor_string_field(): void {
+    let n = Named();
+    assert.equalInt(string.len(n.label), 0);
+    let joined = n.label + "hi";
+    assert.equalStr(joined, "hi");
+    n.items.push("a");
+    assert.equalInt(n.items.size(), 1);
+}
+
+@test
+fn test_default_ctor_nested_struct(): void {
+    let o = Outer();
+    assert.equalInt(o.inner.x, 0);
+    assert.equalInt(string.len(o.inner.tag), 0);
+    assert.equalInt(o.id, 0);
+}

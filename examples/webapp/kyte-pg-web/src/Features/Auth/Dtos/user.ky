@@ -1,0 +1,12 @@
+// Authentication response DTO. Deliberately EXCLUDES password_hash: the User
+// entity carries the hash for server-side verification, but nothing that leaves
+// the server (a view, a cookie, an API response) should ever see it. This is the
+// security half of the entity/DTO split (ref: AutoMapper in ASP.NET Core, where
+// UserDto omits PasswordHash). Owned `string` so it is independent of the entity.
+@serializable
+pub struct UserDto {
+    pub id: string,
+    pub email: string,
+    pub fullName: string,
+    pub role: string,
+}

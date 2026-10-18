@@ -1,0 +1,10 @@
+import assert;
+trait Shape { fn area(self: Shape): int; }
+struct Sq impl Shape { pub s: int, init(s: int) { self.s = s; } fn area(self: Sq): int { return self.s * self.s; } }
+fn label<T>(x: T): int where T: Shape { return 7; }
+fn areaOf<T>(x: T): int where T: Shape { return x.area(); }
+@test
+fn t(): void {
+    assert.equalInt(label<Sq>(Sq(3)), 7);
+    assert.equalInt(areaOf<Sq>(Sq(4)), 16);
+}

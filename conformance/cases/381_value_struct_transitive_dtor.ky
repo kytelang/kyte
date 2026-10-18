@@ -1,0 +1,85 @@
+import assert;
+
+struct S {
+    pub data: string,
+    init(d: string) { self.data = d; }
+}
+struct Outer {
+    pub inner: S,
+    init(d: string) { self.inner = S(d); }
+}
+struct Two {
+    pub a: S,
+    pub b: S,
+    init(x: string, y: string) { self.a = S(x); self.b = S(y); }
+}
+
+fn intToStr(n: int): string {
+    if (n == 0) { return "0"; }
+    let s = "";
+    let m = n;
+    while (m > 0) { s = digit(m % 10) + s; m = m / 10; }
+    return s;
+}
+fn digit(d: int): string {
+    if (d == 0) { return "0"; } if (d == 1) { return "1"; } if (d == 2) { return "2"; }
+    if (d == 3) { return "3"; } if (d == 4) { return "4"; } if (d == 5) { return "5"; }
+    if (d == 6) { return "6"; } if (d == 7) { return "7"; } if (d == 8) { return "8"; }
+    return "9";
+}
+
+@test
+fn nested_value_struct_is_copied(): void {
+    let a = Outer("original-payload-string");
+    let b = a;
+    b.inner.data = "mutated-in-b";
+    assert.equalStr(a.inner.data, "original-payload-string");
+    assert.equalStr(b.inner.data, "mutated-in-b");
+}
+
+struct Mid { pub s: S, init(d: string) { self.s = S(d); } }
+struct Deep { pub m: Mid, init(d: string) { self.m = Mid(d); } }
+@test
+fn copy_retains_nested_owned(): void {
+    let i = 0;
+    while (i < 100) {
+        let a = Outer("heap-" + intToStr(i) + "-payload");
+        let b = a;
+        assert.equalStr(b.inner.data, a.inner.data);
+        i = i + 1;
+    }
+    assert.isTrue(true);
+}
+@test
+fn copy_retains_two_levels(): void {
+    let i = 0;
+    while (i < 100) {
+        let a = Deep("deep-" + intToStr(i));
+        let b = a;
+        assert.equalStr(b.m.s.data, a.m.s.data);
+        i = i + 1;
+    }
+    assert.isTrue(true);
+}
+
+@test
+fn block_scope_no_leak(): void {
+    let i = 0;
+    while (i < 100) {
+        let o = Outer("blk-" + intToStr(i) + "-tail");
+        assert.equalStr(o.inner.data, o.inner.data);
+        i = i + 1;
+    }
+    assert.isTrue(true);
+}
+
+fn makeAndDrop(i: int): void {
+    let t = Two("x-" + intToStr(i), "y-" + intToStr(i));
+    assert.equalStr(t.a.data, t.a.data);
+}
+@test
+fn function_scope_no_leak(): void {
+    let i = 0;
+    while (i < 100) { makeAndDrop(i); i = i + 1; }
+    assert.isTrue(true);
+}

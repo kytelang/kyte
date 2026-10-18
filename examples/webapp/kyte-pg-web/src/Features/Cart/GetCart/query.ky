@@ -1,0 +1,5 @@
+@serializable
+pub struct GetCart {
+    pub cartid: string,
+    init() { self.cartid = ""; }
+}

@@ -1,0 +1,36 @@
+
+import assert;
+import map;
+import set;
+
+@test
+fn test_set_int_full(): void {
+    let s = Set<int>(16, set.i32Hash);
+    assert.equalInt(0, s.size());
+    s.add(10);
+    s.add(20);
+    s.add(10);
+    assert.equalInt(2, s.size());
+    assert.isTrue(s.has(10));
+    assert.isTrue(s.has(20));
+    assert.isTrue(!s.has(30));
+    s.remove(10);
+    assert.equalInt(1, s.size());
+    assert.isTrue(!s.has(10));
+}
+
+struct Bag<T> {
+    pub map: Map<T, bool>,
+    init(h: (T) -> int) { self.map = Map<T, bool>(8, h); }
+    pub fn put(self: Bag<T>, k: T): void { self.map.set(k, true); }
+    pub fn holds(self: Bag<T>, k: T): bool { return self.map.get(k) != undefined; }
+}
+fn ihash(x: int): int { return x; }
+
+@test
+fn test_user_generic_field(): void {
+    let b = Bag<int>(ihash);
+    b.put(7);
+    assert.isTrue(b.holds(7));
+    assert.isTrue(!b.holds(9));
+}

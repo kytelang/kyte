@@ -1,0 +1,9 @@
+// EXPECT-FAIL: typecheck
+import assert;
+import string;
+
+@test
+fn t_unresolved_module_call(): void {
+    let n = string.definitelyNotAFunction("x");
+    assert.equalInt(n, 0);
+}

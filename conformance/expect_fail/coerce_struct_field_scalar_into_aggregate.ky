@@ -1,0 +1,6 @@
+// EXPECT-FAIL: typecheck
+// A scalar value into a declared aggregate struct field reinterprets and crashes.
+// Guarded in type_checker.zig struct_init (declared field aggregate + inline scalar).
+struct Holder { pub xs: List<int> }
+@test
+fn t(): void { let bad = -99; let h = Holder{ xs: bad }; }

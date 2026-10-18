@@ -1,0 +1,38 @@
+import assert;
+import bytes;
+
+struct Buffer {
+    pub data: ptr,
+    pub len: int,
+
+    init(n: int) {
+        self.data = bytes.alloc_persistent(n);
+        self.len = n;
+    }
+
+    pub fn setByte(self: Buffer, i: int, b: int): void {
+        bytes.write_byte(self.data, i, b);
+    }
+    pub fn getByte(self: Buffer, i: int): int {
+        return bytes.read_byte(self.data, i);
+    }
+}
+
+@test
+fn test_ptr_field_roundtrip(): void {
+    let b = Buffer(4);
+    b.setByte(0, 65);
+    b.setByte(1, 66);
+    assert.equalInt(b.getByte(0), 65);
+    assert.equalInt(b.getByte(1), 66);
+    bytes.free(b.data);
+}
+
+@test
+fn test_ptr_local_is_a_value(): void {
+    let p: ptr = bytes.alloc_persistent(2);
+    let q: ptr = p;
+    bytes.write_byte(p, 0, 7);
+    assert.equalInt(bytes.read_byte(q, 0), 7);
+    bytes.free(p);
+}

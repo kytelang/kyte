@@ -1,0 +1,9 @@
+// EXPECT-FAIL: typecheck
+fn lookup(hit: bool): string {
+    let x: string | undefined = if (hit) "found" else undefined;
+    return x;
+}
+@test
+fn t(): void {
+    let s = lookup(false);
+}

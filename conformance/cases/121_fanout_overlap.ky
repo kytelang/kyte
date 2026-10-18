@@ -1,0 +1,69 @@
+import assert;
+import list;
+import concurrency.async_util;
+import concurrency.asyncchan;
+
+async fn gatedWorker(gate: long): int {
+    return await asyncchan.chanRecv(gate);
+}
+
+async fn spawnGated(n: int, gates: List<long>, fs: List<future<int>>): int {
+    let i = 0;
+    while (i < n) {
+        let g = asyncchan.chanNew();
+        gates.push(g);
+        fs.push(spawn gatedWorker(g));
+        i = i + 1;
+    }
+    return n;
+}
+
+fn freeGates(gates: List<long>): void {
+    let i = 0;
+    while (i < gates.size()) { asyncchan.chanFree(gates.at(i)); i = i + 1; }
+}
+
+async fn fanoutBarrier(n: int): int {
+    let gates = List<long>();
+    let fs = List<future<int>>();
+    let started = await spawnGated(n, gates, fs);
+    let k = 0;
+    while (k < n) { asyncchan.chanSend(gates.at(k), 100 + k); k = k + 1; }
+    let results = await async_util.when_all<int>(fs);
+    let ok = 0; let j = 0;
+    while (j < n) { if (results.at(j) == 100 + j) { ok = ok + 1; } j = j + 1; }
+    freeGates(gates);
+    return ok;
+}
+
+async fn fanoutInterleave(n: int): int {
+    let gates = List<long>();
+    let fs = List<future<int>>();
+    let started = await spawnGated(n, gates, fs);
+    let r = 0;
+    while (r < n) {
+        let worker = n - 1 - r;
+        asyncchan.chanSend(gates.at(worker), r);
+        r = r + 1;
+    }
+    let results = await async_util.when_all<int>(fs);
+    let ok = 0; let j = 0;
+    while (j < n) { if (results.at(j) == n - 1 - j) { ok = ok + 1; } j = j + 1; }
+    freeGates(gates);
+    return ok;
+}
+
+@test
+fn test_fanout_all_in_flight(): void {
+    assert.equalInt(fanoutBarrier(8), 8);
+}
+
+@test
+fn test_fanout_interleave_reverse(): void {
+    assert.equalInt(fanoutInterleave(8), 8);
+}
+
+@test
+fn test_fanout_scales(): void {
+    assert.equalInt(fanoutBarrier(64), 64);
+}

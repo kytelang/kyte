@@ -1,0 +1,74 @@
+import assert;
+import list;
+import map;
+import string;
+
+@test
+fn test_map_of_lists(): void {
+    let m = map.Map<string, List<int>>(16, string.hash);
+    let l = List<int>();
+    l.push(1);
+    l.push(2);
+    m.set("nums", l);
+    assert.equalInt(m.at("nums").size(), 2);
+}
+
+struct Node { pub kids: List<int> | undefined }
+@test
+fn test_optional_container_field(): void {
+    let n = Node{ kids: List<int>() };
+    let kids = n.kids;
+    if (kids != undefined) {
+        kids.push(5);
+        kids.push(6);
+        assert.equalInt(kids.at(1), 6);
+    }
+}
+
+enum Val { Nums(List<int>), Empty }
+@test
+fn test_enum_payload_owns_container(): void {
+    let l = List<int>();
+    l.push(9);
+    let v = Val.Nums(l);
+    switch (v) {
+        case Val.Nums(xs): { assert.equalInt(xs.get(0), 9); }
+        case Val.Empty: { assert.fail("should be Nums"); }
+    }
+}
+
+struct Bag { pub items: List<string> }
+@test
+fn test_reassign_owned_field(): void {
+    let b = Bag{ items: List<string>() };
+    b.items.push("first");
+    b.items = List<string>();
+    b.items.push("second");
+    assert.equalInt(b.items.size(), 1);
+    assert.equalStr(b.items.get(0), "second");
+}
+
+fn appendOne(xs: List<int>): List<int> {
+    xs.push(1);
+    return xs;
+}
+@test
+fn test_pass_and_return_container(): void {
+    let l = List<int>();
+    let r = appendOne(l);
+    assert.equalInt(r.size(), 1);
+}
+
+fn twoLists(): (List<int>, List<string>) {
+    let a = List<int>();
+    a.push(7);
+    let b = List<string>();
+    b.push("x");
+    return (a, b);
+}
+@test
+fn test_tuple_of_fresh_containers_returned(): void {
+    let (xs, ys) = twoLists();
+    assert.equalInt(xs.get(0), 7);
+    assert.equalStr(ys.get(0), "x");
+}

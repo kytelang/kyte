@@ -1,0 +1,51 @@
+import assert;
+
+fn readOr(x: int | undefined): int {
+    if (x == undefined) { return -1; }
+    return x + 1;
+}
+
+fn present(x: int | undefined): int {
+    if (x == undefined) { return 0; }
+    return 1;
+}
+
+fn boolTag(b: bool | undefined): int {
+    if (b == undefined) { return 9; }
+    if (b) { return 1; }
+    return 0;
+}
+
+fn maybe(keep: bool): int | undefined {
+    if (keep) { return 0; }
+    return undefined;
+}
+
+@test
+fn present_and_absent(): void {
+    assert.equalInt(present(5), 1);
+    assert.equalInt(present(undefined), 0);
+    assert.equalInt(readOr(5), 6);
+    assert.equalInt(readOr(undefined), -1);
+}
+
+@test
+fn present_zero(): void {
+    assert.equalInt(present(0), 1);
+    assert.equalInt(readOr(0), 1);
+}
+
+@test
+fn bool_optional(): void {
+    assert.equalInt(boolTag(true), 1);
+    assert.equalInt(boolTag(false), 0);
+    assert.equalInt(boolTag(undefined), 9);
+}
+
+@test
+fn value_optional_return_present_zero(): void {
+    let a: int | undefined = maybe(true);
+    if (a == undefined) { assert.equalInt(1, 0); } else { assert.equalInt(a + 100, 100); }
+    let b: int | undefined = maybe(false);
+    if (b == undefined) { assert.equalInt(0, 0); } else { assert.equalInt(1, 0); }
+}

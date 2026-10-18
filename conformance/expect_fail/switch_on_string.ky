@@ -1,0 +1,15 @@
+// EXPECT-FAIL: typecheck
+import assert;
+
+fn classify(s: string): int {
+    switch (s) {
+        case "a": { return 1; }
+        case "b": { return 2; }
+    }
+    return 0;
+}
+
+@test
+fn t(): void {
+    assert.equalInt(classify("a"), 1);
+}

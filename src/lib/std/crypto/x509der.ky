@@ -1,0 +1,176 @@
+//! A small ASN.1 DER encoder, the write side that the certificate half of the
+//! TLS stack never had. `crypto.x509` can only read and verify a certificate;
+//! this module builds DER TLV structures so `crypto.x509mint` can construct and
+//! sign one at runtime.
+//!
+//! Everything here works on Kyte `string` values, which are length-prefixed byte
+//! buffers and so hold arbitrary binary (embedded zero bytes included), exactly
+//! like the DER that `crypto.base64.decode` already returns. A value is encoded
+//! bottom up: encode the inner content first, then wrap it with its tag and a
+//! length. `string.concat` is binary safe (it copies by explicit length), so it
+//! is the glue throughout. Certificates are small, a couple of kilobytes at
+//! most, so the repeated small concatenations are not a performance concern.
+//!
+//! The encoder is deliberately minimal. It covers just the primitives a v3
+//! certificate, an EC SubjectPublicKeyInfo, and a SEC1 private key need. It does
+//! not try to be a general ASN.1 toolkit.
+import bytes;
+import string;
+
+/// A one-byte string holding `v` (masked to a byte). The smallest building block
+/// for a tag or a length octet.
+pub fn b1(v: int): string {
+    let p = bytes.alloc(1);
+    bytes.write_byte(p, 0, v & 0xff);
+    return p as string;
+}
+
+/// DER length octets for `n`. Short form (a single octet) for lengths below 128,
+/// long form (a leading `0x80 | count` then `count` big-endian octets) above.
+pub fn encodeLen(n: int): string {
+    if (n < 128) { return b1(n); }
+    let cnt = 0;
+    let tmp = n;
+    while (tmp > 0) { cnt = cnt + 1; tmp = tmp / 256; }
+    let p = bytes.alloc(1 + cnt);
+    bytes.write_byte(p, 0, 0x80 | cnt);
+    tmp = n;
+    let i = cnt;
+    while (i >= 1) {
+        bytes.write_byte(p, i, tmp % 256);
+        tmp = tmp / 256;
+        i = i - 1;
+    }
+    return p as string;
+}
+
+/// Wrap `content` as a TLV: one tag byte, DER length octets, then the content.
+pub fn tlv(tag: int, content: string): string {
+    return string.concat(string.concat(b1(tag), encodeLen(content.length)), content);
+}
+
+/// Turn a hex string (two characters per byte) into its raw bytes.
+pub fn hexBytes(hex: string): string {
+    let n = hex.length / 2;
+    if (n == 0) { return ""; }
+    let p = bytes.alloc(n);
+    let i = 0;
+    while (i < n) {
+        let hi = hexVal(hex[i * 2]);
+        let lo = hexVal(hex[i * 2 + 1]);
+        bytes.write_byte(p, i, hi * 16 + lo);
+        i = i + 1;
+    }
+    return p as string;
+}
+
+/// The numeric value of one hex character (upper or lower case). Non-hex maps to
+/// zero, which only happens on a malformed compile-time literal.
+fn hexVal(c: int): int {
+    if (c >= 48 && c <= 57) { return c - 48; }
+    if (c >= 97 && c <= 102) { return c - 97 + 10; }
+    if (c >= 65 && c <= 70) { return c - 65 + 10; }
+    return 0;
+}
+
+// --- Primitives ---------------------------------------------------------------
+
+/// An INTEGER from a big-endian magnitude. Leading zero bytes are stripped to the
+/// minimal form, and a single `0x00` is prepended when the top bit of the first
+/// significant byte is set, so the value never reads as negative. An empty or
+/// all-zero magnitude encodes as the integer zero.
+pub fn integer(mag: string): string {
+    if (mag.length == 0) { return tlv(0x02, b1(0)); }
+    let s = 0;
+    while (s < mag.length - 1 && mag[s] == 0) { s = s + 1; }
+    if (s == mag.length - 1 && mag[s] == 0) { return tlv(0x02, b1(0)); }
+    let needPad = (mag[s] & 0x80) != 0;
+    let outLen = mag.length - s;
+    if (needPad) { outLen = outLen + 1; }
+    let p = bytes.alloc(outLen);
+    let off = 0;
+    if (needPad) { bytes.write_byte(p, 0, 0); off = 1; }
+    let i = s;
+    while (i < mag.length) {
+        bytes.write_byte(p, off, mag[i]);
+        off = off + 1;
+        i = i + 1;
+    }
+    return tlv(0x02, p as string);
+}
+
+/// An INTEGER from a small non-negative machine integer (version numbers, and so
+/// on).
+pub fn integerSmall(v: int): string {
+    if (v <= 0) { return tlv(0x02, b1(0)); }
+    let cnt = 0;
+    let tmp = v;
+    while (tmp > 0) { cnt = cnt + 1; tmp = tmp / 256; }
+    let p = bytes.alloc(cnt);
+    tmp = v;
+    let i = cnt - 1;
+    while (i >= 0) {
+        bytes.write_byte(p, i, tmp % 256);
+        tmp = tmp / 256;
+        i = i - 1;
+    }
+    return integer(p as string);
+}
+
+/// A SEQUENCE wrapping already-encoded `content`.
+pub fn seq(content: string): string { return tlv(0x30, content); }
+
+/// A SET wrapping already-encoded `content`.
+pub fn set(content: string): string { return tlv(0x31, content); }
+
+/// An OBJECT IDENTIFIER whose body bytes are given as hex (the DER value, not the
+/// dotted form).
+pub fn oid(hex: string): string { return tlv(0x06, hexBytes(hex)); }
+
+/// A BOOLEAN. DER requires TRUE to be `0xFF`.
+pub fn boolean(v: bool): string {
+    if (v) { return tlv(0x01, b1(0xff)); }
+    return tlv(0x01, b1(0x00));
+}
+
+/// An OCTET STRING wrapping `content`.
+pub fn octet(content: string): string { return tlv(0x04, content); }
+
+/// A BIT STRING with no unused trailing bits (the common case for a key or a
+/// signature): a single `0x00` unused-bit count then the raw bytes.
+pub fn bitString(raw: string): string {
+    return tlv(0x03, string.concat(b1(0), raw));
+}
+
+/// A BIT STRING with an explicit unused-bit count, for flag fields like keyUsage
+/// where the trailing zero bits are not a whole byte.
+pub fn bitStringUnused(unused: int, raw: string): string {
+    return tlv(0x03, string.concat(b1(unused), raw));
+}
+
+/// A UTF8String.
+pub fn utf8(s: string): string { return tlv(0x0c, s); }
+
+/// A PrintableString.
+pub fn printable(s: string): string { return tlv(0x13, s); }
+
+/// An IA5String.
+pub fn ia5(s: string): string { return tlv(0x16, s); }
+
+/// A UTCTime, whose body must already be the `YYMMDDHHMMSSZ` text.
+pub fn utcTime(body: string): string { return tlv(0x17, body); }
+
+/// A GeneralizedTime, whose body must already be the `YYYYMMDDHHMMSSZ` text.
+pub fn generalizedTime(body: string): string { return tlv(0x18, body); }
+
+/// An explicit context tag `[tagNum]` wrapping one inner TLV. Used for the
+/// certificate version `[0]` and the extensions `[3]`.
+pub fn explicit(tagNum: int, inner: string): string {
+    return tlv(0xa0 | tagNum, inner);
+}
+
+/// A primitive implicit context tag `[tagNum]` directly over `content`. Used for
+/// a subjectAltName dNSName entry `[2]`.
+pub fn contextPrim(tagNum: int, content: string): string {
+    return tlv(0x80 | tagNum, content);
+}

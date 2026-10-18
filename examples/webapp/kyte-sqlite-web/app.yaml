@@ -1,0 +1,47 @@
+# kyte-sqlite-web deployed by kynator as a supervised native binary.
+#
+# This file is BOTH the orchestrator manifest (the kind/workload/replicas/health
+# blocks kynator reads) AND the app's own config source (the config: block the
+# framework binds via web.config; kynator ignores it). One file, one source of
+# truth, no environment variables.
+apiVersion: kyte/v1
+kind: App
+metadata:
+  name: sqliteweb
+workload:
+  binary: ./build/kyte-sqlite-web
+  restartPolicy: always
+# The migrate gate: kynator runs the binary once with these args and waits for a
+# zero exit before (re)rolling out. Our binary creates the SQLite schema and
+# exits. A non-zero exit aborts the rollout and keeps the last-good replica.
+migrate:
+  args: [ "--migrate" ]
+  timeoutMs: 0
+replicas:
+  # One replica: a single SQLite file is a single writer. Scaling SQLite writers
+  # across replicas is not safe, so this app is deliberately single-replica.
+  min: 1
+  max: 1
+health:
+  probeType: http
+  path: /healthz
+  intervalMs: 2000
+  timeoutMs: 1000
+  rise: 1
+  fall: 3
+network:
+  # Directly exposed (no handoff gateway): replica i binds portBase + i, delivered
+  # via --port, which the framework's app.config.port() reads.
+  expose: public
+  portBase: 8099
+  portFlag: "--port"
+resources:
+  cpuMilli: 500
+  memMaxBytes: 134217728
+  pidsMax: 64
+# Application configuration, bound by the framework (web.config) from this same
+# file. The DSN is a plain file path for the SQLite driver.
+config:
+  db:
+    dsn: data/tasks.db
+    poolSize: 4

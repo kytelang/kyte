@@ -1,0 +1,22 @@
+import assert;
+import scoped.shape_b;
+import scoped.shape_a;
+
+@test
+fn test_module_a_payload(): void {
+    let a = shape_a.mkA();
+    assert.equalInt(a.area(), 300);
+}
+
+@test
+fn test_module_b_payload(): void {
+    let b = shape_b.mkB();
+    assert.equalInt(b.area(), 20);
+}
+
+@test
+fn test_both_payload_enums_coexist(): void {
+    let a = shape_a.mkA();
+    let b = shape_b.mkB();
+    assert.equalInt(a.area() + b.area(), 320);
+}

@@ -1,0 +1,9 @@
+// Persistence entity: one row of the `modifiers` table. `options` is the raw
+// JSONB text (a JSON array of choice labels).
+@serializable
+pub struct Modifier {
+    pub id: string,
+    pub name: string,
+    pub options: string,
+    pub extra_cost: double,
+}

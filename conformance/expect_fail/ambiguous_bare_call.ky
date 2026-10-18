@@ -1,0 +1,9 @@
+// EXPECT-FAIL: typecheck
+import assert;
+import string;
+
+@test
+fn t_ambiguous_bare_call(): void {
+    let ok = contains("haystack", "hay");
+    assert.isTrue(ok);
+}

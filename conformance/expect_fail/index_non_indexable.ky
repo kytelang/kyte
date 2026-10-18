@@ -1,0 +1,11 @@
+// EXPECT-FAIL: typecheck
+
+struct P {
+    pub x: int,
+}
+
+@test
+fn indexing_a_struct_is_rejected(): void {
+    let p: P = P{ x: 5 };
+    let bad = p[0];
+}

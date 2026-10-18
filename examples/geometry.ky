@@ -1,0 +1,31 @@
+
+pub struct Point {
+    pub x: int,
+    pub y: int,
+    init(x: int, y: int) {
+        self.x = x;
+        self.y = y;
+    }
+}
+
+pub fn manhattan(a: Point, b: Point): int {
+    let dx = if (a.x > b.x) a.x - b.x else b.x - a.x;
+    let dy = if (a.y > b.y) a.y - b.y else b.y - a.y;
+    return dx + dy;
+}
+
+fn double(n: int): int { return n + n; }
+
+pub fn perimeter(a: Point, b: Point): int {
+    return double(manhattan(a, b));
+}
+
+import assert;
+
+@test
+fn t_geometry(): void {
+    let a = Point(0, 0);
+    let b = Point(3, 4);
+    assert.equalInt(manhattan(a, b), 7);
+    assert.equalInt(perimeter(a, b), 14);
+}

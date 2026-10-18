@@ -1,0 +1,12 @@
+// Persistence entity: one row of the `cart_items` table. The cart is server-side,
+// keyed by the cart_id cookie token. `modifiers` is raw JSONB text.
+@serializable
+pub struct CartItem {
+    pub id: string,
+    pub cart_id: string,
+    pub product_id: string,
+    pub quantity: int,
+    pub modifiers: string,
+    pub unit_price: double,
+    pub created_at: string,
+}

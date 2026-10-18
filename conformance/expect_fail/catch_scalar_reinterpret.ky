@@ -1,0 +1,20 @@
+// EXPECT-FAIL: typecheck
+//
+// A `catch` whose handler is a register-sized scalar while the error-union's ok
+// type is a heap aggregate (here `List<int>`) must be a type error. Without the
+// guard the type checker accepts it and codegen reinterprets the list pointer in
+// the `catch` result slot as an `int`, crashing at runtime (SIGSEGV). This is
+// the `catch` analogue of null_coalesce_scalar_reinterpret.ky; the guard lives
+// in infer.zig `catchArmsCompatible` (mirrors `isScalarReinterpretMismatch`).
+enum E { X }
+
+fn g(): List<int> | E {
+    let l = List<int>();
+    l.push(1);
+    return E.X;
+}
+
+@test
+fn catch_aggregate_vs_scalar(): void {
+    let r = g() catch -99;
+}

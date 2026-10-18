@@ -1,0 +1,15 @@
+import assert;
+import compress.gzip;
+import string;
+
+@test
+fn run(): void {
+    let original = "the quick brown fox jumps over the lazy dog, again and again and again and again";
+    let packed = gzip.compress(original);
+    assert.isTrue(packed.length > 0);
+    assert.isTrue(packed.length < original.length);
+    assert.equalStr(gzip.decompress(packed), original);
+    assert.equalStr(gzip.decompress(""), "");
+    let bin = "a\tb  c\nd";
+    assert.equalStr(gzip.decompress(gzip.compress(bin)), bin);
+}

@@ -1,0 +1,179 @@
+//! Framework neutral hypermedia control surface.
+//!
+//! Kyte scaffolds several hypermedia client libraries (htmx, unpoly, alpine-ajax,
+//! datastar, htmz). Their server driven control channels differ: htmx reads `HX-*`
+//! response headers, unpoly reads `X-Up-*`, alpine-ajax reads `X-Alpine-*` and merges
+//! by element id, datastar drives everything over an SSE stream, and htmz just loads a
+//! full document into a hidden iframe. This module lets a handler express intent once,
+//! in neutral terms (is this a hypermedia request, redirect, trigger a client event,
+//! retarget, reswap, push a history URL), and emits the right mechanism for the client
+//! library that made the request, detected from its request headers.
+//!
+//! Scope: this stdlib core covers the HEADER driven libraries (htmx, unpoly, alpine)
+//! plus htmz and a plain browser. datastar's control channel is its SSE stream, not a
+//! response header, so datastar apps drive control through the `kyte-datastar` package
+//! (`ds_response`); here a datastar request is still recognised (so `isHypermedia` and
+//! `wantsFragment` are correct) and `redirect` falls back to a standard `303`.
+
+import web.request;
+import web.response;
+import web.status;
+import list;
+
+/// The hypermedia client library that made the request, detected from its headers.
+/// `plain` means no hypermedia marker was present (a hard browser navigation, or htmz,
+/// which sends no distinguishing header).
+pub enum Framework {
+    htmx,
+    unpoly,
+    alpine,
+    datastar,
+    htmz,
+    plain,
+}
+
+/// Detects the client library from the request's marker headers. Order matters only in
+/// that each library's marker is distinct; a request carries at most one. Returns
+/// `Framework.plain` when none is present.
+pub fn detect(req: request.Request): Framework {
+    if (present(req, "HX-Request")) { return Framework.htmx; }
+    if (present(req, "X-Up-Version") || present(req, "X-Up-Target")) { return Framework.unpoly; }
+    if (present(req, "X-Alpine-Request")) { return Framework.alpine; }
+    if (present(req, "datastar-request")) { return Framework.datastar; }
+    return Framework.plain;
+}
+
+/// True when the request came from any recognised hypermedia client library.
+pub fn isHypermedia(req: request.Request): bool {
+    return detect(req) != Framework.plain;
+}
+
+/// True when the client expects an HTML fragment rather than a full page. Every marker
+/// driven library wants a fragment; a plain navigation (and htmz, which cannot be told
+/// apart by a header) gets the full page, which htmz handles by extracting its target
+/// element from the returned document.
+pub fn wantsFragment(req: request.Request): bool {
+    return detect(req) != Framework.plain;
+}
+
+/// Builds a redirect to `url` in the form the requesting library honours. Only htmx needs
+/// a special mechanism: its XHR swallows a plain `Location`, so it gets a `200` carrying
+/// `HX-Redirect` (a full page navigation). Every other library follows a normal `303 See
+/// Other` with `Location` transparently: unpoly and alpine-ajax's fetch follows the
+/// redirect (unpoly additionally reads `X-Up-Location`, added here for correct history),
+/// htmz follows it in its iframe, datastar/plain navigate normally. There is no
+/// `X-Alpine-Redirect`; alpine follows the `303`.
+pub fn redirect(req: request.Request, url: string): response.Response {
+    let f = detect(req);
+    if (f == Framework.htmx) {
+        let r = response.Response(status.Status.Ok, "");
+        r.setHeader("HX-Redirect", url);
+        return r;
+    }
+    let r = response.Response.seeOther(url);
+    if (f == Framework.unpoly) {
+        r.setHeader("X-Up-Location", url);
+    }
+    return r;
+}
+
+/// Fires a client side event after the swap. htmx emits `HX-Trigger: <event>`, unpoly
+/// emits `X-Up-Events` as a one element JSON array. Libraries with no header based event
+/// channel (alpine, datastar, htmz, plain) leave the response unchanged. Returns `res`
+/// for chaining.
+pub fn trigger(res: response.Response, req: request.Request, event: string): response.Response {
+    let f = detect(req);
+    if (f == Framework.htmx) { res.setHeader("HX-Trigger", event); return res; }
+    if (f == Framework.unpoly) {
+        res.setHeader("X-Up-Events", "[{\"type\":\"" + event + "\"}]");
+        return res;
+    }
+    return res;
+}
+
+/// Fires a client side event carrying a JSON detail payload. `detailJson` must be a JSON
+/// object literal (for example `{"count":3}`). htmx emits `HX-Trigger: {"event":detail}`.
+/// Other libraries leave the response unchanged. Returns `res` for chaining.
+pub fn triggerDetail(res: response.Response, req: request.Request, event: string, detailJson: string): response.Response {
+    let f = detect(req);
+    if (f == Framework.htmx) {
+        res.setHeader("HX-Trigger", "{\"" + event + "\":" + detailJson + "}");
+        return res;
+    }
+    return res;
+}
+
+/// Retargets the swap at a different element. htmx emits `HX-Retarget`, unpoly overrides
+/// its target via `X-Up-Target`. `selector` is a CSS selector such as `#errors`. Other
+/// libraries (which target by id in the returned fragment) leave the response unchanged.
+/// Returns `res` for chaining.
+pub fn retarget(res: response.Response, req: request.Request, selector: string): response.Response {
+    let f = detect(req);
+    if (f == Framework.htmx) { res.setHeader("HX-Retarget", selector); return res; }
+    if (f == Framework.unpoly) { res.setHeader("X-Up-Target", selector); return res; }
+    return res;
+}
+
+/// Changes how the swap is performed. htmx emits `HX-Reswap` (for example `outerHTML` or
+/// `beforeend`). Other libraries leave the response unchanged. Returns `res` for chaining.
+pub fn reswap(res: response.Response, req: request.Request, mode: string): response.Response {
+    let f = detect(req);
+    if (f == Framework.htmx) { res.setHeader("HX-Reswap", mode); return res; }
+    return res;
+}
+
+/// Pushes a new URL into the browser history without a full navigation. htmx emits
+/// `HX-Push-Url`, unpoly emits `X-Up-Location`. Other libraries leave the response
+/// unchanged. Returns `res` for chaining.
+pub fn pushUrl(res: response.Response, req: request.Request, url: string): response.Response {
+    let f = detect(req);
+    if (f == Framework.htmx) { res.setHeader("HX-Push-Url", url); return res; }
+    if (f == Framework.unpoly) { res.setHeader("X-Up-Location", url); return res; }
+    return res;
+}
+
+/// Serves the right shape for the request: the bare `fragment` when the client is a
+/// hypermedia library expecting a swap, or the full page (the `fragment` wrapped by
+/// `shell`) on a hard navigation. `shell` takes the inner HTML and returns the whole
+/// document. This is the progressive enhancement pattern: one route, one URL, a real
+/// page for a fresh browser and a fragment for htmx and friends. Both responses carry
+/// `Vary: HX-Request` (via `Response.fragment`/`page`) so a shared cache stays honest.
+pub fn render(req: request.Request, shell: (string) -> string, fragment: string): response.Response {
+    if (wantsFragment(req)) {
+        return response.Response.fragment(fragment);
+    }
+    return response.Response.page(shell(fragment));
+}
+
+/// The attribute a fragment's root element needs to be swapped out of band (updating a
+/// region other than the swap target, for example a cart badge alongside a list row).
+/// htmx needs `hx-swap-oob="true"`; unpoly, alpine, and datastar merge by element id, so
+/// the id alone is enough and this returns an empty string. Drop it into a KYX element:
+/// `<div id="cart-badge" {hyper.oobAttr(ctx.request)}>...</div>`.
+pub fn oobAttr(req: request.Request): string {
+    if (detect(req) == Framework.htmx) { return "hx-swap-oob=\"true\""; }
+    return "";
+}
+
+/// Joins non empty class names with single spaces, for `class={hyper.classList(items)}`.
+/// Pass conditional entries as `cond ? "active" : ""`; the empties are dropped so there are
+/// no stray spaces. Keeps class composition out of ad hoc string concatenation in views.
+pub fn classList(items: list.List<string>): string {
+    let out = "";
+    let i = 0;
+    while (i < items.size()) {
+        let c = items.at(i);
+        if (c != "") {
+            if (out != "") { out = out + " "; }
+            out = out + c;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+/// A request header is "present" when it exists and is non empty. `getHeader` is case
+/// insensitive, so the canonical spelling here matches regardless of how the client sent it.
+fn present(req: request.Request, name: string): bool {
+    return (req.getHeader(name) ?? "") != "";
+}

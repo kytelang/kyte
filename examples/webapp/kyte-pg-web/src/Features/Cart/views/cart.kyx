@@ -1,0 +1,50 @@
+
+import Shared.fmt;
+import list;
+import str;
+import Domain.Contracts.cart;
+
+// The header cart button, morphed by its id on every cart change.
+pub fn badge(s: cart.CartSummaryDto): Html {
+    return <button id="cart-badge" class="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200"
+            data-on:click={"@get('/cart')"}>{`Cart (${s.itemCount})`}</button>;
+}
+
+pub fn cartView(lines: list.List<cart.CartLineDto>, s: cart.CartSummaryDto): Html {
+    if (lines.size() == 0) {
+        return <div id="content" class="flex-1 overflow-y-auto p-6 max-w-xl">
+            <h1 class="text-xl font-bold text-slate-800 mb-4">Your cart</h1>
+            <p class="text-slate-400">Your cart is empty. <button class="text-emerald-700" data-on:click={"@get('/products')"}>Browse the menu</button></p>
+            {badge(s)}
+        </div>;
+    }
+    return <div id="content" class="flex-1 overflow-y-auto p-6 max-w-xl">
+        <h1 class="text-xl font-bold text-slate-800 mb-4">Your cart</h1>
+        <div class="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
+            {for (i in 0..lines.size()) {
+                let l = lines.get(i) ?? cart.CartLineDto{ id: str.of(""), productName: str.of(""), unitPrice: 0.0, quantity: 0, lineTotal: 0.0 };
+                <div class="flex items-center gap-3 p-3">
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-slate-800">{l.productName}</p>
+                        <p class="text-xs text-slate-400">{`£${fmt.money(l.unitPrice)} each`}</p>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button class="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200" data-on:click={`@post('/cart/update?item=${l.id.toOwned()}&qty=${l.quantity - 1}')`}>&minus;</button>
+                        <span class="w-7 text-center text-sm">{`${l.quantity}`}</span>
+                        <button class="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200" data-on:click={`@post('/cart/update?item=${l.id.toOwned()}&qty=${l.quantity + 1}')`}>+</button>
+                    </div>
+                    <span class="w-16 text-right text-sm font-semibold text-slate-800">{`£${fmt.money(l.lineTotal)}`}</span>
+                    <button class="text-slate-300 hover:text-red-500" data-on:click={`@post('/cart/remove?item=${l.id.toOwned()}')`}>&times;</button>
+                </div>;
+            }}
+        </div>
+        <div class="mt-4 bg-white border border-slate-200 rounded-xl p-4 text-sm space-y-1">
+            <div class="flex justify-between text-slate-500"><span>Subtotal</span><span>{`£${fmt.money(s.subtotal)}`}</span></div>
+            <div class="flex justify-between text-slate-500"><span>Tax</span><span>{`£${fmt.money(s.tax)}`}</span></div>
+            <div class="flex justify-between text-base font-bold text-slate-800 pt-1 border-t border-slate-100"><span>Total</span><span>{`£${fmt.money(s.total)}`}</span></div>
+        </div>
+        <button class="mt-4 w-full px-4 py-2.5 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition"
+                data-on:click={"@get('/checkout')"}>Checkout</button>
+        {badge(s)}
+    </div>;
+}

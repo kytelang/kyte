@@ -1,0 +1,65 @@
+// S2: BSON decode must validate every embedded length against the bytes that
+// remain in the declared document, rejecting a huge or negative length rather
+// than driving a heap overread or a backward, re-processing desync.
+
+import assert;
+import bytes;
+import serde.bson;
+import string;
+import list;
+
+// Builds a document whose single binary element declares a one-gigabyte
+// payload over a tiny buffer. The decoder must stop at that element (reject it)
+// and must not read past the buffer.
+@test
+fn test_bson_binary_overlong_rejected(): void {
+    let total = 20;
+    let p = bytes.alloc(total);
+    bytes.write_i32(p, 0, total);
+    bytes.write_byte(p, 4, 5);          // type 0x05: binary
+    bytes.write_byte(p, 5, 120);        // key "x"
+    bytes.write_byte(p, 6, 0);          // key NUL terminator
+    bytes.write_i32(p, 7, 1073741824);  // bin_len = 0x40000000, far past the buffer
+    bytes.write_byte(p, 11, 0);         // subtype
+    bytes.write_byte(p, total - 1, 0);  // document terminator
+
+    let doc = bson.deserialize(p as ptr);
+    // The out-of-bounds element is rejected, so the key is absent.
+    assert.equalInt(-1, bson.docFind(doc, "x"));
+    bytes.free(p);
+}
+
+// A negative declared string length must also be rejected (it would otherwise
+// move the cursor backwards and re-process bytes).
+@test
+fn test_bson_string_negative_rejected(): void {
+    let total = 20;
+    let p = bytes.alloc(total);
+    bytes.write_i32(p, 0, total);
+    bytes.write_byte(p, 4, 2);          // type 0x02: string
+    bytes.write_byte(p, 5, 121);        // key "y"
+    bytes.write_byte(p, 6, 0);          // key NUL terminator
+    bytes.write_i32(p, 7, 0 - 1);       // str_len = -1
+    bytes.write_byte(p, total - 1, 0);
+
+    let doc = bson.deserialize(p as ptr);
+    assert.equalInt(-1, bson.docFind(doc, "y"));
+    bytes.free(p);
+}
+
+// A well-formed document still decodes end to end.
+@test
+fn test_bson_valid_roundtrip(): void {
+    let doc = bson.BsonDocument{ entries: list_of_entries() };
+    let raw = bson.serialize(doc);
+    let back = bson.deserialize(raw);
+    let idx = bson.docFind(back, "name");
+    assert.isTrue(idx >= 0);
+    assert.isTrue(string.eql(bson.docGetString(back, idx), "nova"));
+}
+
+fn list_of_entries(): List<bson.BsonEntry> {
+    let l = List<bson.BsonEntry>();
+    l.push(bson.entryString("name", "nova"));
+    return l;
+}

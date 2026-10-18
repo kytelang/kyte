@@ -1,0 +1,45 @@
+
+import assert;
+
+trait Animal { fn speak(self: Self): string; }
+
+struct Dog impl Animal {
+    name: string,
+    fn speak(self: Dog): string { return self.name; }
+}
+
+struct Cat impl Animal {
+    fn speak(self: Cat): string { return "meow"; }
+}
+
+fn make(dog: bool): Animal {
+    if (dog) { return Dog{ name: "rex" }; }
+    return Cat{};
+}
+
+@test
+fn test_correct_downcast_dog(): void {
+    let a: Animal = Dog{ name: "fido" };
+    let d = a as Dog;
+    assert.equalStr(d.name, "fido");
+}
+
+@test
+fn test_correct_downcast_cat(): void {
+    let a: Animal = Cat{};
+    let c = a as Cat;
+    assert.equalStr(c.speak(), "meow");
+}
+
+@test
+fn test_factory_return_then_downcast(): void {
+    let a = make(true);
+    let d = a as Dog;
+    assert.equalStr(d.speak(), "rex");
+}
+
+@test
+fn test_dispatch_without_downcast(): void {
+    let a: Animal = Cat{};
+    assert.equalStr(a.speak(), "meow");
+}

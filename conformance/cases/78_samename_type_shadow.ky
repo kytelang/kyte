@@ -1,0 +1,9 @@
+import scoped.shadow_b;
+import assert;
+
+@test
+fn test_local_type_shadows_imported_samename(): void {
+    let h = shadow_b.make();
+    assert.equalInt(h.kind(), 222);
+    assert.equalInt(h.count(), 2);
+}

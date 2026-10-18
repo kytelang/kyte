@@ -1,0 +1,8 @@
+import bytes;
+
+@test
+fn t_deliberate_crash(): void {
+    let p = 1 as ptr;
+    let b = bytes.read_byte(p, 0);
+    console.log(b);
+}

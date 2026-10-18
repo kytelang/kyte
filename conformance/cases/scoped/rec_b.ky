@@ -1,0 +1,11 @@
+import list;
+import rec_a;
+pub struct Rec {
+    pub items: list.List<int>,
+    pub tag: int,
+    init() { self.items = list.List<int>(); self.items.push(99); self.tag = 7; }
+}
+pub fn makeB(): Rec {
+    let r = Rec();
+    return r;
+}

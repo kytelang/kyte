@@ -1,0 +1,8 @@
+// EXPECT-FAIL: typecheck
+// Two enum variants resolving to the same discriminant would emit the same LLVM
+// switch case and abort codegen; the type checker must reject it cleanly.
+enum Code { Ok = 200, Fine = 200, Bad = 400 }
+fn main(): void {
+    let c = Code.Ok;
+    switch (c) { case Code.Ok: {} case Code.Fine: {} case Code.Bad: {} }
+}

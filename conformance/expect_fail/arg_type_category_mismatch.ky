@@ -1,0 +1,7 @@
+// EXPECT-FAIL: typecheck
+import assert;
+fn takesInt(a: int): int { return a + 1; }
+@test
+fn run() {
+    assert.equalInt(takesInt("hello"), 6);
+}

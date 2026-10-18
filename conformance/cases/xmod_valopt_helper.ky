@@ -1,0 +1,16 @@
+// Helper module for 480_xmod_valopt_arg.ky (last-bit-of-hardening B5): a value struct
+// and a function taking a value-OPTIONAL of it, so the caller in another module exercises
+// the value-optional ABI across a module boundary.
+
+pub struct Pt {
+    pub x: int,
+    pub y: int,
+    init(a: int, b: int) { self.x = a; self.y = b; }
+}
+
+pub fn sumOpt(p: Pt?): int {
+    if (p != undefined) {
+        return p.x + p.y;
+    }
+    return -1;
+}

@@ -1,0 +1,33 @@
+import assert;
+
+trait G { fn v(self: G): int; }
+struct A impl G { fn v(self: A): int { return 3; } }
+struct B impl G { fn v(self: B): int { return 7; } }
+
+struct Holder { pub g: G }
+struct Pair2 { pub p: (int, G) }
+
+@test
+fn test_struct_literal_trait_field(): void {
+    let h = Holder{ g: A{} };
+    assert.equalInt(h.g.v(), 3);
+}
+
+@test
+fn test_struct_literal_trait_field_other(): void {
+    let h = Holder{ g: B{} };
+    assert.equalInt(h.g.v(), 7);
+}
+
+fn wrap(x: G): Holder { return Holder{ g: x }; }
+@test
+fn test_field_from_trait_value(): void {
+    assert.equalInt(wrap(A{}).g.v(), 3);
+}
+
+@test
+fn test_struct_field_tuple_with_trait(): void {
+    let x = Pair2{ p: (4, A{}) };
+    let (n, g) = x.p;
+    assert.equalInt(n + g.v(), 7);
+}

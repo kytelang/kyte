@@ -1,0 +1,27 @@
+import web.routing;
+import string;
+import Features.Orders.GetOrderHistory.query;
+import Features.Orders.Shared.OrderRepository;
+import Features.Orders.Mappers.orderMappers;
+import Features.Orders.views.orders;
+import Shared.authsession;
+import web.session;
+import ds_response;
+import web.response;
+
+pub struct GetOrderHistoryHandler impl RouteHandler {
+    repo: OrderRepository,
+    sessions: SessionStore,
+    init(repo: OrderRepository, sessions: SessionStore) { self.repo = repo; self.sessions = sessions; }
+    async fn serve(self: GetOrderHistoryHandler, ctx: routing.Context): Response { let q = ctx.bind<GetOrderHistory>();
+        // Identity comes from the server-side session, never the request.
+        let uid = authsession.uidOf(ctx, self.sessions);
+        if (string.eql(uid, "")) {
+            return await ds_response.patch("<div id=\"content\" class=\"flex-1 overflow-y-auto p-6 text-slate-400\">Please <button class=\"text-emerald-700\" data-on:click=\"@get('/login')\">log in</button> to see your orders.</div>");
+        }
+        let hist = await self.repo.history(uid);
+        // Map the Order entities to summary DTOs for the history view.
+        let dtos = orderMappers.toOrderDtos(hist.items);
+        return await ds_response.patch(orders.history(dtos));
+    }
+}

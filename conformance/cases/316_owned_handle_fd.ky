@@ -1,0 +1,28 @@
+import assert;
+import os.socket;
+import os.handle;
+
+fn openAndDrop(): int {
+    let raw = socket.newTcp();
+    let h = handle.Fd(raw);
+    assert.equalInt(h.get(), raw);
+    assert.isFalse(h.isClosed());
+    return raw;
+}
+
+@test
+fn test_fd_closes_on_destruction(): void {
+    let raw = openAndDrop();
+    let second = socket.close(raw);
+    assert.equalInt(second, -1);
+}
+
+@test
+fn test_explicit_close_is_idempotent(): void {
+    let raw = socket.newTcp();
+    assert.isTrue(raw >= 0);
+    let h = handle.Fd(raw);
+    assert.equalInt(h.close(), 0);
+    assert.isTrue(h.isClosed());
+    assert.equalInt(h.close(), 0);
+}

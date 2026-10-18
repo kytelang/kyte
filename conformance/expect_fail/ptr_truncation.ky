@@ -1,0 +1,14 @@
+import bytes;
+
+struct Buffer {
+    pub data: int,
+
+    init(n: int) {
+        self.data = bytes.alloc(n);
+    }
+}
+
+@test
+fn test_ptr_truncation_rejected(): void {
+    let b = Buffer(8);
+}

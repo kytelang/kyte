@@ -1,0 +1,37 @@
+// Catalogue read DTOs: the shapes the catalogue views render. These are DERIVED
+// from the Domain entities (Product, Category, Modifier) by the feature mappers,
+// not bound straight from the wire, so they use owned `string` (not zero-copy
+// str.Str): a DTO is an independent projection that outlives the entity and the
+// result buffer it came from. Fields are camelCase (imageUrl); the mapper bridges
+// the snake_case entity columns (image_url) and renames (is_vegetarian -> veg).
+@serializable
+pub struct CategoryDto {
+    pub id: string,
+    pub name: string,
+    pub description: string,
+}
+
+@serializable
+pub struct ProductDto {
+    pub id: string,
+    pub name: string,
+    pub description: string,
+    pub price: double,
+    pub imageUrl: string,
+    // is_vegetarian -> veg: the one rename the convention cannot guess, declared
+    // on the field as @from (AutoMapper ForMember) so the mapper is a pure spread.
+    @from("is_vegetarian") pub veg: bool,
+}
+
+// Modifier row for the detail view. This is a read-model projection (Modifier
+// JOIN product_modifiers), not a plain entity: `required` comes from the join
+// table, so it is bound directly by CatalogRepository.modifiers rather than
+// mapped from a Modifier entity.
+@serializable
+pub struct ModifierDto {
+    pub id: string,
+    pub name: string,
+    pub options: string,
+    pub extraCost: double,
+    pub required: bool,
+}

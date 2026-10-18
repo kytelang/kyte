@@ -1,0 +1,77 @@
+//! Server-side identity and CSRF helpers for the web slices.
+//!
+//! The browser only ever holds an opaque, HttpOnly session-id cookie (issued by
+//! `web.session.SessionMiddleware`). The acting user's id and role live in the
+//! server-side session store, never in a client-readable or client-writable
+//! cookie, so a caller cannot forge who they are: an attacker who hand-writes a
+//! `uid` cookie gets nothing, because authorisation reads identity from the
+//! session the server itself populated at login.
+//!
+//! These helpers resolve that identity from the request's session, and validate
+//! the per-session CSRF token that `SessionMiddleware` stamps onto every request
+//! as `X-Session-CSRF` (the same token the framework's `web.csrf` uses).
+
+import string;
+import web.routing;
+import web.request;
+import web.session;
+import web.response;
+import web.status;
+import crypto.mac.hmac;
+
+// Resolves the server-side Session for this request. The SessionMiddleware
+// stamps the resolved session id onto the request as `X-Session-ID`; we fall
+// back to the raw `session_id` cookie for paths that bypass the middleware
+// (for example the SSE routes, which the framework dispatches outside the
+// middleware chain). Returns undefined when there is no live session.
+fn sessionFor(ctx: routing.Context, store: SessionStore): Session {
+    let sid = ctx.request.headers.get("X-Session-ID") ?? "";
+    if (string.eql(sid, "")) {
+        sid = ctx.request.getCookie("session_id") ?? "";
+    }
+    return store.getSession(sid);
+}
+
+/// The acting user's id, read from the server-side session, or "" when the
+/// caller is not logged in. This is the ONLY trustworthy source of the user id:
+/// never bind it from a request field or cookie.
+pub fn uidOf(ctx: routing.Context, store: SessionStore): string {
+    let sess = sessionFor(ctx, store);
+    if (sess != undefined) {
+        return sess.data.get("uid") ?? "";
+    }
+    return "";
+}
+
+/// Same as `uidOf`, but for a raw `Request` (used by SSE stream handlers, which
+/// receive a `Request` rather than a routing `Context` and run outside the
+/// middleware chain). Resolves the session straight from the `session_id` cookie.
+pub fn uidOfRequest(req: request.Request, store: SessionStore): string {
+    let sid = req.getCookie("session_id") ?? "";
+    let sess = store.getSession(sid);
+    if (sess != undefined) {
+        return sess.data.get("uid") ?? "";
+    }
+    return "";
+}
+
+/// The per-session CSRF token the middleware put on this request, for a view to
+/// embed into the markup it renders so later state-changing requests can echo it.
+pub fn csrfToken(ctx: routing.Context): string {
+    return ctx.request.headers.get("X-Session-CSRF") ?? "";
+}
+
+/// True when `submitted` matches this session's CSRF token (constant-time). A
+/// missing session token or a missing submitted token is treated as a failure,
+/// so validation fails CLOSED exactly like `web.csrf.CsrfMiddleware`.
+pub fn csrfOk(ctx: routing.Context, submitted: string): bool {
+    let expected = ctx.request.headers.get("X-Session-CSRF") ?? "";
+    if (string.eql(expected, "") || string.eql(submitted, "")) { return false; }
+    return hmac.constantTimeEqual(submitted, expected);
+}
+
+/// The canonical 403 response for a state-changing request that failed CSRF
+/// validation. Handlers return this to short-circuit before doing any work.
+pub fn csrfForbidden(): Response {
+    return response.Response(Status.Forbidden, "Invalid or missing CSRF token.");
+}

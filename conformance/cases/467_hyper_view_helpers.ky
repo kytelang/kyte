@@ -1,0 +1,75 @@
+// Acceptance for hypermedia view helpers (enhancements items 3, 4, 6, 7, 9):
+// hyper.render (fragment vs full page), hyper.oobAttr, urls.build (typed URL),
+// forms.csrfField/hasError/fieldError, and sse.htmxFrame (htmx SSE frame).
+import web.hyper;
+import web.urls;
+import web.forms;
+import web.sse;
+import web.request;
+import web.response;
+import web.routing;
+import web.validation;
+import assert;
+import map;
+import string;
+import list;
+
+fn shell(inner: string): string { return "<html>" + inner + "</html>"; }
+fn reqWith(name: string, val: string): request.Request {
+    let r = request.Request.empty();
+    r.headers.set(name, val);
+    return r;
+}
+
+@test
+fn t_render_fragment_vs_page(): void {
+    let frag: string = hyper.render(reqWith("HX-Request", "true"), shell, "<li>x</li>").serialize();
+    assert.contains(frag, "<li>x</li>");
+    assert.isTrue(string.indexOf(frag, "<html>") == -1);
+    let page: string = hyper.render(request.Request.empty(), shell, "<li>x</li>").serialize();
+    assert.contains(page, "<html><li>x</li></html>");
+}
+
+@test
+fn t_oob_attr(): void {
+    assert.isTrue(hyper.oobAttr(reqWith("HX-Request", "true")) == "hx-swap-oob=\"true\"");
+    assert.isTrue(hyper.oobAttr(request.Request.empty()) == "");
+}
+
+@test
+fn t_url_build(): void {
+    let p = Map<string, string>(8, string.hash);
+    p.set("id", "7");
+    p.set("sort", "new");
+    assert.isTrue(urls.build("/products/:id/reviews", p) == "/products/7/reviews?sort=new");
+}
+
+@test
+fn t_forms_csrf(): void {
+    let req = reqWith("X-Session-CSRF", "tok123");
+    let params = Map<string, string>(2, string.hash);
+    let ctx = routing.Context(req, params);
+    let f = forms.csrfField(ctx) as string;
+    assert.contains(f, "name=\"_csrf\"");
+    assert.contains(f, "value=\"tok123\"");
+}
+
+@test
+fn t_forms_validation(): void {
+    let r = validation.Rules();
+    r.check(false, "email", "is required");
+    let res = r.result();
+    assert.isTrue(forms.hasError(res, "email"));
+    assert.isFalse(forms.hasError(res, "name"));
+    let msg = forms.fieldError(res, "email") as string;
+    assert.contains(msg, "is required");
+    assert.contains(msg, "field-error");
+}
+
+@test
+fn t_sse_htmx_frame(): void {
+    let f = sse.htmxFrame("row", "<li>a</li>\n<li>b</li>");
+    assert.contains(f, "event: row\n");
+    assert.contains(f, "data: <li>a</li>\n");
+    assert.contains(f, "data: <li>b</li>\n");
+}

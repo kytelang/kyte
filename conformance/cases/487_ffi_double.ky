@@ -1,0 +1,18 @@
+// FFI with native `double` arguments and return: a `double` extern parameter is
+// passed in a floating-point register and a `double` return is read back from
+// one (the call site bitcasts the i64 value slot <-> double). Exercised against
+// libm (`-lm`, always linkable), which needs no extra dependency.
+import assert;
+
+extern("m") fn sqrt(x: double): double;
+extern("m") fn pow(base: double, exp: double): double;
+
+@test
+fn test_ffi_double_round_trips(): void {
+    // sqrt(2) and a two-double-argument call both return the right value, proving
+    // double args and returns cross the FFI boundary correctly.
+    let r = sqrt(2.0);
+    assert.isTrue(r > 1.41421356 && r < 1.41421357);
+    let p = pow(2.0, 10.0);
+    assert.isTrue(p > 1023.9999 && p < 1024.0001);
+}

@@ -1,0 +1,75 @@
+import crypto.tls.13.tlsClient;
+import crypto.tls.13.handshake;
+import bytes;
+import assert;
+
+fn hexNib(c: int): int {
+    if (c >= 48 && c <= 57) { return c - 48; }
+    if (c >= 97 && c <= 102) { return c - 87; }
+    return 0;
+}
+fn hexBuf(hex: string): ptr {
+    let n = hex.length / 2;
+    let b = bytes.alloc(n);
+    let i = 0;
+    while (i < n) { bytes.write_byte(b, i, hexNib(hex[i * 2]) * 16 + hexNib(hex[i * 2 + 1])); i = i + 1; }
+    return b;
+}
+
+fn findPattern(out: ptr, n: int, hex: string): int {
+    let np = hexBuf(hex);
+    let m = hex.length / 2;
+    let i = 0;
+    while (i + m <= n) {
+        let j = 0;
+        while (j < m && bytes.read_byte(out, i + j) == bytes.read_byte(np, j)) { j = j + 1; }
+        if (j == m) { bytes.free(np); return i; }
+        i = i + 1;
+    }
+    bytes.free(np);
+    return 0 - 1;
+}
+
+fn strEq(a: string, b: string): bool {
+    if (a.length != b.length) { return false; }
+    let i = 0;
+    while (i < a.length) { if (a[i] != b[i]) { return false; } i = i + 1; }
+    return true;
+}
+
+@test
+fn alpn_offer_encoded(): void {
+    let rnd = bytes.alloc(32);
+    let sid = bytes.alloc(32);
+    let pk = bytes.alloc(32);
+    let pkP = bytes.alloc(65);
+    let out = bytes.alloc(512);
+    let n = tlsClient.buildClientHello(rnd, sid, pk, pkP, "example.com", "h2,http/1.1", out);
+    let off = findPattern(out, n, "0010000e000c02683208687474702f312e31");
+    assert.isTrue(off >= 0);
+}
+
+@test
+fn alpn_offer_omitted(): void {
+    let rnd = bytes.alloc(32);
+    let sid = bytes.alloc(32);
+    let pk = bytes.alloc(32);
+    let pkP = bytes.alloc(65);
+    let out = bytes.alloc(512);
+    let n = tlsClient.buildClientHello(rnd, sid, pk, pkP, "example.com", "", out);
+    assert.equalInt(findPattern(out, n, "0010000e000c"), 0 - 1);
+}
+
+@test
+fn alpn_selection_parsed(): void {
+    let ee = hexBuf("08000011000f0010000b000908687474702f312e31");
+    let sel = handshake.parseAlpnSelection(ee, 0);
+    assert.isTrue(strEq(sel, "http/1.1"));
+}
+
+@test
+fn alpn_selection_absent(): void {
+    let ee = hexBuf("080000020000");
+    let sel = handshake.parseAlpnSelection(ee, 0);
+    assert.isTrue(strEq(sel, ""));
+}

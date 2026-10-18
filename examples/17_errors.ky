@@ -1,0 +1,44 @@
+import string;
+
+exception ConfigError {
+    Empty,
+    NotANumber(string),
+    OutOfRange(int),
+    fn message(self: ConfigError): string {
+        switch (self) {
+            case ConfigError.Empty:         { return "value is empty"; }
+            case ConfigError.NotANumber(s): { return "not a number: " + s; }
+            case ConfigError.OutOfRange(n): { return "port out of range: " + `${n}`; }
+        }
+        return "unknown error";
+    }
+}
+
+fn parsePort(s: string): int | ConfigError {
+    if (s.length == 0) { return ConfigError.Empty; }
+    let n = 0;
+    let i = 0;
+    while (i < s.length) {
+        let c = s[i];
+        if (c < 48 || c > 57) { return ConfigError.NotANumber(s); }
+        n = n * 10 + (c - 48);
+        i = i + 1;
+    }
+    if (n < 1 || n > 65535) { return ConfigError.OutOfRange(n); }
+    return n;
+}
+
+fn buildUrl(host: string, portText: string): string | ConfigError {
+    let port = try parsePort(portText);
+    return `http://${host}:${port}`;
+}
+
+fn main(): void {
+    console.log(`parsePort("8080")  = ${parsePort("8080") catch -1}`);
+    console.log(`parsePort("70000") = ${parsePort("70000") catch -1}`);
+
+    console.log(`url ok    = ${buildUrl("localhost", "8080") catch (e) e.message()}`);
+    console.log(`url empty = ${buildUrl("localhost", "") catch (e) e.message()}`);
+    console.log(`url text  = ${buildUrl("localhost", "12ab") catch (e) e.message()}`);
+    console.log(`url range = ${buildUrl("localhost", "70000") catch (e) e.message()}`);
+}

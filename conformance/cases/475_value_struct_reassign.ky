@@ -1,0 +1,69 @@
+import assert;
+
+// Acceptance (last-bit-of-hardening B1/B2): reassigning a value struct, as a local
+// `x = y` or a field `obj.f = y`, must drop the slot's previous payload and deep-copy
+// the new one. Before the fix the local path aliased `y`'s heap bytes with no +1 (leak
+// of the old payload + double-free on scope exit), and the field path leaked the old
+// field's owned sub-payloads on every overwrite. These tests fail (wrong value /
+// ASAN double-free) without the fix and must stay green under `KYTE_ASAN=1`.
+
+struct S { pub data: string, init(d: string) { self.data = d; } }
+struct Box { pub inner: S, init(d: string) { self.inner = S(d); } }
+
+fn intToStr(n: int): string {
+    if (n == 0) { return "0"; }
+    let s = "";
+    let m = n;
+    while (m > 0) {
+        let d = m % 10;
+        if (d == 0) { s = "0" + s; } else if (d == 1) { s = "1" + s; }
+        else if (d == 2) { s = "2" + s; } else if (d == 3) { s = "3" + s; }
+        else if (d == 4) { s = "4" + s; } else if (d == 5) { s = "5" + s; }
+        else if (d == 6) { s = "6" + s; } else if (d == 7) { s = "7" + s; }
+        else if (d == 8) { s = "8" + s; } else { s = "9" + s; }
+        m = m / 10;
+    }
+    return s;
+}
+
+@test
+fn vs_local_reassign_is_independent_copy(): void {
+    let a = S("aaa");
+    let b = S("bbb");
+    a = b;                 // B1: drop a's old "aaa", deep-copy b (no aliasing)
+    b.data = "ccc";        // mutating b must not touch a
+    assert.equalStr(a.data, "bbb");
+    assert.equalStr(b.data, "ccc");
+}
+
+@test
+fn vs_local_reassign_fresh_temp_no_leak(): void {
+    let acc = S("init");
+    let i = 0;
+    while (i < 300) {
+        acc = S("v-" + intToStr(i));   // old payload dropped each iteration
+        i = i + 1;
+    }
+    assert.equalStr(acc.data, "v-299");
+}
+
+@test
+fn vs_field_reassign_fresh_temp_no_leak(): void {
+    let bx = Box("start");
+    let i = 0;
+    while (i < 300) {
+        bx.inner = S("f-" + intToStr(i));   // B2: old inner released before overwrite
+        i = i + 1;
+    }
+    assert.equalStr(bx.inner.data, "f-299");
+}
+
+@test
+fn vs_field_reassign_borrow_is_independent(): void {
+    let bx = Box("start");
+    let s = S("shared");
+    bx.inner = s;          // copy + retain owned field
+    s.data = "changed";    // must not affect bx.inner's copy
+    assert.equalStr(bx.inner.data, "shared");
+    assert.equalStr(s.data, "changed");
+}

@@ -1,0 +1,42 @@
+import assert;
+
+// Acceptance (last-bit-of-hardening A1): the legal `as` shapes still compile and run
+// after the cast-legality guard was added. The guard rejects reinterpreting unrelated
+// aggregate layouts (struct-to-struct, string-to-struct); these four shapes are the
+// ones that MUST keep working: numeric conversion, `any` unbox, trait downcast, and
+// the `Html`/`string` same-representation pair.
+
+trait Speaker { fn speak(self): string; }
+struct Dog impl Speaker {
+    pub name: string,
+    init(n: string) { self.name = n; }
+    fn speak(self): string { return "woof"; }
+}
+
+@test
+fn cast_numeric(): void {
+    let a: int = 300;
+    let b: long = a as long;
+    assert.isTrue(b == 300);
+}
+
+@test
+fn cast_any_unbox(): void {
+    let boxed: any = 42;
+    let n: int = boxed as int;
+    assert.equalInt(n, 42);
+}
+
+@test
+fn cast_trait_downcast(): void {
+    let sp: Speaker = Dog("rex");
+    let d: Dog = sp as Dog;
+    assert.equalStr(d.name, "rex");
+}
+
+@test
+fn cast_html_string_same_repr(): void {
+    let h: Html = <span>hi</span>;
+    let s: string = h as string;
+    assert.contains(s, "hi");
+}
