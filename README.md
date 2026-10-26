@@ -88,15 +88,6 @@ compiles each test case and reports pass or fail per case; run it before and aft
 
 Full walkthrough: [https://www.kytelang.org/guide/](https://www.kytelang.org/guide/).
 
-## Documentation map
-
-The guide under [guide/](docs/guide/) is the reference: 26 chapters from the
-basics through web, data access, concurrency, and deployment, each grounded in the
-conformance corpus.
-
-- [guide/](guide/) -- the language and standard-library guide (start at chapter 01).
-- [guide/19-package-management.md](guide/19-package-management.md) -- the package model: `project.json`, `kyte get`, publishing.
-
 ## The gate suite (run before and after any change)
 
 ```bash
@@ -107,7 +98,7 @@ conformance/run.sh --asan    # AddressSanitizer gate (needs `KYTE_ASAN=1 zig bui
 
 Use `-j`. The plain sequential `run.sh` and `--asan` have no per-case timeout and will hang on the
 reactor/app cases that wait on a socket; `-j` applies per-case timeouts and is the mode that
-terminates. See [CONTRIBUTING.md](CONTRIBUTING.md) for the details.
+terminates.  
 
 ## License
 
