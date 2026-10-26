@@ -3,12 +3,11 @@
 Kyte is a statically-typed, natively-compiled language for server-side services and hypermedia apps.
 Its syntax is ES6/TypeScript-flavored; it compiles through LLVM to a native binary with a C++20 async
 runtime and a standard library written in Kyte itself. Linux (x86-64) is the production target; macOS
-and Windows are development hosts (Windows builds natively). Kyte compiles to native code only; it does
-not target WebAssembly. See [docs/STABILITY.md](docs/STABILITY.md) for the full platform stance.
+and Windows are development hosts (Windows builds natively). Kyte compiles to native code only.
 
 **Status: 1.0.0 (stable)** on the native target. Kyte follows semantic versioning: within the `1.x`
 major version, the language and the runtime ABI are backward compatible, so what compiles and links
-today keeps working across `1.x` releases (see [docs/STABILITY.md](docs/STABILITY.md)). Report the
+today keeps working across `1.x` releases. Report the
 version with `kyte version`.
 
 ```kyte
@@ -29,11 +28,11 @@ fn main(): void {
 
 This is the **language implementation**. Three cooperating codebases make up Kyte:
 
-| Component        | Language | Location         | Responsibility                                                                                                      |
-| ---------------- | -------- | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Compiler         | Zig 0.16 | `src/`           | Lowers Kyte to LLVM IR, then to a linked native executable.                                                         |
-| Runtime          | C++20    | `src/runtime/`   | Async scheduler (LLVM coroutines), non-blocking sockets, channels, actors, allocator.                               |
-| Standard library | Kyte     | `src/lib/std/`   | Collections, string, JSON/YAML/BSON serde, decimal128, regex, crypto + TLS, the HTTP/web framework, the DB drivers. |
+| Component        | Language | Location       | Responsibility                                                                                                      |
+| ---------------- | -------- | -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Compiler         | Zig 0.16 | `src/`         | Lowers Kyte to LLVM IR, then to a linked native executable.                                                         |
+| Runtime          | C++20    | `src/runtime/` | Async scheduler (LLVM coroutines), non-blocking sockets, channels, actors, allocator.                               |
+| Standard library | Kyte     | `src/lib/std/` | Collections, string, JSON/YAML/BSON serde, decimal128, regex, crypto + TLS, the HTTP/web framework, the DB drivers. |
 
 BTreeDB (a Zig storage engine, in a sibling repo) and the database drivers + orchestrator (published
 Kyte packages) are **consumers** of the language, not part of it.
@@ -87,19 +86,16 @@ kyte test                              # discover and run the project's tests
 the resulting binary in one step, so you do not have to build and launch it separately. `kyte test`
 compiles each test case and reports pass or fail per case; run it before and after any change.
 
-Full walkthrough: [docs/guide/01-getting-started.md](docs/guide/01-getting-started.md).
+Full walkthrough: [https://www.kytelang.org/guide/](/guide/01-getting-started.md).
 
 ## Documentation map
 
-The guide under [docs/guide/](docs/guide/) is the reference: 26 chapters from the
+The guide under [guide/](docs/guide/) is the reference: 26 chapters from the
 basics through web, data access, concurrency, and deployment, each grounded in the
 conformance corpus.
 
-- [docs/guide/](docs/guide/) -- the language and standard-library guide (start at chapter 01).
-- [docs/guide/19-package-management.md](docs/guide/19-package-management.md) -- the package model: `project.json`, `kyte get`, publishing.
-- [docs/STABILITY.md](docs/STABILITY.md) -- versioning, the compatibility promise, the platform stance, and the runtime ABI contract.
-- [CONTRIBUTING.md](CONTRIBUTING.md) -- building, the gate suite, and how to land a change.
-- [CI-POLICY.md](CI-POLICY.md) -- why gating is per-host and what "nothing merges red" means.
+- [guide/](guide/) -- the language and standard-library guide (start at chapter 01).
+- [guide/19-package-management.md](guide/19-package-management.md) -- the package model: `project.json`, `kyte get`, publishing.
 
 ## The gate suite (run before and after any change)
 

@@ -93,7 +93,7 @@ pub fn run(init: std.process.Init) !void {
     if (std.mem.eql(u8, args[1], "version") or std.mem.eql(u8, args[1], "--version") or std.mem.eql(u8, args[1], "-v")) {
         std.debug.print(
             \\kyte {s}
-            \\  abi:    {d}    (extern-C runtime ABI contract; see docs/abi/runtime-abi.md)
+            \\  abi:    {d}    (extern-C++ runtime ABI contract;)
             \\  zig:    {f}    (pinned; see .zig-version)
             \\  host:   {s}-{s}
             \\
