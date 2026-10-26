@@ -86,7 +86,7 @@ kyte test                              # discover and run the project's tests
 the resulting binary in one step, so you do not have to build and launch it separately. `kyte test`
 compiles each test case and reports pass or fail per case; run it before and after any change.
 
-Full walkthrough: [https://www.kytelang.org/guide/](/guide/01-getting-started.md).
+Full walkthrough: [https://www.kytelang.org/guide/](https://www.kytelang.org/guide/).
 
 ## Documentation map
 
